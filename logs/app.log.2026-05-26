@@ -1,0 +1,32 @@
+2026-05-26T05:03:27.712777Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T05:03:27.713537Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Software Root of Trust (Production Mode)
+2026-05-26T05:03:27.714332Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Strong passphrase-based cryptographic attestation active.
+2026-05-26T05:03:27.715086Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Strong passphrase verified (31 chars)
+2026-05-26T05:03:27.721335Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Software root of trust established (production-grade for Alpha).
+2026-05-26T05:03:27.722306Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY]    Pipeline unlocked.
+2026-05-26T05:03:27.723228Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T14:10:27.890641Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T14:10:27.892483Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Software Root of Trust (Production Mode)
+2026-05-26T14:10:27.893722Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Strong passphrase-based cryptographic attestation active.
+2026-05-26T14:10:27.894536Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Strong passphrase verified (31 chars)
+2026-05-26T14:10:27.895395Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Software root of trust established (production-grade for Alpha).
+2026-05-26T14:10:27.896116Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY]    Pipeline unlocked.
+2026-05-26T14:10:27.896881Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T14:31:03.132671Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T14:31:03.133130Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Software Root of Trust (Production Mode)
+2026-05-26T14:31:03.133463Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Strong passphrase-based cryptographic attestation active.
+2026-05-26T14:31:03.133752Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Strong passphrase verified (31 chars)
+2026-05-26T14:31:03.134032Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Software root of trust established (production-grade for Alpha).
+2026-05-26T14:31:03.134372Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY]    Pipeline unlocked.
+2026-05-26T14:31:03.134772Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T14:50:13.477142Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T14:50:13.477995Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Software Root of Trust (Production Mode)
+2026-05-26T14:50:13.478531Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] Strong passphrase-based cryptographic attestation active.
+2026-05-26T14:50:13.479027Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Strong passphrase verified (31 chars)
+2026-05-26T14:50:13.479517Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ✓ Software root of trust established (production-grade for Alpha).
+2026-05-26T14:50:13.480100Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY]    Pipeline unlocked.
+2026-05-26T14:50:13.480517Z  INFO main ThreadId(01) dual_core_pdf_pipeline::security::software_root: [SECURITY] ═══════════════════════════════════════════════
+2026-05-26T14:50:37.616699Z  WARN tokio-rt-worker ThreadId(12) dual_core_pdf_pipeline::pdf::selector: Primary engine unsupported, falling back engine.fallback_triggered=true primary_error="Unsupported"
+2026-05-26T14:50:39.385512Z  WARN tokio-rt-worker ThreadId(13) dual_core_pdf_pipeline::pdf::selector: Primary engine unsupported, falling back engine.fallback_triggered=true primary_error="Unsupported"
+2026-05-26T14:50:39.584914Z  WARN tokio-rt-worker ThreadId(14) dual_core_pdf_pipeline::pdf::selector: Primary engine unsupported, falling back engine.fallback_triggered=true primary_error="Unsupported"
+2026-05-26T14:50:39.769534Z  WARN tokio-rt-worker ThreadId(15) dual_core_pdf_pipeline::pdf::selector: Primary engine unsupported, falling back engine.fallback_triggered=true primary_error="Unsupported"

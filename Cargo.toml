@@ -1,0 +1,56 @@
+[package]
+name = "dual-core-pdf-pipeline"
+version = "0.4.0"
+edition = "2021"
+description = "Bank Statement Fidelity Editor v0.4.0 — Smart Balance Engine + high-fidelity targeted text editing"
+authors = ["Grok xAI"]
+license = "MIT OR Apache-2.0"
+
+[features]
+default = []
+dev = []
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "multipart"] }
+lopdf = "0.34"
+pdf-writer = "0.12"
+dotenvy = "0.15"
+egui = "0.28"                    # Simple, fast, pure-Rust GUI (best for 2026 alpha)
+eframe = "0.28"                  # egui backend for native window
+thiserror = "1.0"                  # Excellent error handling (used in balance_engine + text_editor)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs"] }
+base64 = "0.22"
+pdfium-render = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
+image = "0.25"
+image_hasher = "3"
+tracing-appender = "0.2.5"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+opentelemetry = "0.21.0"
+opentelemetry_sdk = { version = "0.21.0", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.14.0"
+tracing-opentelemetry = "0.22.0"
+jsonwebtoken = "9"
+serde_yaml = "0.9.0"
+regex = "1.12.3"
+rfd = "0.14"
+egui_extras = { version = "0.28", features = ["svg", "image", "all_loaders"] }
+egui_plot = "0.28"
+confy = "0.6"
+rust_xlsxwriter = "0.64"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tempfile = "3.27.0"
+rsa = "0.9.10"
+rand_core = "0.6"
+rand = "0.8"
+
+# PyMuPDF Pro is called via reliable Python subprocess (trial key embedded)
