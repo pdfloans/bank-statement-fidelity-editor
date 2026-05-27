@@ -9,7 +9,7 @@ pub struct TesseractProvider {
 
 impl GeometryProvider for TesseractProvider {
     fn extract_line_geometry(&self, pdf_path: &Path) -> Result<Vec<LineGeometry>, ExtractorError> {
-        let mut geometries = Vec::new();
+        let geometries = Vec::new();
 
         let layout = self.engine.analyze_layout(pdf_path)
             .map_err(|e| ExtractorError::ExtractionFailed(e.to_string()))?;

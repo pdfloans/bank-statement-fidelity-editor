@@ -4,3 +4,4 @@ pub mod cli;
 pub mod gui;
 pub mod config;
 pub mod telemetry;
+pub mod notify;

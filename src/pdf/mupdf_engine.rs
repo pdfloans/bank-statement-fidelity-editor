@@ -64,7 +64,8 @@ impl PdfEngine for MuPdfEngine {
         _output: &Path, 
         _page: usize, 
         _bbox: [f32; 4], 
-        _new_text: &str
+        _new_text: &str,
+        _font_path: Option<&Path>
     ) -> Result<ReplaceOutcome, EngineError> {
         Err(EngineError::Unsupported)
     }

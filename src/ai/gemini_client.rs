@@ -152,8 +152,8 @@ mod tests {
 
     #[test]
     fn request_body_uses_camelcase_and_object_schema() {
-        let transactions: Vec<Transaction> = vec![];
-        let layout = DocumentLayout {
+        let _transactions: Vec<Transaction> = vec![];
+        let _layout = DocumentLayout {
             total_pages: 1,
             pages: vec![],
             has_consistent_headers: true,

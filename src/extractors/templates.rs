@@ -2,7 +2,6 @@ use std::path::Path;
 use std::fs;
 use serde::{Deserialize, Serialize};
 use super::geometry::*;
-use regex::Regex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BankTemplate {

@@ -71,9 +71,10 @@ impl PdfEngine for PdfEngineSelector {
         output: &Path, 
         page: usize, 
         bbox: [f32; 4], 
-        new_text: &str
+        new_text: &str,
+        font_path: Option<&Path>
     ) -> Result<ReplaceOutcome, EngineError> {
-        self.try_primary_or_fallback(|engine| engine.apply_change(input, output, page, bbox, new_text))
+        self.try_primary_or_fallback(|engine| engine.apply_change(input, output, page, bbox, new_text, font_path))
     }
 
     fn analyze_layout(&self, path: &Path) -> Result<DocumentLayout, EngineError> {

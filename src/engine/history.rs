@@ -98,6 +98,37 @@ impl ChangeHistory {
         self.current_index = self.history.len();
     }
 
+    /// Persist the current history to disk (atomic-ish: write tmp + rename).
+    pub fn save_to_file(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, self.to_json_pretty_string())?;
+        std::fs::rename(tmp, path)
+    }
+
+    /// Load history from a previously-saved JSON file.
+    pub fn load_from_file(path: &std::path::Path) -> std::io::Result<Self> {
+        let raw = std::fs::read_to_string(path)?;
+        let val: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid history JSON: {e}"))
+        })?;
+        let mut history = Self::new();
+        if let Some(arr) = val.get("changes").and_then(|c| c.as_array()) {
+            for entry in arr {
+                if let Ok(rec) = serde_json::from_value::<ChangeRecord>(entry.clone()) {
+                    history.history.push(rec);
+                }
+            }
+            history.current_index = history.history.len();
+            // Advance next_id beyond max(id) so future entries are unique.
+            let max_id = history.history.iter().map(|r| r.id).max().unwrap_or(0);
+            history.next_id = AtomicU64::new(max_id + 1);
+        }
+        Ok(history)
+    }
+
     pub fn push_change_with_snapshot(
         &mut self,
         page: usize,
@@ -175,5 +206,27 @@ mod tests {
         assert!(id2 > id1);
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
+    }
+
+    #[test]
+    fn save_and_load_round_trip_preserves_records_and_id_counter() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.json");
+
+        let mut original = ChangeHistory::new();
+        original.push_change(0, "old1".into(), "new1".into(), [0.0; 4], "first".into());
+        original.push_change(1, "old2".into(), "new2".into(), [1.0, 2.0, 3.0, 4.0], "second".into());
+        original.save_to_file(&path).unwrap();
+
+        let loaded = ChangeHistory::load_from_file(&path).unwrap();
+        assert_eq!(loaded.get_history().len(), 2);
+        assert_eq!(loaded.get_history()[1].new_text, "new2");
+
+        // Append after load -> id must be > existing max.
+        let loaded_mut = loaded.clone();
+        let new_record = loaded_mut.create_record(2, "x".into(), "y".into(), [0.0; 4], "third".into(), None);
+        let max_old_id = loaded.get_history().iter().map(|r| r.id).max().unwrap();
+        assert!(new_record.id > max_old_id);
+        drop(loaded_mut);
     }
 }

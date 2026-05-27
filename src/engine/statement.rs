@@ -11,7 +11,7 @@
 //! - Queue changes that may span multiple pages
 //! - Apply all approved changes with maximum visual fidelity
 
-use crate::engine::model::{Transaction, Provenance, ProposedChange};
+use crate::engine::model::{Transaction, ProposedChange};
 use std::path::Path;
 use thiserror::Error;
 use std::sync::Arc;
@@ -186,8 +186,6 @@ impl SmartDocumentEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::engine::model::{Transaction, Provenance};
 
     #[test]
     fn calculate_global_imbalance_correct() {

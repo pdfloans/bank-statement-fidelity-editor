@@ -8,6 +8,7 @@ PyMuPDF Pro Smart Targeted Editor v2.1
 import pymupdf.pro
 import pymupdf
 import json
+import os
 import sys
 
 PYMUPDF_PRO_KEY = "hFKt4hca03GCFLAFLEGz5Bd3"
@@ -37,7 +38,7 @@ def get_text_blocks(pdf_path: str, page_num: int = 0):
     return blocks
 
 
-def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: list, new_text: str, fill_color: tuple = (1, 1, 1)):
+def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: list, new_text: str, fill_color: tuple = (1, 1, 1), font_path: str = None):
     """
     Robust targeted replacement:
     - Uses redaction on the exact bounding box
@@ -50,8 +51,14 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
 
     rect_obj = pymupdf.Rect(rect)
 
+    # Use custom font if provided
+    font_name = "helv" # fallback
+    if font_path and os.path.exists(font_path):
+        # In a real implementation, we would register the font here
+        # page.insert_font(...)
+        pass
+
     # Add redaction annotation with the new text
-    # PyMuPDF will try to match the original font style automatically
     page.add_redact_annot(
         rect_obj,
         new_text,
@@ -416,6 +423,37 @@ def adapt_font_fallback(pdf_path: str, font_name: str, sample_text: str = "The q
     }
 
 
+def deep_font_replication_api(pdf_path, font_name, output_dir):
+    """API entry point for deep font replication"""
+    import font_replicator
+    
+    # Phase 1
+    res = font_replicator.extract_and_harvest(pdf_path, font_name, output_dir)
+    if not res["success"]:
+        return res
+        
+    metrics = res["metrics"]
+    
+    # Phase 2
+    # For now, we replicate some common missing letters as a test
+    glyphs_to_replicate = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    norm_res = font_replicator.normalize_glyphs(metrics["font_path"], metrics, output_dir, glyphs_to_replicate)
+    
+    if not norm_res["success"]:
+        return norm_res
+        
+    # Phase 3 (Optional for now as it's a mock)
+    # font_replicator.call_ai_extrapolation(norm_res["images"], "")
+    
+    # Combine results
+    return {
+        "success": True,
+        "metrics": metrics,
+        "images": norm_res["images"],
+        "baseline_y": norm_res["baseline_y"]
+    }
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         # Self-check for analyze_background slicing logic
@@ -451,10 +489,44 @@ if __name__ == "__main__":
         page_num = int(sys.argv[4])
         rect = json.loads(sys.argv[5])
         new_text = sys.argv[6]
-        replace_text_in_rect(pdf_path, output_path, page_num, rect, new_text)
+        font_path = sys.argv[7] if len(sys.argv) > 7 else None
+        replace_text_in_rect(pdf_path, output_path, page_num, rect, new_text, font_path=font_path)
 
     elif command == "complete_font":
         pdf_path = sys.argv[2]
         font_name = sys.argv[3]
         result = complete_font_with_adaption_fallback(pdf_path, font_name)
-        print(json.dumps(result, indent=2))
+        print(json.dumps(result))
+
+    elif command == "deep_font_replication":
+        import font_replicator
+        pdf_path = sys.argv[2]
+        font_name = sys.argv[3]
+        output_dir = sys.argv[4]
+
+        # Phase 1
+        res = font_replicator.extract_and_harvest(pdf_path, font_name, output_dir)
+        if not res["success"]:
+            print(json.dumps(res))
+            sys.exit(0)
+
+        metrics = res["metrics"]
+
+        # Phase 2
+        # For now, we replicate some common missing letters as a test
+        glyphs_to_replicate = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        norm_res = font_replicator.normalize_glyphs(metrics["font_path"], metrics, output_dir, glyphs_to_replicate)
+
+        if not norm_res["success"]:
+            print(json.dumps(norm_res))
+            sys.exit(0)
+
+        # Combine results
+        combined = {
+            "success": True,
+            "metrics": metrics,
+            "images": norm_res["images"],
+            "baseline_y": norm_res["baseline_y"]
+        }
+        print(json.dumps(combined))
+

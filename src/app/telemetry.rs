@@ -4,6 +4,9 @@ use opentelemetry_sdk::trace;
 use opentelemetry_sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use std::sync::Once;
+
+static PANIC_HOOK: Once = Once::new();
 
 pub struct TelemetryGuard {
     // Hold onto the guard for the non-blocking file appender if we ever use one
@@ -17,8 +20,29 @@ impl Drop for TelemetryGuard {
     }
 }
 
+fn install_panic_hook() {
+    PANIC_HOOK.call_once(|| {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let payload = info
+                .payload()
+                .downcast_ref::<&'static str>()
+                .map(|s| s.to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "<unknown panic payload>".to_string());
+            let location = info
+                .location()
+                .map(|l| format!("{}:{}", l.file(), l.line()))
+                .unwrap_or_else(|| "<unknown location>".to_string());
+            tracing::error!("[PANIC] at {} -- {}", location, payload);
+            default_hook(info);
+        }));
+    });
+}
+
 pub fn init(cfg: &AppConfig) -> TelemetryGuard {
     std::fs::create_dir_all(&cfg.log_dir).ok();
+    install_panic_hook();
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -34,34 +58,51 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
         .with_thread_ids(true)
         .with_thread_names(true);
 
-    let mut subscriber = tracing_subscriber::registry()
+    let subscriber = tracing_subscriber::registry()
         .with(env_filter)
         .with(stdout_layer)
         .with(file_layer);
 
     if let Some(endpoint) = &cfg.otel_endpoint {
-        let result = opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
-                    .with_endpoint(endpoint),
-            )
-            .with_trace_config(
-                trace::config().with_resource(Resource::new(vec![KeyValue::new(
-                    "service.name",
-                    cfg.otel_service_name.clone(),
-                )])),
-            )
-            .install_batch(opentelemetry_sdk::runtime::Tokio);
+        // OTLP requires a running tokio runtime — gracefully degrade if absent.
+        let in_tokio = tokio::runtime::Handle::try_current().is_ok();
+        if !in_tokio {
+            eprintln!(
+                "⚠️ OTLP endpoint '{}' configured but no Tokio runtime is available; skipping OTLP install.",
+                endpoint
+            );
+            subscriber.init();
+            return TelemetryGuard {};
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            opentelemetry_otlp::new_pipeline()
+                .tracing()
+                .with_exporter(
+                    opentelemetry_otlp::new_exporter()
+                        .tonic()
+                        .with_endpoint(endpoint),
+                )
+                .with_trace_config(
+                    trace::config().with_resource(Resource::new(vec![KeyValue::new(
+                        "service.name",
+                        cfg.otel_service_name.clone(),
+                    )])),
+                )
+                .install_batch(opentelemetry_sdk::runtime::Tokio)
+        }));
 
         match result {
-            Ok(tracer) => {
+            Ok(Ok(tracer)) => {
                 let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
                 subscriber.with(otel_layer).init();
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 eprintln!("⚠️ Failed to initialize OTLP tracer at {}: {}. Continuing without OTLP.", endpoint, e);
+                subscriber.init();
+            }
+            Err(_) => {
+                eprintln!("⚠️ OTLP install panicked (likely missing runtime); continuing without OTLP.");
                 subscriber.init();
             }
         }

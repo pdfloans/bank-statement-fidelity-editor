@@ -17,7 +17,7 @@ impl HybridMerger {
         Self { providers }
     }
 
-    pub fn merge(&self, semantic: Vec<Transaction>, mut geometries: Vec<LineGeometry>) -> MergeReport {
+    pub fn merge(&self, semantic: Vec<Transaction>, geometries: Vec<LineGeometry>) -> MergeReport {
         let mut merged = Vec::new();
         let mut unmatched_count = 0;
 

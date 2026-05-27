@@ -78,7 +78,8 @@ impl PdfEngine for PyMuPdfEngine {
         output: &Path, 
         page: usize, 
         bbox: [f32; 4], 
-        new_text: &str
+        new_text: &str,
+        font_path: Option<&Path>
     ) -> Result<ReplaceOutcome, EngineError> {
         let (tx, rx) = oneshot::channel();
         self.job_tx.send(crate::app::runtime::Job::Python(
@@ -87,7 +88,8 @@ impl PdfEngine for PyMuPdfEngine {
                 output_path: output.to_string_lossy().to_string(), 
                 page_num: page, 
                 rect: bbox, 
-                new_text: new_text.to_string()
+                new_text: new_text.to_string(),
+                font_path: font_path.map(|p| p.to_string_lossy().to_string()),
             },
             tx
         )).map_err(|_| EngineError::ApplyFailed("Worker thread disconnected".into()))?;
@@ -134,7 +136,6 @@ mod tests {
     use super::*;
     use crate::app::runtime::{Job, PythonJobResult};
     use std::sync::mpsc;
-    use tokio::sync::oneshot;
 
     #[test]
     fn find_text_block_at_click_returns_none_on_null_json() {

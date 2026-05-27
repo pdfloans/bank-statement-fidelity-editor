@@ -1,1 +1,75 @@
+# =============================================================================
+# Secrets — never commit
+# =============================================================================
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+*.env
+!.env.example          # the template is fine to track
+.pipeline_key          # software-root passphrase file
+*.key
+*.pem
+!tests/fixtures/*.pem  # test-only fixtures (verified fake)
+service-account*.json
+*service_account*.json
+!tests/fixtures/*service_account*.json  # test-only fixture (verified fake)
+credentials.json
+secrets.json
+*.gcp-credentials.json
+
+# =============================================================================
+# Rust / Cargo
+# =============================================================================
+target/
+Cargo.lock.bak
+*.pdb
+*.exe.stackdump
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# =============================================================================
+# IDE / editor
+# =============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# Project artefacts
+# =============================================================================
+output/
+audit/
+audit/snapshots/
+audit/*.log
+audit/history.json
+logs/
+output_test.pdf
+*.tmp
+*.bak
+
+# =============================================================================
+# AI assistants / local tooling caches
+# =============================================================================
 .codebuddy
+.kiro
+.traycer

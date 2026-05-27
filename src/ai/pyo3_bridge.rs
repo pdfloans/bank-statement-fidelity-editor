@@ -49,6 +49,7 @@ impl PyEngine {
         page_num: usize,
         rect: [f32; 4],
         new_text: &str,
+        font_path: Option<&str>,
     ) -> Result<Option<String>, String> {
         Python::with_gil(|py| {
             let bg_func = self.module.getattr(py, "analyze_background").map_err(|e| e.to_string())?;
@@ -72,6 +73,9 @@ impl PyEngine {
             kwargs.set_item("rect", rect.to_vec()).map_err(|e| e.to_string())?;
             kwargs.set_item("new_text", new_text).map_err(|e| e.to_string())?;
             kwargs.set_item("fill_color", fill_color).map_err(|e| e.to_string())?;
+            if let Some(fp) = font_path {
+                kwargs.set_item("font_path", fp).map_err(|e| e.to_string())?;
+            }
             
             func.call_bound(py, (), Some(&kwargs)).map_err(|e| e.to_string())?;
             
@@ -100,6 +104,16 @@ impl PyEngine {
     pub fn complete_font_with_adaption(&self, pdf_path: &str, font_name: &str) -> Result<String, String> {
         Python::with_gil(|py| {
             self.call_json(py, "complete_font_with_adaption_fallback", (pdf_path, font_name))
+        })
+    }
+
+    pub fn deep_font_replication(&self, pdf_path: &str, font_name: &str, output_dir: &str) -> Result<String, String> {
+        Python::with_gil(|py| {
+            // We use the same pattern as other calls, but we need to make sure 
+            // the python side is ready for it.
+            // Actually, my python bridge uses 'command' in __main__. 
+            // If I want to use call_json, I need to add a function in the python script.
+            self.call_json(py, "deep_font_replication_api", (pdf_path, font_name, output_dir))
         })
     }
 }

@@ -5,3 +5,4 @@ pub mod verification;
 pub mod history;
 pub mod layout;
 pub mod text_editor;
+pub mod font_replication;

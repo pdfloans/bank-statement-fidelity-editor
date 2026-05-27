@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 
@@ -68,7 +68,8 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
         output: &Path, 
         page: usize, 
         bbox: [f32; 4], 
-        new_text: &str
+        new_text: &str,
+        font_path: Option<&Path>
     ) -> Result<ReplaceOutcome, EngineError>;
     
     fn analyze_layout(&self, path: &Path) -> Result<DocumentLayout, EngineError>;

@@ -10,11 +10,19 @@ use crate::engine::history::{ChangeHistory, ChangeRecord};
 pub enum PythonJob {
     Ping,
     GetTextBlocks { pdf_path: String, page_num: usize },
-    ReplaceTextInRect { pdf_path: String, output_path: String, page_num: usize, rect: [f32; 4], new_text: String },
+    ReplaceTextInRect { 
+        pdf_path: String, 
+        output_path: String, 
+        page_num: usize, 
+        rect: [f32; 4], 
+        new_text: String,
+        font_path: Option<String> 
+    },
     FindTextBlockAtClick { pdf_path: String, page_num: usize, x: f32, y: f32 },
     GetAllTransactions { pdf_path: String },
     AnalyzeDocumentLayout { pdf_path: String },
     CompleteFontWithAdaption { pdf_path: String, font_name: String },
+    DeepFontReplication { pdf_path: String, font_name: String, output_dir: String },
 }
 
 #[derive(Debug)]
@@ -40,6 +48,7 @@ pub enum Job {
         new_text: String,
         old_text: String,
         description: String,
+        deep_font_replication: bool,
     },
     CompleteFont { path: PathBuf, font_name: String },
     Undo,
@@ -48,6 +57,7 @@ pub enum Job {
     ExtractTransactions { path: PathBuf },
     ApplyProposedChanges { input: PathBuf, output: PathBuf, changes: Vec<crate::engine::model::ProposedChange> },
     ExportChangeHistory { output: PathBuf },
+    LoadHistory { input: PathBuf },
     Verify { 
         original: PathBuf, 
         edited: PathBuf, 
@@ -120,22 +130,26 @@ impl Runtime {
                                 PythonJob::GetTextBlocks { pdf_path, page_num } => {
                                     engine.get_text_blocks(&pdf_path, page_num).map(PythonJobResult::Json)
                                 }
-                                PythonJob::ReplaceTextInRect { pdf_path, output_path, page_num, rect, new_text } => {
-                                    engine.replace_text_in_rect(&pdf_path, &output_path, page_num, rect, &new_text)
-                                        .map(|opt| opt.map(|reason| PythonJobResult::ReplacedWithReviewWarning { reason }).unwrap_or(PythonJobResult::Success))
+                                PythonJob::ReplaceTextInRect { pdf_path, output_path, page_num, rect, new_text, font_path } => {
+                                   engine.replace_text_in_rect(&pdf_path, &output_path, page_num, rect, &new_text, font_path.as_deref())
+                                       .map(|opt| opt.map(|reason| PythonJobResult::ReplacedWithReviewWarning { reason }).unwrap_or(PythonJobResult::Success))
                                 }
                                 PythonJob::FindTextBlockAtClick { pdf_path, page_num, x, y } => {
-                                    engine.find_text_block_at_click(&pdf_path, page_num, x, y).map(PythonJobResult::Json)
+                                   engine.find_text_block_at_click(&pdf_path, page_num, x, y).map(PythonJobResult::Json)
                                 }
                                 PythonJob::GetAllTransactions { pdf_path } => {
-                                    engine.get_all_transactions(&pdf_path).map(PythonJobResult::Json)
+                                   engine.get_all_transactions(&pdf_path).map(PythonJobResult::Json)
                                 }
                                 PythonJob::AnalyzeDocumentLayout { pdf_path } => {
-                                    engine.analyze_document_layout(&pdf_path).map(PythonJobResult::Json)
+                                   engine.analyze_document_layout(&pdf_path).map(PythonJobResult::Json)
                                 }
                                 PythonJob::CompleteFontWithAdaption { pdf_path, font_name } => {
-                                    engine.complete_font_with_adaption(&pdf_path, &font_name).map(PythonJobResult::Json)
+                                   engine.complete_font_with_adaption(&pdf_path, &font_name).map(PythonJobResult::Json)
                                 }
+                                PythonJob::DeepFontReplication { pdf_path, font_name, output_dir } => {
+                                   engine.deep_font_replication(&pdf_path, &font_name, &output_dir).map(PythonJobResult::Json)
+                                }
+
                             }
                         }));
 
@@ -241,61 +255,117 @@ impl Runtime {
                             }
                         }).await.unwrap();
                     }
-                    Job::ApplyChange { input, output, page, bbox, new_text, old_text, description } => {
+                    Job::ApplyChange { input, output, page, bbox, new_text, old_text, description, deep_font_replication } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Applying change".to_string(), fraction: 0.1 });
-                        
+
                         let eng = engine_for_tokio.clone();
                         let audit_log_clone = audit_log.clone();
                         let history_clone = history.clone();
-                        let output_clone = output.clone();
-                        let input_clone = input.clone();
-                        let new_text_clone = new_text.clone();
-                        
-                        tokio::task::spawn_blocking(move || {
-                            let outcome = match eng.apply_change(&input_clone, &output_clone, page, bbox, &new_text_clone) {
-                                Ok(o) => o,
-                                Err(e) => return Err(format!("Apply change failed: {}", e)),
-                            };
-                            
-                            let requires_visual_review = outcome.overflow;
-                            
-                            let record = {
-                                let mut h = history_clone.lock().unwrap();
-                                let mut a = audit_log_clone.lock().unwrap();
-                                
-                                // 1. Create record first to get STABLE ID
-                                let mut final_record = h.create_record(page, old_text, new_text_clone, bbox, description, None);
-                                let snap_path = a.snapshot_path_for(final_record.id);
-                                
-                                // 2. Copy output to snapshot
-                                if let Err(e) = std::fs::copy(&output_clone, &snap_path) {
-                                    return Err(format!("Failed to copy snapshot to {:?}: {}", snap_path, e));
+                        let py_tx = python_tx_clone.clone();
+                        let res_tx = result_tx_clone.clone();
+                        let cfg_clone = config_for_tokio.clone();
+
+                        tokio::task::spawn(async move {
+                            // Optional: deep font replication via Python actor.
+                            let mut font_path: Option<PathBuf> = None;
+                            if deep_font_replication {
+                                let _ = res_tx.send(JobResult::Progress { label: "Deep Replicating Font...".to_string(), fraction: 0.2 });
+                                let (tx, rx) = oneshot::channel();
+                                let _ = py_tx.send((PythonJob::DeepFontReplication {
+                                    pdf_path: input.to_string_lossy().to_string(),
+                                    font_name: "Helvetica".to_string(),
+                                    output_dir: "output/temp_fonts".to_string(),
+                                }, tx));
+                                if let Ok(PythonJobResult::Json(json)) = rx.await {
+                                    let res: serde_json::Value = serde_json::from_str(&json).unwrap_or_default();
+                                    if res["success"].as_bool().unwrap_or(false) {
+                                        font_path = res["metrics"]["font_path"].as_str().map(PathBuf::from);
+                                    } else if let Some(err) = res.get("error").and_then(|e| e.as_str()) {
+                                        tracing::warn!("[apply_change] deep font replication failed: {}", err);
+                                    }
                                 }
+                            }
 
-                                // 3. Update record with path
-                                final_record.snapshot_path = Some(snap_path);
-                                
-                                // 4. Write to audit log FIRST (persistence guarantee)
-                                a.write(&final_record, &input_clone, &output_clone, "manual", requires_visual_review)
-                                    .map_err(|e| format!("Audit log write failed: {}", e))?;
+                            // Run blocking apply_change with cloned-only inputs.
+                            let input_for_blocking = input.clone();
+                            let output_for_blocking = output.clone();
+                            let new_text_for_blocking = new_text.clone();
+                            let outcome = tokio::task::spawn_blocking(move || {
+                                eng.apply_change(
+                                    &input_for_blocking,
+                                    &output_for_blocking,
+                                    page,
+                                    bbox,
+                                    &new_text_for_blocking,
+                                    font_path.as_deref(),
+                                )
+                            })
+                            .await
+                            .unwrap_or_else(|e| Err(crate::pdf::EngineError::ApplyFailed(format!("blocking task panicked: {}", e))));
 
-                                // 5. Only then push to in-memory history
-                                h.push_record(final_record.clone());
-                                
-                                Ok(final_record)
-                            };
-                            
-                            record.map(|r| (r, requires_visual_review))
-                        }).await.unwrap().map(|(record, requires_visual_review)| {
-                            let _ = result_tx_clone.send(JobResult::ChangeApplied { record, requires_visual_review });
-                            
-                            // Emit HistoryUpdated after ApplyChange as well to keep GUI/CLI in sync
-                            let h = history.lock().unwrap().clone();
-                            let _ = result_tx_clone.send(JobResult::HistoryUpdated { history: h });
-                            
-                            let _ = result_tx_clone.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
-                        }).unwrap_or_else(|e| {
-                            let _ = result_tx_clone.send(JobResult::Error { job_label: "apply_change".into(), message: e });
+                            match outcome {
+                                Ok(o) => {
+                                    let requires_visual_review = o.overflow;
+                                    let mut h = match history_clone.lock() {
+                                        Ok(g) => g,
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("History lock poisoned: {}", e) });
+                                            return;
+                                        }
+                                    };
+                                    let mut a = match audit_log_clone.lock() {
+                                        Ok(g) => g,
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Audit lock poisoned: {}", e) });
+                                            return;
+                                        }
+                                    };
+
+                                    let mut final_record = h.create_record(page, old_text, new_text.clone(), bbox, description, None);
+                                    let snap_path = a.snapshot_path_for(final_record.id);
+
+                                    if let Err(e) = std::fs::copy(&output, &snap_path) {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Snapshot failed: {}", e) });
+                                        return;
+                                    }
+
+                                    final_record.snapshot_path = Some(snap_path);
+                                    if let Err(e) = a.write(&final_record, &input, &output, "manual", requires_visual_review) {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Audit write failed: {}", e) });
+                                        return;
+                                    }
+
+                                    h.push_record(final_record.clone());
+                                    // Best-effort autosave so the user can resume the session.
+                                    let autosave_path = std::path::PathBuf::from("audit").join("history.json");
+                                    if let Err(e) = h.save_to_file(&autosave_path) {
+                                        tracing::warn!("[apply_change] autosave history failed: {}", e);
+                                    }
+                                    // Fire-and-forget webhook notification if configured.
+                                    if let Some(url) = cfg_clone.webhook_url.clone() {
+                                        let old = final_record.old_text.clone();
+                                        let new = final_record.new_text.clone();
+                                        let desc = final_record.description.clone();
+                                        let page = final_record.page;
+                                        tokio::spawn(async move {
+                                            crate::app::notify::send_webhook(&url, crate::app::notify::WebhookPayload {
+                                                event: "change_applied",
+                                                page,
+                                                old_text: &old,
+                                                new_text: &new,
+                                                description: &desc,
+                                            }).await;
+                                        });
+                                    }
+                                    let _ = res_tx.send(JobResult::ChangeApplied { record: final_record, requires_visual_review });
+                                    let h_final = h.clone();
+                                    let _ = res_tx.send(JobResult::HistoryUpdated { history: h_final });
+                                    let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: e.to_string() });
+                                }
+                            }
                         });
                     }
                     Job::CompleteFont { path, font_name } => {
@@ -475,6 +545,7 @@ impl Runtime {
                                     new_text: change.new_text.clone(),
                                     old_text: change.old_text.clone(),
                                     description: change.reason.clone(),
+                                    deep_font_replication: false,
                                 });
                                 
                                 // Note: In a production environment, we should wait for the JobResult::ChangeApplied 
@@ -492,14 +563,32 @@ impl Runtime {
                         let output_clone = output.clone();
                         let res_tx = result_tx_clone.clone();
                         tokio::task::spawn_blocking(move || {
-                            let h = history_clone.lock().unwrap();
-                            let data = h.to_json_pretty_string();
-                            std::fs::write(&output_clone, data).map_err(|e| e.to_string())
-                        }).await.unwrap().map(|_| {
+                            let h = history_clone.lock().map_err(|e| e.to_string())?;
+                            h.save_to_file(&output_clone).map_err(|e| e.to_string())
+                        }).await.unwrap_or_else(|e| Err(format!("blocking task panicked: {}", e))).map(|_| {
                             let _ = res_tx.send(JobResult::ChangeHistoryExported { path: output });
                         }).unwrap_or_else(|e| {
                             let _ = res_tx.send(JobResult::Error { job_label: "export_history".into(), message: e });
                         });
+                    }
+                    Job::LoadHistory { input } => {
+                        let history_clone = history.clone();
+                        let res_tx = result_tx_clone.clone();
+                        tokio::task::spawn_blocking(move || {
+                            match crate::engine::history::ChangeHistory::load_from_file(&input) {
+                                Ok(loaded) => {
+                                    if let Ok(mut h) = history_clone.lock() {
+                                        *h = loaded.clone();
+                                        let _ = res_tx.send(JobResult::HistoryUpdated { history: loaded });
+                                    } else {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "load_history".into(), message: "history mutex poisoned".into() });
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "load_history".into(), message: e.to_string() });
+                                }
+                            }
+                        }).await.unwrap_or(());
                     }
                     Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest, pdfrest_key } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
@@ -627,7 +716,11 @@ fn dispatch_python_job(
     reply_tx: oneshot::Sender<PythonJobResult>,
     python_tx: &mpsc::Sender<(PythonJob, oneshot::Sender<PythonJobResult>)>,
 ) {
-    let _ = python_tx.send((py_job, reply_tx));
+    if let Err(e) = python_tx.send((py_job, reply_tx)) {
+        // This means the actor thread has died. Log and let the dropped reply
+        // channel surface the error to the caller (oneshot::recv -> RecvError).
+        tracing::error!("[runtime] python actor channel disconnected: {}", e);
+    }
 }
 
 #[cfg(test)]
