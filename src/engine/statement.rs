@@ -11,14 +11,14 @@
 //! - Queue changes that may span multiple pages
 //! - Apply all approved changes with maximum visual fidelity
 
-use crate::engine::model::{Transaction, ProposedChange};
-use std::path::Path;
-use thiserror::Error;
-use std::sync::Arc;
 use crate::ai::document_ai::DocumentAiClient;
 use crate::ai::gemini_client::GeminiClient;
+use crate::engine::model::{ProposedChange, Transaction};
 use crate::extractors::merger::HybridMerger;
 use crate::pdf::PdfEngine;
+use std::path::Path;
+use std::sync::Arc;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum EngineError {
@@ -40,7 +40,7 @@ pub struct SmartDocumentEngine {
     pub is_balanced: bool,
     pub total_pages: usize,
     pub layout: Option<crate::engine::layout::DocumentLayout>,
-    
+
     pdf_engine: Arc<dyn PdfEngine>,
     doc_ai: Arc<DocumentAiClient>,
     gemini: Arc<GeminiClient>,
@@ -68,23 +68,37 @@ impl SmartDocumentEngine {
     }
 
     /// Load the ENTIRE multi-page statement + Layout Analysis (called once when user loads PDF)
-    pub async fn load_full_document(&mut self, _job_tx: &std::sync::mpsc::Sender<crate::app::runtime::Job>, pdf_path: &Path) -> Result<(), EngineError> {
-        tracing::info!("[DOCUMENT ENGINE] Loading ENTIRE multi-page statement + Layout Analysis...");
+    pub async fn load_full_document(
+        &mut self,
+        _job_tx: &std::sync::mpsc::Sender<crate::app::runtime::Job>,
+        pdf_path: &Path,
+    ) -> Result<(), EngineError> {
+        tracing::info!(
+            "[DOCUMENT ENGINE] Loading ENTIRE multi-page statement + Layout Analysis..."
+        );
 
         self.all_transactions.clear();
         self.proposed_changes.clear();
 
         // Run document-level layout analysis
-        let layout = self.pdf_engine.analyze_layout(pdf_path)
+        let layout = self
+            .pdf_engine
+            .analyze_layout(pdf_path)
             .map_err(|e| EngineError::AiPlanFailed(format!("Layout analysis failed: {}", e)))?;
-            
+
         self.total_pages = layout.total_pages;
         self.layout = Some(layout.clone());
-        tracing::info!("[DOCUMENT ENGINE] Layout analysis complete: {} pages, consistent headers: {}",
-                layout.total_pages, layout.has_consistent_headers);
+        tracing::info!(
+            "[DOCUMENT ENGINE] Layout analysis complete: {} pages, consistent headers: {}",
+            layout.total_pages,
+            layout.has_consistent_headers
+        );
 
-        tracing::info!("[DOCUMENT ENGINE] Document loaded with {} transactions across {} pages",
-                 self.all_transactions.len(), self.total_pages);
+        tracing::info!(
+            "[DOCUMENT ENGINE] Document loaded with {} transactions across {} pages",
+            self.all_transactions.len(),
+            self.total_pages
+        );
 
         Ok(())
     }
@@ -97,10 +111,12 @@ impl SmartDocumentEngine {
         tracing::info!("[DOCUMENT ENGINE] ===== BALANCE ENTIRE STATEMENT =====");
 
         // 1. Document AI Extraction
-        let bank_stmt = self.doc_ai.parse_entire_statement(current_pdf_path)
+        let bank_stmt = self
+            .doc_ai
+            .parse_entire_statement(current_pdf_path)
             .await
             .map_err(|e| EngineError::AiPlanFailed(format!("Document AI failed: {}", e)))?;
-            
+
         // 2. Geometry Extraction
         let mut geometries = Vec::new();
         for provider in &self.merger.providers {
@@ -108,11 +124,11 @@ impl SmartDocumentEngine {
                 geometries.extend(geo);
             }
         }
-        
+
         // 3. Hybrid Merge
         let report = self.merger.merge(bank_stmt.transactions, geometries);
         self.all_transactions = report.transactions.clone();
-        
+
         // 4. Calculate current global balance status
         let imbalance = self.calculate_global_imbalance();
 
@@ -126,10 +142,14 @@ impl SmartDocumentEngine {
         tracing::info!("[DOCUMENT ENGINE] Imbalance detected: ${:.2}", imbalance);
 
         // 5. Use Gemini with FULL document context to propose minimal smart adjustments
-        tracing::info!("[DOCUMENT ENGINE] Asking Gemini for minimal cascading adjustments across all pages...");
+        tracing::info!(
+            "[DOCUMENT ENGINE] Asking Gemini for minimal cascading adjustments across all pages..."
+        );
         let layout = self.layout.as_ref().ok_or(EngineError::NotLoaded)?;
-        
-        let plan = self.gemini.propose_balance_adjustments(&self.all_transactions, imbalance, layout)
+
+        let plan = self
+            .gemini
+            .propose_balance_adjustments(&self.all_transactions, imbalance, layout)
             .await
             .map_err(|e| {
                 if let crate::ai::gemini_client::GeminiError::LowConfidence(c) = e {
@@ -140,8 +160,10 @@ impl SmartDocumentEngine {
             })?;
 
         // 6. Map adjustments to ProposedChange
-        let changes: Vec<ProposedChange> = plan.adjustments.into_iter().map(|adj| {
-            ProposedChange {
+        let changes: Vec<ProposedChange> = plan
+            .adjustments
+            .into_iter()
+            .map(|adj| ProposedChange {
                 page: adj.page,
                 old_text: format!("{:.2}", adj.old_running_balance),
                 new_text: format!("{:.2}", adj.new_running_balance),
@@ -149,12 +171,15 @@ impl SmartDocumentEngine {
                 confidence: adj.confidence,
                 affects_subsequent_balances: true,
                 bbox: None,
-            }
-        }).collect();
+            })
+            .collect();
 
         self.proposed_changes = changes.clone();
-        tracing::info!("[DOCUMENT ENGINE] Proposed {} changes across the document", self.proposed_changes.len());
-        
+        tracing::info!(
+            "[DOCUMENT ENGINE] Proposed {} changes across the document",
+            self.proposed_changes.len()
+        );
+
         Ok(changes)
     }
 
@@ -163,14 +188,29 @@ impl SmartDocumentEngine {
             return 0.0;
         }
 
-        let opening_balance = self.all_transactions.first()
-            .map(|t| t.running_balance.unwrap_or(0.0) - (t.credit.unwrap_or(0.0) - t.debit.unwrap_or(0.0)))
+        let opening_balance = self
+            .all_transactions
+            .first()
+            .map(|t| {
+                t.running_balance.unwrap_or(0.0)
+                    - (t.credit.unwrap_or(0.0) - t.debit.unwrap_or(0.0))
+            })
             .unwrap_or(0.0);
 
-        let sum_credits: f64 = self.all_transactions.iter().map(|t| t.credit.unwrap_or(0.0)).sum();
-        let sum_debits: f64 = self.all_transactions.iter().map(|t| t.debit.unwrap_or(0.0)).sum();
-        
-        let reported_closing_balance = self.all_transactions.last()
+        let sum_credits: f64 = self
+            .all_transactions
+            .iter()
+            .map(|t| t.credit.unwrap_or(0.0))
+            .sum();
+        let sum_debits: f64 = self
+            .all_transactions
+            .iter()
+            .map(|t| t.debit.unwrap_or(0.0))
+            .sum();
+
+        let reported_closing_balance = self
+            .all_transactions
+            .last()
             .and_then(|t| t.running_balance)
             .unwrap_or(0.0);
 
@@ -178,7 +218,7 @@ impl SmartDocumentEngine {
         // Imbalance = Reported - Calculated
         let calculated_closing = opening_balance + sum_credits - sum_debits;
         let diff = reported_closing_balance - calculated_closing;
-        
+
         // Round to 2 decimal places to avoid floating point noise
         (diff * 100.0).round() / 100.0
     }

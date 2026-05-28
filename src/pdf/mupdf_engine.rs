@@ -1,6 +1,6 @@
 use super::engine::*;
-use std::path::Path;
 use pdfium_render::prelude::*;
+use std::path::Path;
 
 #[derive(Debug)]
 pub struct MuPdfEngine;
@@ -23,30 +23,40 @@ impl PdfEngine for MuPdfEngine {
 
     fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
         let pdfium = Pdfium::default();
-        let doc = pdfium.load_pdf_from_file(path, None)
+        let doc = pdfium
+            .load_pdf_from_file(path, None)
             .map_err(|e| EngineError::LoadFailed(e.to_string()))?;
-            
-        let p = doc.pages().get(page as u16)
+
+        let p = doc
+            .pages()
+            .get(page as u16)
             .map_err(|e| EngineError::RenderFailed(e.to_string()))?;
 
         let width_pts = p.width().value;
         let height_pts = p.height().value;
-        let render_config = PdfRenderConfig::new()
-            .set_target_width((width_pts * dpi / 72.0) as i32);
-        
-        let bitmap = p.render_with_config(&render_config)
+        let render_config =
+            PdfRenderConfig::new().set_target_width((width_pts * dpi / 72.0) as i32);
+
+        let bitmap = p
+            .render_with_config(&render_config)
             .map_err(|e| EngineError::RenderFailed(e.to_string()))?;
 
         let mut png_bytes = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut png_bytes);
-        if bitmap.as_image().write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+        if bitmap
+            .as_image()
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .is_ok()
+        {
             Ok(RenderedPage {
                 png_bytes,
                 width_pts,
                 height_pts,
             })
         } else {
-            Err(EngineError::RenderFailed("Failed to write PNG bytes".into()))
+            Err(EngineError::RenderFailed(
+                "Failed to write PNG bytes".into(),
+            ))
         }
     }
 
@@ -54,18 +64,24 @@ impl PdfEngine for MuPdfEngine {
         Err(EngineError::Unsupported)
     }
 
-    fn find_text_block_at_click(&self, _path: &Path, _page: usize, _x: f32, _y: f32) -> Result<Option<TextBlock>, EngineError> {
+    fn find_text_block_at_click(
+        &self,
+        _path: &Path,
+        _page: usize,
+        _x: f32,
+        _y: f32,
+    ) -> Result<Option<TextBlock>, EngineError> {
         Err(EngineError::Unsupported)
     }
 
     fn apply_change(
-        &self, 
-        _input: &Path, 
-        _output: &Path, 
-        _page: usize, 
-        _bbox: [f32; 4], 
+        &self,
+        _input: &Path,
+        _output: &Path,
+        _page: usize,
+        _bbox: [f32; 4],
         _new_text: &str,
-        _font_path: Option<&Path>
+        _font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
         Err(EngineError::Unsupported)
     }

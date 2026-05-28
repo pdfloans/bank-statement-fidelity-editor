@@ -2,8 +2,8 @@
 //! Supports multi-page bank statements with visual snapshots.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangeRecord {
@@ -46,7 +46,14 @@ impl ChangeHistory {
         }
     }
 
-    pub fn push_change(&mut self, page: usize, old_text: String, new_text: String, bbox: [f32; 4], description: String) {
+    pub fn push_change(
+        &mut self,
+        page: usize,
+        old_text: String,
+        new_text: String,
+        bbox: [f32; 4],
+        description: String,
+    ) {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let timestamp = chrono::Utc::now().to_rfc3339();
 
@@ -112,7 +119,10 @@ impl ChangeHistory {
     pub fn load_from_file(path: &std::path::Path) -> std::io::Result<Self> {
         let raw = std::fs::read_to_string(path)?;
         let val: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid history JSON: {e}"))
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("invalid history JSON: {e}"),
+            )
         })?;
         let mut history = Self::new();
         if let Some(arr) = val.get("changes").and_then(|c| c.as_array()) {
@@ -138,7 +148,14 @@ impl ChangeHistory {
         description: String,
         snapshot_path: PathBuf,
     ) -> ChangeRecord {
-        let record = self.create_record(page, old_text, new_text, bbox, description, Some(snapshot_path));
+        let record = self.create_record(
+            page,
+            old_text,
+            new_text,
+            bbox,
+            description,
+            Some(snapshot_path),
+        );
         self.push_record(record.clone());
         record
     }
@@ -199,10 +216,17 @@ mod tests {
         let mut history = ChangeHistory::new();
         history.push_change(0, "old".into(), "new".into(), [0.0; 4], "desc".into());
         let id1 = history.get_history()[0].id;
-        
-        let rec2 = history.create_record(0, "old2".into(), "new2".into(), [0.0; 4], "desc2".into(), None);
+
+        let rec2 = history.create_record(
+            0,
+            "old2".into(),
+            "new2".into(),
+            [0.0; 4],
+            "desc2".into(),
+            None,
+        );
         let id2 = rec2.id;
-        
+
         assert!(id2 > id1);
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
@@ -215,7 +239,13 @@ mod tests {
 
         let mut original = ChangeHistory::new();
         original.push_change(0, "old1".into(), "new1".into(), [0.0; 4], "first".into());
-        original.push_change(1, "old2".into(), "new2".into(), [1.0, 2.0, 3.0, 4.0], "second".into());
+        original.push_change(
+            1,
+            "old2".into(),
+            "new2".into(),
+            [1.0, 2.0, 3.0, 4.0],
+            "second".into(),
+        );
         original.save_to_file(&path).unwrap();
 
         let loaded = ChangeHistory::load_from_file(&path).unwrap();
@@ -224,7 +254,8 @@ mod tests {
 
         // Append after load -> id must be > existing max.
         let loaded_mut = loaded.clone();
-        let new_record = loaded_mut.create_record(2, "x".into(), "y".into(), [0.0; 4], "third".into(), None);
+        let new_record =
+            loaded_mut.create_record(2, "x".into(), "y".into(), [0.0; 4], "third".into(), None);
         let max_old_id = loaded.get_history().iter().map(|r| r.id).max().unwrap();
         assert!(new_record.id > max_old_id);
         drop(loaded_mut);

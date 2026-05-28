@@ -9,4 +9,4 @@ pub mod pdf;
 pub mod security;
 
 pub use engine::balance::process_and_reconcile;
-pub use engine::verification::{verify_edit, VerificationReport, VerificationError};
+pub use engine::verification::{verify_edit, VerificationError, VerificationReport};

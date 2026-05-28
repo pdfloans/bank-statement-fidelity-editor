@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use crate::engine::model::Transaction;
 use super::geometry::*;
+use crate::engine::model::Transaction;
+use std::sync::Arc;
 
 pub struct MergeReport {
     pub transactions: Vec<Transaction>,
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn test_merge_and_tiebreak() {
         let merger = HybridMerger::new(vec![]);
-        
+
         let tx1 = Transaction {
             page: 0,
             line_on_page: 0,
@@ -97,7 +97,7 @@ mod tests {
             bbox: None,
             provenance: Provenance::DocumentAI { confidence: 0.9 },
         };
-        
+
         let geo1 = LineGeometry {
             page: 0,
             line_on_page: 0,
@@ -106,14 +106,16 @@ mod tests {
             confidence: 0.9,
             source: GeometrySource::TextLayer,
         };
-        
+
         let geo2 = LineGeometry {
             page: 0,
             line_on_page: 0,
             text: "Match me".into(),
             bbox: [12.0, 10.0, 100.0, 20.0], // Slightly more right
             confidence: 0.9,
-            source: GeometrySource::BankTemplate { template_id: "chase".into() },
+            source: GeometrySource::BankTemplate {
+                template_id: "chase".into(),
+            },
         };
 
         let semantic = vec![tx1];

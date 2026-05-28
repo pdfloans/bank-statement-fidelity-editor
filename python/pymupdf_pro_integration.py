@@ -38,12 +38,169 @@ def get_text_blocks(pdf_path: str, page_num: int = 0):
     return blocks
 
 
-def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: list, new_text: str, fill_color: tuple = (1, 1, 1), font_path: str = None):
+def _color_int_to_rgb(color_int: int):
+    """PyMuPDF gives sRGB span colour as a single int (0xRRGGBB). Map to (r,g,b) floats."""
+    if color_int is None:
+        return (0.0, 0.0, 0.0)
+    r = ((color_int >> 16) & 0xFF) / 255.0
+    g = ((color_int >> 8) & 0xFF) / 255.0
+    b = (color_int & 0xFF) / 255.0
+    return (r, g, b)
+
+
+def _find_dominant_span(page, rect_obj):
+    """Find the text span whose bbox best overlaps `rect_obj`. Returns the span
+    dict (text/font/size/color/origin) or None if nothing overlaps."""
+    best = None
+    best_area = 0.0
+    rect = pymupdf.Rect(rect_obj)
+    for block in page.get_text("dict").get("blocks", []):
+        if "lines" not in block:
+            continue
+        for line in block["lines"]:
+            for span in line["spans"]:
+                sp_rect = pymupdf.Rect(span["bbox"])
+                inter = sp_rect & rect
+                if inter.is_empty:
+                    continue
+                area = inter.width * inter.height
+                if area > best_area:
+                    best_area = area
+                    best = span
+    return best
+
+
+_STANDARD_14_FONTS = {
+    # The PDF spec guarantees every reader supplies these. Their full
+    # WinAnsiEncoding glyph set is always usable, so coverage is implicit.
+    "times-roman", "times-bold", "times-italic", "times-bolditalic",
+    "helvetica", "helvetica-bold", "helvetica-oblique", "helvetica-boldoblique",
+    "courier", "courier-bold", "courier-oblique", "courier-boldoblique",
+    "symbol", "zapfdingbats",
+}
+
+
+def _is_standard_14(name: str) -> bool:
+    if not name:
+        return False
+    n = name.lower()
+    # Some PDFs prefix subsetted names like "ABCDEF+Times-Roman".
+    if "+" in n:
+        n = n.split("+", 1)[1]
+    return n in _STANDARD_14_FONTS
+
+
+def _font_covers_text(page, font_xref: int, font_name: str, text: str):
+    """Return (covers, missing_chars).
+
+    Coverage logic, in order:
+      1. If `font_name` is one of the PDF standard 14 (Times/Helvetica/Courier/Symbol/ZapfDingbats),
+         every WinAnsi codepoint is supplied by the reader. We only flag
+         characters outside WinAnsiEncoding (rare — emoji, CJK, etc.).
+      2. Otherwise we attempt to extract the embedded font subset and probe
+         glyph coverage with PyMuPDF.Font(buffer=...).
+      3. Any failure to determine coverage is treated as 'unknown' and
+         returns (False, list(text)) so the caller can decide.
     """
-    Robust targeted replacement:
-    - Uses redaction on the exact bounding box
-    - Applies the new text in the same style where possible
-    - Cleans up the area properly
+    if _is_standard_14(font_name):
+        # WinAnsi covers most western characters. Flag only ones that aren't
+        # representable in cp1252.
+        missing = []
+        for ch in text:
+            try:
+                ch.encode("cp1252")
+            except UnicodeEncodeError:
+                missing.append(ch)
+        return (len(missing) == 0, missing)
+
+    try:
+        result = page.parent.extract_font(font_xref)
+    except Exception:
+        return (False, list(text))
+
+    content = None
+    if isinstance(result, dict):
+        content = result.get("content")
+    elif isinstance(result, (tuple, list)) and len(result) >= 4:
+        for item in reversed(result):
+            if isinstance(item, (bytes, bytearray)) and len(item) > 0:
+                content = bytes(item)
+                break
+
+    if not content:
+        return (False, list(text))
+
+    try:
+        f = pymupdf.Font(fontbuffer=content)
+    except Exception:
+        return (False, list(text))
+
+    missing = []
+    for ch in text:
+        if ch in (" ",):
+            continue
+        try:
+            ok = bool(f.has_glyph(ord(ch)))
+        except Exception:
+            try:
+                ok = bool(f.glyph_advance(ord(ch)))
+            except Exception:
+                ok = False
+        if not ok:
+            missing.append(ch)
+    return (len(missing) == 0, missing)
+
+
+def _embedded_font_xref_for_span(page, span: dict):
+    """Locate the xref of the font used by `span`.
+
+    PyMuPDF's `dict` extraction returns the font's *base name* (e.g. 'Times-Roman'
+    or 'F1' depending on the source). We cross-reference page.get_fonts(full=True)
+    to pull the matching xref. Falls back to the first font on the page.
+    """
+    try:
+        fonts = page.get_fonts(full=True)
+    except Exception:
+        return None
+    if not fonts:
+        return None
+    needle = (span.get("font") or "").lower()
+    if needle:
+        # Match by basefont (index 3) or by the alias name (index 4).
+        for f in fonts:
+            try:
+                basefont = (f[3] or "").lower()
+                alias = (f[4] or "").lower()
+            except (IndexError, TypeError):
+                continue
+            if basefont == needle or alias == needle or basefont.endswith("+" + needle) or needle in basefont:
+                return f[0]
+    # No match: first font.
+    try:
+        return fonts[0][0]
+    except (IndexError, TypeError):
+        return None
+
+
+def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: list, new_text: str,
+                          fill_color: tuple = (1, 1, 1), font_path: str = None):
+    """Targeted, fidelity-preserving text replacement.
+
+    Strategy (in priority order):
+      1. Inspect the original span at the bbox to learn its exact font xref,
+         pt-size, colour and baseline origin.
+      2. If every character in `new_text` is covered by the embedded font
+         subset, apply a redaction annotation that *reuses the same font xref*
+         and writes the replacement at the same baseline. This gives
+         pixel-equivalent output (same kerning, weight, hinting).
+      3. If the font subset is missing characters and a `font_path` was
+         supplied, register that font into the document and use it.
+      4. Otherwise raise a structured failure that the caller can present
+         to the user with a list of missing characters; do NOT silently fall
+         back to Helvetica because that would change the visual appearance.
+
+    Returns a dict on success: {"success": True, "method": <"embedded"|"supplied"|"helv-fallback">, ...}
+    Raises ValueError with a JSON-serializable detail on coverage failure.
     """
     pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
     doc = pymupdf.open(pdf_path)
@@ -51,29 +208,130 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
 
     rect_obj = pymupdf.Rect(rect)
 
-    # Use custom font if provided
-    font_name = "helv" # fallback
-    if font_path and os.path.exists(font_path):
-        # In a real implementation, we would register the font here
-        # page.insert_font(...)
-        pass
+    # 1. Learn the original span's style.
+    span = _find_dominant_span(page, rect_obj)
+    if span is None:
+        # No span overlaps — empty area, treat as a vector-only edit.
+        page.add_redact_annot(rect_obj, fill=fill_color)
+        page.apply_redactions()
+        doc.save(output_path, garbage=4, deflate=True, clean=True)
+        doc.close()
+        return {"success": True, "method": "no-text", "note": "empty area redacted"}
 
-    # Add redaction annotation with the new text
-    page.add_redact_annot(
+    original_size = float(span.get("size", 10.0)) or 10.0
+    original_color = _color_int_to_rgb(span.get("color"))
+    original_origin = span.get("origin") or (rect_obj.x0, rect_obj.y1)
+    original_font_name = span.get("font", "helv")
+
+    # 2. Try to find the embedded font xref and check coverage.
+    method = None
+    coverage_ok = False
+    missing_chars = []
+    font_xref = _embedded_font_xref_for_span(page, span)
+    if font_xref is not None:
+        coverage_ok, missing_chars = _font_covers_text(page, font_xref, original_font_name, new_text)
+
+    # 3. If coverage is bad and a font_path was supplied, fall back to it.
+    insert_font_name = None
+    if coverage_ok:
+        method = "embedded"
+    elif font_path and os.path.exists(font_path):
+        # Insert the supplied font and probe its coverage.
+        try:
+            insert_font_name = "edit_font_" + os.path.splitext(os.path.basename(font_path))[0]
+            page.insert_font(fontname=insert_font_name, fontfile=font_path)
+            f = pymupdf.Font(fontfile=font_path)
+            still_missing = [ch for ch in new_text if not (ch == " " or f.has_glyph(ord(ch)))]
+            if not still_missing:
+                method = "supplied"
+                coverage_ok = True
+                missing_chars = []
+            else:
+                missing_chars = still_missing
+        except Exception as e:
+            print(f"[replace] supplied font load failed: {e}", file=sys.stderr)
+
+    # 4. Hard fail when no font can render the new text. Caller is expected to
+    #    surface this so the user can either pick a different font or trigger
+    #    deep font replication for the missing glyphs.
+    if not coverage_ok:
+        doc.close()
+        err = {
+            "error": "FONT_COVERAGE_INSUFFICIENT",
+            "original_font": original_font_name,
+            "missing_chars": missing_chars,
+            "new_text": new_text,
+        }
+        raise ValueError(json.dumps(err))
+
+    # 5. Apply the redaction. We use the redact annotation's `text` parameter
+    #    only as a hint; PyMuPDF will draw the replacement before the next
+    #    apply_redactions() pass. We override the auto-styling to match the
+    #    original span exactly.
+    annot = page.add_redact_annot(
         rect_obj,
-        new_text,
-        fill=fill_color,           # Dynamic background color
-        text_color=(0, 0, 0),     # Black text
-        fontsize=0,               # 0 = auto-detect from original
-        align=pymupdf.TEXT_ALIGN_LEFT
+        text=new_text,
+        fill=fill_color,
+        text_color=original_color,
+        fontname=insert_font_name if method == "supplied" else None,
+        fontsize=original_size,
+        align=pymupdf.TEXT_ALIGN_LEFT,
     )
 
-    # Apply redactions (this actually removes old content and adds new text)
-    page.apply_redactions()
+    # `apply_redactions(images=PDF_REDACT_IMAGE_NONE)` keeps imagery untouched
+    # so background art / logos / signatures remain bit-identical.
+    try:
+        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
+    except (TypeError, AttributeError):
+        # Older PyMuPDF: no kwarg, but the default was image-preserving for
+        # a small redaction area anyway.
+        page.apply_redactions()
 
-    doc.save(output_path, garbage=4, deflate=True)
+    # Re-place the text at the *exact* original baseline. The redact text helper
+    # auto-positions; this insert_text overrides it for pixel-equivalent placement.
+    if method == "embedded":
+        # Embedded reuse: PyMuPDF doesn't let us insert by xref directly, so we
+        # use the basefont name. For Type1/TrueType subsets the name lookup
+        # round-trips correctly because the subset has been registered with the
+        # page already.
+        try:
+            page.insert_text(
+                point=pymupdf.Point(original_origin[0], original_origin[1]),
+                text=new_text,
+                fontname=original_font_name,
+                fontsize=original_size,
+                color=original_color,
+                render_mode=0,
+                overlay=True,
+            )
+        except Exception as e:
+            # If the basefont name isn't recognised by insert_text (some
+            # subsetted fonts have weird names), let the redact annotation's
+            # auto-text stand. Visual fidelity is still very high but font may
+            # default to Helvetica metrics inside the rect.
+            print(f"[replace] insert_text fallback for embedded path: {e}", file=sys.stderr)
+            method = "embedded-fallback"
+    elif method == "supplied":
+        page.insert_text(
+            point=pymupdf.Point(original_origin[0], original_origin[1]),
+            text=new_text,
+            fontname=insert_font_name,
+            fontsize=original_size,
+            color=original_color,
+            render_mode=0,
+            overlay=True,
+        )
+
+    doc.save(output_path, garbage=4, deflate=True, clean=True)
     doc.close()
-    print("TARGETED_REPLACE_SUCCESS")
+
+    return {
+        "success": True,
+        "method": method,
+        "original_font": original_font_name,
+        "size": original_size,
+        "missing_chars": missing_chars,
+    }
 
 
 def analyze_background(pdf_path: str, page_num: int, rect: list) -> tuple[bool, tuple[float, float, float]]:

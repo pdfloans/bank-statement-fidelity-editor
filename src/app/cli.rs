@@ -1,12 +1,12 @@
 //! Unified CLI Implementation
 //! Provides parity between GUI and CLI capabilities by sharing the same Runtime Job interface.
 
-use clap::{Parser, Subcommand};
-use std::path::PathBuf;
-use std::sync::mpsc::{Sender, Receiver};
+use crate::app::audit::AuditLogParser;
 use crate::app::runtime::{Job, JobResult};
 use crate::engine::history::ChangeHistory;
-use crate::app::audit::AuditLogParser;
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+use std::sync::mpsc::{Receiver, Sender};
 
 #[derive(Parser)]
 #[command(name = "dual-core-pdf-pipeline")]
@@ -20,7 +20,7 @@ pub struct Cli {
 pub enum Commands {
     /// Launch the GUI (recommended)
     Gui,
-    
+
     /// Modify text with high visual fidelity
     Text {
         #[arg(short, long)]
@@ -127,7 +127,12 @@ fn print_check(name: &str, ok: bool, detail: &str) {
     println!(" {}  {:32}  {}", icon, name, detail);
 }
 
-pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: std::sync::Arc<crate::app::config::AppConfig>) -> i32 {
+pub fn run(
+    cli: Cli,
+    job_tx: Sender<Job>,
+    job_rx: Receiver<JobResult>,
+    config: std::sync::Arc<crate::app::config::AppConfig>,
+) -> i32 {
     // Pre-flight: input file existence checks for subcommands that take an input.
     let preflight = match &cli.command {
         Commands::Text { input, .. }
@@ -135,7 +140,9 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
         | Commands::Extract { input, .. }
         | Commands::Render { input, .. }
         | Commands::FontComplete { input, .. } => Some(input.clone()),
-        Commands::Verify { original, edited, .. } => {
+        Commands::Verify {
+            original, edited, ..
+        } => {
             if !original.exists() {
                 eprintln!("❌ Original PDF not found: {}", original.display());
                 return 1;
@@ -160,7 +167,12 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
             eprintln!("❌ Input file not found: {}", path.display());
             return 1;
         }
-        if path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()) != Some("pdf".into()) {
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase())
+            != Some("pdf".into())
+        {
             eprintln!("❌ Input must be a .pdf file: {}", path.display());
             return 1;
         }
@@ -174,15 +186,26 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
             }
             0
         }
-        Commands::Text { input, output, old, new, page, bbox } => {
+        Commands::Text {
+            input,
+            output,
+            old,
+            new,
+            page,
+            bbox,
+        } => {
             // Parse bbox as x0,y0,x1,y1
             let parts: Vec<&str> = bbox.split(',').collect();
             if parts.len() != 4 {
-                tracing::error!("❌ [cli_text] --bbox must be x0,y0,x1,y1 (found {} parts)", parts.len());
+                tracing::error!(
+                    "❌ [cli_text] --bbox must be x0,y0,x1,y1 (found {} parts)",
+                    parts.len()
+                );
                 return 1;
             }
-            
-            let coords: Vec<f32> = parts.iter()
+
+            let coords: Vec<f32> = parts
+                .iter()
                 .map(|s| s.parse::<f32>())
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap_or_else(|_| Vec::new());
@@ -217,36 +240,64 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
                     println!("✅ Change applied successfully.");
                     0
                 }
-                Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                Err((lbl, msg)) => {
+                    tracing::error!("❌ [{}] {}", lbl, msg);
+                    1
+                }
+                _ => {
+                    tracing::error!("Unexpected result from runtime");
+                    1
+                }
             }
         }
-        Commands::Balance { input, output, auto_approve } => {
-            let _ = job_tx.send(Job::BalanceStatement { path: input.clone() });
+        Commands::Balance {
+            input,
+            output,
+            auto_approve,
+        } => {
+            let _ = job_tx.send(Job::BalanceStatement {
+                path: input.clone(),
+            });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::BalanceProposed { imbalance, changes }) => {
                     if changes.is_empty() {
-                        println!("✅ Statement is already perfectly balanced (imbalance: ${:.2}).", imbalance);
+                        println!(
+                            "✅ Statement is already perfectly balanced (imbalance: ${:.2}).",
+                            imbalance
+                        );
                         return 0;
                     }
-                    
+
                     println!("Imbalance detected: ${:.2}", imbalance);
                     println!("Proposed Adjustments:");
                     for (i, change) in changes.iter().enumerate() {
-                        println!("  {}) P{}: {} -> {} (Confidence: {:.0}%)", i + 1, change.page, change.old_text, change.new_text, change.confidence * 100.0);
+                        println!(
+                            "  {}) P{}: {} -> {} (Confidence: {:.0}%)",
+                            i + 1,
+                            change.page,
+                            change.old_text,
+                            change.new_text,
+                            change.confidence * 100.0
+                        );
                         println!("      Reason: {}", change.reason);
                     }
-                    
+
                     if auto_approve {
-                        println!("\n--auto-approve flag is set. Applying all {} changes...", changes.len());
-                        let _ = job_tx.send(Job::ApplyProposedChanges { 
-                            input, 
-                            output: output.clone(), 
-                            changes 
+                        println!(
+                            "\n--auto-approve flag is set. Applying all {} changes...",
+                            changes.len()
+                        );
+                        let _ = job_tx.send(Job::ApplyProposedChanges {
+                            input,
+                            output: output.clone(),
+                            changes,
                         });
-                        
+
                         match wait_for_terminal_result(&job_rx) {
-                            Ok(JobResult::ProposedChangesApplied { changes_applied, failures }) => {
+                            Ok(JobResult::ProposedChangesApplied {
+                                changes_applied,
+                                failures,
+                            }) => {
                                 println!("✅ Successfully applied {} changes.", changes_applied);
                                 if !failures.is_empty() {
                                     eprintln!("⚠️ {} change(s) failed:", failures.len());
@@ -258,20 +309,34 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
                                 println!("Output saved to: {:?}", output);
                                 0
                             }
-                            Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                            _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                            Err((lbl, msg)) => {
+                                tracing::error!("❌ [{}] {}", lbl, msg);
+                                1
+                            }
+                            _ => {
+                                tracing::error!("Unexpected result from runtime");
+                                1
+                            }
                         }
                     } else {
                         println!("\nRun with --auto-approve to apply these changes.");
                         0
                     }
                 }
-                Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                Err((lbl, msg)) => {
+                    tracing::error!("❌ [{}] {}", lbl, msg);
+                    1
+                }
+                _ => {
+                    tracing::error!("Unexpected result from runtime");
+                    1
+                }
             }
         }
         Commands::Extract { input, output } => {
-            let _ = job_tx.send(Job::LoadDocument { path: input.clone() });
+            let _ = job_tx.send(Job::LoadDocument {
+                path: input.clone(),
+            });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::DocumentLoaded { .. }) => {
                     let _ = job_tx.send(Job::ExtractTransactions { path: input });
@@ -286,15 +351,32 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
                                 1
                             }
                         }
-                        Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                        _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                        Err((lbl, msg)) => {
+                            tracing::error!("❌ [{}] {}", lbl, msg);
+                            1
+                        }
+                        _ => {
+                            tracing::error!("Unexpected result from runtime");
+                            1
+                        }
                     }
                 }
-                Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                Err((lbl, msg)) => {
+                    tracing::error!("❌ [{}] {}", lbl, msg);
+                    1
+                }
+                _ => {
+                    tracing::error!("Unexpected result from runtime");
+                    1
+                }
             }
         }
-        Commands::Verify { original, edited, output_dir, use_pdfrest } => {
+        Commands::Verify {
+            original,
+            edited,
+            output_dir,
+            use_pdfrest,
+        } => {
             let _ = job_tx.send(Job::Verify {
                 original,
                 edited,
@@ -312,11 +394,22 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
                     println!("Report saved to: {:?}", json_path);
                     0
                 }
-                Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                Err((lbl, msg)) => {
+                    tracing::error!("❌ [{}] {}", lbl, msg);
+                    1
+                }
+                _ => {
+                    tracing::error!("Unexpected result from runtime");
+                    1
+                }
             }
         }
-        Commands::Render { input, output_dir, page, dpi } => {
+        Commands::Render {
+            input,
+            output_dir,
+            page,
+            dpi,
+        } => {
             let _ = job_tx.send(Job::RenderPage {
                 path: input,
                 page,
@@ -336,19 +429,34 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
                         1
                     }
                 }
-                Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                Err((lbl, msg)) => {
+                    tracing::error!("❌ [{}] {}", lbl, msg);
+                    1
+                }
+                _ => {
+                    tracing::error!("Unexpected result from runtime");
+                    1
+                }
             }
         }
         Commands::FontComplete { input, font } => {
-            let _ = job_tx.send(Job::CompleteFont { path: input, font_name: font });
+            let _ = job_tx.send(Job::CompleteFont {
+                path: input,
+                font_name: font,
+            });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::FontCompleted(json)) => {
                     println!("{}", json);
                     0
                 }
-                Err((lbl, msg)) => { tracing::error!("❌ [{}] {}", lbl, msg); 1 }
-                _ => { tracing::error!("Unexpected result from runtime"); 1 }
+                Err((lbl, msg)) => {
+                    tracing::error!("❌ [{}] {}", lbl, msg);
+                    1
+                }
+                _ => {
+                    tracing::error!("Unexpected result from runtime");
+                    1
+                }
             }
         }
         Commands::ExportHistory { from_log, output } => {
@@ -375,7 +483,10 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
         Commands::Ping => {
             let _ = job_tx.send(Job::Ping);
             match wait_for_terminal_result(&job_rx) {
-                Ok(JobResult::Pong) => { println!("pong"); 0 }
+                Ok(JobResult::Pong) => {
+                    println!("pong");
+                    0
+                }
                 _ => 1,
             }
         }
@@ -385,24 +496,32 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
             println!("─────────────────────────────────────────");
 
             // Required: passphrase
-            print_check("DUAL_CORE_PASSPHRASE",
+            print_check(
+                "DUAL_CORE_PASSPHRASE",
                 std::env::var("DUAL_CORE_PASSPHRASE").is_ok(),
-                "set in environment");
+                "set in environment",
+            );
 
             // Optional: Gemini
-            print_check("GEMINI_API_KEY",
+            print_check(
+                "GEMINI_API_KEY",
                 config.gemini_api_key.is_some(),
-                "Smart Balance Engine available");
+                "Smart Balance Engine available",
+            );
 
             // Optional: Document AI
-            print_check("Document AI configured",
+            print_check(
+                "Document AI configured",
                 config.document_ai.is_some(),
-                "Required for Extract / Balance");
+                "Required for Extract / Balance",
+            );
 
             // Show which auth method is in play
             if let Some(da) = &config.document_ai {
                 let auth = if !da.api_key.is_empty() {
                     "API key (v1beta3) primary"
+                } else if !da.adc_path.is_empty() {
+                    "Application Default Credentials (gcloud)"
                 } else if !da.service_account_path.is_empty() {
                     "service-account (v1) only"
                 } else {
@@ -412,38 +531,54 @@ pub fn run(cli: Cli, job_tx: Sender<Job>, job_rx: Receiver<JobResult>, config: s
             }
 
             // Optional: pdfRest
-            print_check("PDFREST_API_KEY",
+            print_check(
+                "PDFREST_API_KEY",
                 config.pdfrest_api_key.is_some(),
-                "Adobe-tier visual verification available");
+                "Adobe-tier visual verification available",
+            );
 
             // OTLP
-            print_check("OTEL_EXPORTER_OTLP_ENDPOINT",
+            print_check(
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
                 config.otel_endpoint.is_some(),
-                "Telemetry export available");
+                "Telemetry export available",
+            );
 
             // Files
-            print_check("logs/ writable",
+            print_check(
+                "logs/ writable",
                 std::fs::create_dir_all(&config.log_dir).is_ok(),
-                "Log directory ok");
-            print_check("audit/ writable",
+                "Log directory ok",
+            );
+            print_check(
+                "audit/ writable",
                 std::fs::create_dir_all("audit").is_ok(),
-                "Audit directory ok");
-            print_check("output/ writable",
+                "Audit directory ok",
+            );
+            print_check(
+                "output/ writable",
                 std::fs::create_dir_all("output").is_ok(),
-                "Output directory ok");
+                "Output directory ok",
+            );
 
             // Bank templates
             let templates = std::fs::read_dir("bank_templates")
                 .map(|d| d.filter_map(|e| e.ok()).count())
                 .unwrap_or(0);
-            print_check("Bank templates",
+            print_check(
+                "Bank templates",
                 templates > 0,
-                &format!("{} template(s) found", templates));
+                &format!("{} template(s) found", templates),
+            );
 
             // Runtime ping
             let _ = job_tx.send(Job::Ping);
             let runtime_ok = matches!(wait_for_terminal_result(&job_rx), Ok(JobResult::Pong));
-            print_check("Runtime worker", runtime_ok, "Tokio + Python actor responding");
+            print_check(
+                "Runtime worker",
+                runtime_ok,
+                "Tokio + Python actor responding",
+            );
 
             println!("─────────────────────────────────────────");
             if runtime_ok && config.passphrase.len() >= 16 {

@@ -1,10 +1,10 @@
 //! Document-Level Layout Analysis
-//! 
+//!
 //! Analyzes the ENTIRE multi-page bank statement for structural and visual layout.
 //! This helps the Smart Balance Engine make smarter decisions and preserve fidelity.
 
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageLayout {
@@ -41,17 +41,25 @@ impl DocumentLayout {
 }
 
 use crate::app::runtime::{Job, PythonJob};
-use tokio::sync::oneshot;
 use std::sync::mpsc::Sender;
+use tokio::sync::oneshot;
 
 /// Analyze the ENTIRE document layout using PyMuPDF Pro
-pub fn analyze_document_layout(job_tx: &Sender<Job>, pdf_path: &Path) -> Result<oneshot::Receiver<crate::app::runtime::PythonJobResult>, String> {
+pub fn analyze_document_layout(
+    job_tx: &Sender<Job>,
+    pdf_path: &Path,
+) -> Result<oneshot::Receiver<crate::app::runtime::PythonJobResult>, String> {
     tracing::info!("[LAYOUT ANALYZER] Starting document-level layout analysis...");
-    
+
     let (reply_tx, reply_rx) = oneshot::channel();
-    job_tx.send(Job::Python(PythonJob::AnalyzeDocumentLayout {
-        pdf_path: pdf_path.to_string_lossy().to_string(),
-    }, reply_tx)).map_err(|e| e.to_string())?;
+    job_tx
+        .send(Job::Python(
+            PythonJob::AnalyzeDocumentLayout {
+                pdf_path: pdf_path.to_string_lossy().to_string(),
+            },
+            reply_tx,
+        ))
+        .map_err(|e| e.to_string())?;
 
     Ok(reply_rx)
 }

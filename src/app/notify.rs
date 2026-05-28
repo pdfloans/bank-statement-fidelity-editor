@@ -42,7 +42,11 @@ pub async fn send_webhook(url: &str, payload: WebhookPayload<'_>) {
     match client.post(url).json(&body).send().await {
         Ok(resp) => {
             if resp.status().is_success() {
-                tracing::info!("[webhook] delivered ({}) -> {}", payload.event, resp.status());
+                tracing::info!(
+                    "[webhook] delivered ({}) -> {}",
+                    payload.event,
+                    resp.status()
+                );
             } else {
                 tracing::warn!("[webhook] non-success status: {}", resp.status());
             }

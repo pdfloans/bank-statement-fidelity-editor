@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Required at compile time by AppConfig::from_env(). The CI doesn't run the
+  # binary, but `cargo test` runs unit tests that may indirectly depend on
+  # env presence.
+  DUAL_CORE_PASSPHRASE: ci-only-passphrase-do-not-use-in-prod
+
+jobs:
+  # ------------------------------------------------------------------
+  # `cargo check` runs on every push, fast feedback.
+  # ------------------------------------------------------------------
+  check:
+    name: cargo check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps for PyO3 link tests
+        run: pip install pymupdf
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check --all-targets
+        run: cargo check --all-targets --message-format=short
+
+  # ------------------------------------------------------------------
+  # Lint + format gates.
+  #
+  # `cargo fmt --check` is intentionally non-blocking right now — the repo
+  # has pre-existing whitespace inconsistencies we'll clean up later.
+  # `cargo clippy` runs but only fails on actual errors, not warnings.
+  # ------------------------------------------------------------------
+  lint:
+    name: clippy + rustfmt
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pymupdf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        # Don't gate on warnings yet — repo has historic warnings to clean up.
+        # Just ensure clippy itself succeeds.
+        run: cargo clippy --all-targets -- -A warnings
+
+  # ------------------------------------------------------------------
+  # Test matrix: lib unit + integration smoke. Live AI tests stay
+  # ignored in CI (they need credentials we don't ship).
+  # ------------------------------------------------------------------
+  test:
+    name: cargo test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pymupdf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo test --lib
+        run: cargo test --lib --message-format=short
+
+      - name: cargo test (integration smoke)
+        run: cargo test --test runtime_smoke --message-format=short
+        # runtime_smoke spins up the Tokio runtime + Python actor; can be slow
+        # on cold cache.
+        timeout-minutes: 10
+
+  # ------------------------------------------------------------------
+  # Security audit. Soft fail — flags advisories without blocking the
+  # build. Tighten to hard-fail once the repo is stable.
+  # ------------------------------------------------------------------
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - run: cargo audit

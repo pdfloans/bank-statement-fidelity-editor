@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use super::engine::*;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct PdfEngineSelector {
@@ -12,7 +12,7 @@ impl PdfEngineSelector {
     pub fn new(primary: Arc<dyn PdfEngine>, fallback: Arc<dyn PdfEngine>) -> Self {
         Self { primary, fallback }
     }
-    
+
     fn try_primary_or_fallback<T, F>(&self, operation: F) -> Result<T, EngineError>
     where
         F: Fn(&dyn PdfEngine) -> Result<T, EngineError>,
@@ -61,20 +61,28 @@ impl PdfEngine for PdfEngineSelector {
         self.try_primary_or_fallback(|engine| engine.get_text_blocks(path, page))
     }
 
-    fn find_text_block_at_click(&self, path: &Path, page: usize, x: f32, y: f32) -> Result<Option<TextBlock>, EngineError> {
+    fn find_text_block_at_click(
+        &self,
+        path: &Path,
+        page: usize,
+        x: f32,
+        y: f32,
+    ) -> Result<Option<TextBlock>, EngineError> {
         self.try_primary_or_fallback(|engine| engine.find_text_block_at_click(path, page, x, y))
     }
 
     fn apply_change(
-        &self, 
-        input: &Path, 
-        output: &Path, 
-        page: usize, 
-        bbox: [f32; 4], 
+        &self,
+        input: &Path,
+        output: &Path,
+        page: usize,
+        bbox: [f32; 4],
         new_text: &str,
-        font_path: Option<&Path>
+        font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
-        self.try_primary_or_fallback(|engine| engine.apply_change(input, output, page, bbox, new_text, font_path))
+        self.try_primary_or_fallback(|engine| {
+            engine.apply_change(input, output, page, bbox, new_text, font_path)
+        })
     }
 
     fn analyze_layout(&self, path: &Path) -> Result<DocumentLayout, EngineError> {

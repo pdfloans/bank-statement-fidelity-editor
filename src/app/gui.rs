@@ -32,7 +32,9 @@ pub enum Theme {
 }
 
 impl Default for Theme {
-    fn default() -> Self { Theme::Midnight }
+    fn default() -> Self {
+        Theme::Midnight
+    }
 }
 
 struct Palette {
@@ -208,7 +210,12 @@ impl Default for AppSettings {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToastKind { Info, Warn, Error, Success }
+pub enum ToastKind {
+    Info,
+    Warn,
+    Error,
+    Success,
+}
 
 #[derive(Debug, Clone)]
 struct Toast {
@@ -286,6 +293,16 @@ pub struct MyApp {
     // Render coalescing
     last_render_request: Option<(String, usize, u32)>,
 
+    // Multi-stage workflow state
+    workflow_stage: crate::engine::workflow::WorkflowStage,
+    workflow_transactions: Vec<crate::engine::model::Transaction>,
+    workflow_validation: Option<crate::engine::workflow::ParseValidation>,
+    #[allow(dead_code)]
+    workflow_edits: Vec<crate::engine::workflow::UserEdit>,
+    workflow_preview: Option<crate::engine::workflow::BalancePreview>,
+    workflow_visual: Option<crate::engine::workflow::VisualAttempt>,
+    workflow_outcome: Option<crate::engine::workflow::WorkflowOutcome>,
+
     // Config (read-only)
     config: std::sync::Arc<crate::app::config::AppConfig>,
 }
@@ -296,7 +313,8 @@ impl MyApp {
         job_rx: std::sync::mpsc::Receiver<JobResult>,
         config: std::sync::Arc<crate::app::config::AppConfig>,
     ) -> Self {
-        let settings: AppSettings = confy::load("bank-statement-modifier", None).unwrap_or_default();
+        let settings: AppSettings =
+            confy::load("bank-statement-modifier", None).unwrap_or_default();
         let input_path = settings
             .recent_files
             .first()
@@ -336,6 +354,13 @@ impl MyApp {
             job_rx,
             pending_python: None,
             last_render_request: None,
+            workflow_stage: crate::engine::workflow::WorkflowStage::Idle,
+            workflow_transactions: Vec::new(),
+            workflow_validation: None,
+            workflow_edits: Vec::new(),
+            workflow_preview: None,
+            workflow_visual: None,
+            workflow_outcome: None,
             config,
             settings,
         }
@@ -358,7 +383,11 @@ impl MyApp {
         // Only render if the page actually changed since the last request for
         // this tag. This drops bursts when the user clicks rapidly through
         // pages or zooms — preventing render queue blow-up.
-        let key = (tag.to_string(), self.current_page, self.current_page_dpi as u32);
+        let key = (
+            tag.to_string(),
+            self.current_page,
+            self.current_page_dpi as u32,
+        );
         if self.last_render_request.as_ref() == Some(&key) && tag == "current" {
             // already requested with same parameters
             return;
@@ -462,7 +491,13 @@ impl MyApp {
             .get_history()
             .iter()
             .enumerate()
-            .filter_map(|(i, r)| r.new_text.replace(['$', ','], "").parse::<f64>().ok().map(|v| [i as f64, v]))
+            .filter_map(|(i, r)| {
+                r.new_text
+                    .replace(['$', ','], "")
+                    .parse::<f64>()
+                    .ok()
+                    .map(|v| [i as f64, v])
+            })
             .collect();
         if pts.is_empty() {
             PlotPoints::from(vec![[0.0, 0.0]])
@@ -483,10 +518,20 @@ impl eframe::App for MyApp {
 
         // Drag-and-drop support: open the first dropped PDF.
         if !ctx.input(|i| i.raw.dropped_files.is_empty()) {
-            let dropped: Vec<PathBuf> = ctx
-                .input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+            let dropped: Vec<PathBuf> = ctx.input(|i| {
+                i.raw
+                    .dropped_files
+                    .iter()
+                    .filter_map(|f| f.path.clone())
+                    .collect()
+            });
             for path in dropped {
-                if path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()) == Some("pdf".into()) {
+                if path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_lowercase())
+                    == Some("pdf".into())
+                {
                     self.open_pdf(path);
                     break;
                 }
@@ -496,8 +541,15 @@ impl eframe::App for MyApp {
         if !ctx.input(|i| i.raw.hovered_files.is_empty()) {
             let p = self.settings.theme.palette();
             let screen = ctx.screen_rect();
-            let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("dnd-overlay")));
-            painter.rect_filled(screen, 0.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 110));
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("dnd-overlay"),
+            ));
+            painter.rect_filled(
+                screen,
+                0.0,
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 110),
+            );
             painter.text(
                 screen.center(),
                 egui::Align2::CENTER_CENTER,
@@ -536,7 +588,9 @@ impl eframe::App for MyApp {
                                 self.new_text = b.text.clone();
                                 self.selected_block = Some(b);
                             }
-                            Err(e) => self.toast(ToastKind::Warn, format!("Click parse failed: {e}")),
+                            Err(e) => {
+                                self.toast(ToastKind::Warn, format!("Click parse failed: {e}"))
+                            }
                         }
                     }
                     self.pending_python = None;
@@ -607,7 +661,13 @@ impl MyApp {
                 self.status = "History synchronized".into();
                 self.request_render("current");
             }
-            JobResult::PageRendered { png_bytes, tag, width_pts, height_pts, .. } => {
+            JobResult::PageRendered {
+                png_bytes,
+                tag,
+                width_pts,
+                height_pts,
+                ..
+            } => {
                 let texture = self.load_texture_from_bytes(ctx, &tag, &png_bytes);
                 match tag.as_str() {
                     "current" => {
@@ -619,9 +679,16 @@ impl MyApp {
                     _ => {}
                 }
             }
-            JobResult::ChangeApplied { record, requires_visual_review } => {
+            JobResult::ChangeApplied {
+                record,
+                requires_visual_review,
+            } => {
                 self.toast(
-                    if requires_visual_review { ToastKind::Warn } else { ToastKind::Success },
+                    if requires_visual_review {
+                        ToastKind::Warn
+                    } else {
+                        ToastKind::Success
+                    },
                     format!("Edit applied: {} → {}", record.old_text, record.new_text),
                 );
                 if requires_visual_review {
@@ -644,12 +711,21 @@ impl MyApp {
                         self.proposed_changes.len(),
                         imbalance
                     );
-                    self.toast(ToastKind::Info, format!("{} adjustments proposed", self.proposed_changes.len()));
+                    self.toast(
+                        ToastKind::Info,
+                        format!("{} adjustments proposed", self.proposed_changes.len()),
+                    );
                 }
             }
-            JobResult::ProposedChangesApplied { changes_applied, failures } => {
+            JobResult::ProposedChangesApplied {
+                changes_applied,
+                failures,
+            } => {
                 if failures.is_empty() {
-                    self.toast(ToastKind::Success, format!("Applied {changes_applied} changes"));
+                    self.toast(
+                        ToastKind::Success,
+                        format!("Applied {changes_applied} changes"),
+                    );
                 } else {
                     self.toast(
                         ToastKind::Warn,
@@ -658,13 +734,19 @@ impl MyApp {
                 }
             }
             JobResult::TransactionsExtracted(txs) => {
-                self.toast(ToastKind::Success, format!("Extracted {} transactions", txs.len()));
+                self.toast(
+                    ToastKind::Success,
+                    format!("Extracted {} transactions", txs.len()),
+                );
             }
             JobResult::FontCompleted(_) => {
                 self.toast(ToastKind::Success, "Font completion finished");
             }
             JobResult::ChangeHistoryExported { path } => {
-                self.toast(ToastKind::Success, format!("History exported: {}", path.display()));
+                self.toast(
+                    ToastKind::Success,
+                    format!("History exported: {}", path.display()),
+                );
             }
             JobResult::VerificationReport(report) => {
                 self.last_verification = Some(report.clone());
@@ -673,7 +755,13 @@ impl MyApp {
                 } else {
                     ToastKind::Warn
                 };
-                self.toast(kind, format!("Verification: {}", report.message.lines().next().unwrap_or("done")));
+                self.toast(
+                    kind,
+                    format!(
+                        "Verification: {}",
+                        report.message.lines().next().unwrap_or("done")
+                    ),
+                );
             }
             JobResult::Progress { label, fraction } => {
                 if fraction >= 1.0 {
@@ -690,6 +778,100 @@ impl MyApp {
             JobResult::Pong => {
                 self.toast(ToastKind::Info, "pong");
             }
+            JobResult::Cancelled { id } => {
+                self.toast(ToastKind::Info, format!("Cancelled job #{id}"));
+                self.status = format!("Cancelled job #{id}");
+            }
+
+            // ---- Multi-stage workflow ----------------------------------
+            JobResult::WorkflowStageChanged { stage } => {
+                self.status = format!("Workflow: {}", stage.label());
+                self.workflow_stage = stage;
+            }
+            JobResult::WorkflowParseValidated {
+                validation,
+                transactions,
+            } => {
+                let count = validation.transactions_found;
+                let score = validation.completeness_score;
+                self.workflow_validation = Some(validation);
+                self.workflow_transactions = transactions;
+                self.toast(
+                    if score >= 0.85 {
+                        ToastKind::Success
+                    } else {
+                        ToastKind::Warn
+                    },
+                    format!(
+                        "Parsed {count} transactions • completeness {:.0}%",
+                        score * 100.0
+                    ),
+                );
+            }
+            JobResult::WorkflowPreviewBuilt(preview) => {
+                let kind = if preview.balanced {
+                    ToastKind::Success
+                } else {
+                    ToastKind::Warn
+                };
+                self.toast(
+                    kind,
+                    format!(
+                        "Preview ready • {} rows will change • imbalance ${:.2}",
+                        preview.rows.iter().filter(|r| r.will_change).count(),
+                        preview.final_imbalance
+                    ),
+                );
+                self.workflow_preview = Some(preview);
+            }
+            JobResult::WorkflowVisualAttempt(attempt) => {
+                self.toast(
+                    if attempt.passed() {
+                        ToastKind::Success
+                    } else {
+                        ToastKind::Info
+                    },
+                    format!(
+                        "Visual attempt {}/{} • diff {:.4}",
+                        attempt.attempt, attempt.max_attempts, attempt.diff_score
+                    ),
+                );
+                self.workflow_visual = Some(attempt);
+            }
+            JobResult::WorkflowComplete(outcome) => {
+                self.toast(ToastKind::Success, outcome.completion_summary.clone());
+                self.workflow_outcome = Some(outcome);
+            }
+            JobResult::WorkflowFailed(failure) => {
+                let msg = match &failure {
+                    crate::engine::workflow::WorkflowFailure::ParseFailed(s) => {
+                        format!("Parse failed: {s}")
+                    }
+                    crate::engine::workflow::WorkflowFailure::Incomplete { score, .. } => {
+                        format!("Parse rejected as incomplete (score {:.2})", score)
+                    }
+                    crate::engine::workflow::WorkflowFailure::FontCoverageFailed {
+                        missing_chars,
+                    } => {
+                        format!("Font coverage missing chars: {:?}", missing_chars)
+                    }
+                    crate::engine::workflow::WorkflowFailure::VisualNotConverged {
+                        last_score,
+                        attempts,
+                    } => {
+                        format!(
+                            "Visual didn't converge after {attempts} tries; last diff {:.4}",
+                            last_score
+                        )
+                    }
+                    crate::engine::workflow::WorkflowFailure::FinalMathInvalid { imbalance } => {
+                        format!("Final math invalid: imbalance ${:.2}", imbalance)
+                    }
+                    crate::engine::workflow::WorkflowFailure::Other(s) => s.clone(),
+                };
+                self.toast(ToastKind::Error, msg);
+                self.workflow_stage = crate::engine::workflow::WorkflowStage::Failed(failure);
+            }
         }
     }
 
@@ -698,7 +880,10 @@ impl MyApp {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("📂 Open PDF…").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .pick_file()
+                        {
                             self.open_pdf(path);
                         }
                         ui.close_menu();
@@ -706,9 +891,14 @@ impl MyApp {
                     if ui.button("⏯ Resume last session").clicked() {
                         let auto = std::path::PathBuf::from("audit").join("history.json");
                         if auto.exists() {
-                            let _ = self.job_tx.send(Job::LoadHistory { input: auto.clone() });
+                            let _ = self.job_tx.send(Job::LoadHistory {
+                                input: auto.clone(),
+                            });
                             self.in_flight += 1;
-                            self.toast(ToastKind::Info, format!("Resuming from {}", auto.display()));
+                            self.toast(
+                                ToastKind::Info,
+                                format!("Resuming from {}", auto.display()),
+                            );
                         } else {
                             self.toast(ToastKind::Warn, "No previous session found.");
                         }
@@ -718,7 +908,11 @@ impl MyApp {
                     ui.label("Recent:");
                     let recent = self.settings.recent_files.clone();
                     for f in recent {
-                        let label = if f.len() > 40 { format!("…{}", &f[f.len() - 38..]) } else { f.clone() };
+                        let label = if f.len() > 40 {
+                            format!("…{}", &f[f.len() - 38..])
+                        } else {
+                            f.clone()
+                        };
                         if ui.button(label).clicked() {
                             self.open_pdf(PathBuf::from(f));
                             ui.close_menu();
@@ -757,12 +951,17 @@ impl MyApp {
                         .selected_text(self.settings.theme.label())
                         .width(100.0)
                         .show_ui(ui, |ui| {
-                            for t in [Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
+                            for t in [Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized]
+                            {
                                 ui.selectable_value(&mut self.settings.theme, t, t.label());
                             }
                         });
                     if let Some((label, fraction)) = &self.progress {
-                        ui.add(egui::ProgressBar::new(*fraction).text(label).desired_width(220.0));
+                        ui.add(
+                            egui::ProgressBar::new(*fraction)
+                                .text(label)
+                                .desired_width(220.0),
+                        );
                     } else if self.in_flight > 0 {
                         ui.spinner();
                         ui.label(format!("{} job(s) running", self.in_flight));
@@ -778,7 +977,11 @@ impl MyApp {
                 ui.small(&self.status);
                 ui.separator();
                 if self.total_pages > 0 {
-                    ui.small(format!("Page {}/{}", self.current_page + 1, self.total_pages));
+                    ui.small(format!(
+                        "Page {}/{}",
+                        self.current_page + 1,
+                        self.total_pages
+                    ));
                     ui.separator();
                 }
                 ui.small(format!("DPI: {:.0}", self.current_page_dpi));
@@ -827,26 +1030,63 @@ impl MyApp {
                     ui.add_enabled(false, egui::TextEdit::multiline(&mut block.text.clone()).desired_rows(2));
                     ui.text_edit_multiline(&mut self.new_text);
                     ui.checkbox(&mut self.settings.deep_font_replication, "Deep Font Replication (AI)");
-                    if ui.button("🎯 Apply Edit")
-                        .on_hover_text("Replace the selected text with the new value")
-                        .clicked() {
-                        let input = if self.current_pdf_path.exists() {
-                            self.current_pdf_path.clone()
-                        } else {
-                            PathBuf::from(&self.input_path)
-                        };
-                        let _ = self.job_tx.send(Job::ApplyChange {
-                            input,
-                            output: PathBuf::from(&self.output_path),
-                            page: self.current_page,
-                            bbox: block.bbox,
-                            new_text: self.new_text.clone(),
-                            old_text: block.text.clone(),
-                            description: "Manual edit".into(),
-                            deep_font_replication: self.settings.deep_font_replication,
-                        });
-                        self.in_flight += 1;
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("🎯 Apply Edit")
+                            .on_hover_text("Replace the selected text directly (single-step path)")
+                            .clicked() {
+                            let input = if self.current_pdf_path.exists() {
+                                self.current_pdf_path.clone()
+                            } else {
+                                PathBuf::from(&self.input_path)
+                            };
+                            let _ = self.job_tx.send(Job::ApplyChange {
+                                input,
+                                output: PathBuf::from(&self.output_path),
+                                page: self.current_page,
+                                bbox: block.bbox,
+                                new_text: self.new_text.clone(),
+                                old_text: block.text.clone(),
+                                description: "Manual edit".into(),
+                                deep_font_replication: self.settings.deep_font_replication,
+                            });
+                            self.in_flight += 1;
+                        }
+                        let in_workflow = self.workflow_validation.is_some();
+                        if ui.add_enabled(in_workflow, egui::Button::new("📋 Queue for Preview"))
+                            .on_hover_text("Add this edit to the workflow queue (use 'Balance Out Preview' next)")
+                            .clicked()
+                        {
+                            // Try to map the edit to a known transaction row.
+                            let line_on_page = self.workflow_transactions
+                                .iter()
+                                .filter(|t| t.page == self.current_page)
+                                .min_by(|a, b| {
+                                    let by_a = a.bbox.unwrap_or([0.0; 4])[1];
+                                    let by_b = b.bbox.unwrap_or([0.0; 4])[1];
+                                    let ba = (by_a - block.bbox[1]).abs();
+                                    let bb = (by_b - block.bbox[1]).abs();
+                                    ba.partial_cmp(&bb).unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                                .map(|t| t.line_on_page)
+                                .unwrap_or(0);
+                            // Heuristic: numeric edit -> credit/debit/balance based on font column.
+                            let trimmed = self.new_text.trim();
+                            let field = if trimmed.replace([',', '$', '.', '-'], "").chars().all(|c| c.is_ascii_digit()) {
+                                crate::engine::workflow::EditField::RunningBalance
+                            } else {
+                                crate::engine::workflow::EditField::Description
+                            };
+                            self.workflow_edits.push(crate::engine::workflow::UserEdit {
+                                page: self.current_page,
+                                line_on_page,
+                                bbox: block.bbox,
+                                old_text: block.text.clone(),
+                                new_text: self.new_text.clone(),
+                                field,
+                            });
+                            self.toast(ToastKind::Info, format!("Queued edit ({} pending)", self.workflow_edits.len()));
+                        }
+                    });
                 } else {
                     ui.weak("Click any text on the canvas to edit.");
                 }
@@ -859,6 +1099,8 @@ impl MyApp {
             .show(ctx, |ui| {
                 ui.heading("Analysis & Tools");
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.draw_workflow_section(ui);
+
                     ui.collapsing("⚖ Smart Balance Engine", |ui| {
                         if ui.button("Analyze Document")
                             .on_hover_text("Run Document AI + Gemini to find math errors and propose minimal adjustments")
@@ -1000,6 +1242,189 @@ impl MyApp {
             });
     }
 
+    fn draw_workflow_section(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("🤖 Workflow (AI parse → preview → render → verify)", |ui| {
+            let stage = self.workflow_stage.clone();
+            let p = self.settings.theme.palette();
+
+            // Step indicator
+            let step = stage.step_index();
+            ui.horizontal(|ui| {
+                for (i, name) in [
+                    "Parse", "Edit", "Preview", "Render", "Verify", "Confirm",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    let active_step = (i + 1) as u8;
+                    let color = if active_step < step {
+                        p.success
+                    } else if active_step == step.min(6) {
+                        p.accent
+                    } else {
+                        p.weak
+                    };
+                    ui.colored_label(color, format!("{}. {name}", i + 1));
+                }
+            });
+            ui.label(format!("Status: {}", stage.label()));
+
+            ui.separator();
+
+            // Stage 1 button: parse + AI validate
+            let parse_enabled = !PathBuf::from(&self.input_path).as_os_str().is_empty();
+            if ui
+                .add_enabled(parse_enabled, egui::Button::new("① Parse + AI validate"))
+                .on_hover_text("Run Document AI on the file, then ask Gemini if anything was missed")
+                .clicked()
+            {
+                let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+                    input: PathBuf::from(&self.input_path),
+                });
+                self.in_flight += 1;
+                self.workflow_edits.clear();
+                self.workflow_preview = None;
+                self.workflow_visual = None;
+                self.workflow_outcome = None;
+            }
+
+            if let Some(v) = &self.workflow_validation {
+                ui.label(format!(
+                    "Found {} txs • opening ${:.2} • closing ${:.2}",
+                    v.transactions_found, v.opening_balance, v.closing_balance
+                ));
+                let bar_color = if v.is_acceptable() { p.success } else { p.warn };
+                ui.colored_label(
+                    bar_color,
+                    format!("AI completeness: {:.0}%", v.completeness_score * 100.0),
+                );
+                if !v.completeness_notes.is_empty() {
+                    ui.small(&v.completeness_notes);
+                }
+                if !v.missing_rows.is_empty() {
+                    ui.colored_label(p.warn, format!("Possibly missing rows: {}", v.missing_rows.len()));
+                    for m in v.missing_rows.iter().take(3) {
+                        ui.small(format!("  • {m}"));
+                    }
+                }
+            }
+
+            ui.separator();
+
+            // Stage 3 button: balance preview
+            let preview_enabled = self.workflow_validation.is_some();
+            ui.label(format!("Pending edits queued: {}", self.workflow_edits.len()));
+            if ui
+                .add_enabled(preview_enabled, egui::Button::new("② Balance Out Preview"))
+                .on_hover_text("Recompute every running balance with your edits and show the diff")
+                .clicked()
+            {
+                if let Some(v) = &self.workflow_validation {
+                    let _ = self.job_tx.send(Job::WorkflowPreview {
+                        original_transactions: self.workflow_transactions.clone(),
+                        edits: self.workflow_edits.clone(),
+                        opening_balance: v.opening_balance,
+                        expected_closing: if v.closing_balance.abs() > 0.0 {
+                            Some(v.closing_balance)
+                        } else {
+                            None
+                        },
+                    });
+                    self.in_flight += 1;
+                }
+            }
+
+            if let Some(p) = &self.workflow_preview {
+                let changed = p.rows.iter().filter(|r| r.will_change).count();
+                let kind_color = if p.balanced { self.settings.theme.palette().success } else { self.settings.theme.palette().warn };
+                ui.colored_label(
+                    kind_color,
+                    format!(
+                        "{} row(s) will change • final imbalance ${:.2}",
+                        changed, p.final_imbalance
+                    ),
+                );
+                if let Some(msg) = &p.auto_correction_message {
+                    ui.small(msg);
+                }
+                // Compact diff list
+                egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                    for r in p.rows.iter().filter(|r| r.will_change).take(20) {
+                        ui.small(format!(
+                            "P{} L{} {} • bal {:?} → {:?}",
+                            r.page + 1,
+                            r.line_on_page + 1,
+                            if r.description.len() > 24 { &r.description[..24] } else { &r.description },
+                            r.old_running_balance,
+                            r.new_running_balance,
+                        ));
+                    }
+                });
+            }
+
+            ui.separator();
+
+            // Stage 4-6 button: confirm & render
+            let confirm_enabled = self.workflow_preview.is_some();
+            if ui
+                .add_enabled(confirm_enabled, egui::Button::new("③ Confirm and Render"))
+                .on_hover_text(
+                    "Apply edits to the PDF, render-validate visually in a loop, then re-parse with Document AI to confirm math",
+                )
+                .clicked()
+            {
+                // Stage 2 / Item #7: drop edits whose typed value already
+                // matches the cascade. Reduces visual noise (extra redactions)
+                // and shortens the apply loop.
+                let edits_to_apply = if let Some(p) = &self.workflow_preview {
+                    let (kept, dropped) =
+                        crate::engine::workflow::prune_redundant_edits(&self.workflow_edits, p);
+                    if !dropped.is_empty() {
+                        self.toast(
+                            ToastKind::Info,
+                            format!("Pruned {} redundant edit(s)", dropped.len()),
+                        );
+                    }
+                    kept
+                } else {
+                    self.workflow_edits.clone()
+                };
+                let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
+                    input: PathBuf::from(&self.input_path),
+                    output: PathBuf::from(&self.output_path),
+                    edits: edits_to_apply,
+                    deep_font_replication: self.settings.deep_font_replication,
+                    max_visual_attempts: 5,
+                    visual_threshold: 0.02,
+                });
+                self.in_flight += 1;
+            }
+
+            if let Some(va) = &self.workflow_visual {
+                let palette = self.settings.theme.palette();
+                let c = if va.passed() { palette.success } else { palette.warn };
+                ui.colored_label(
+                    c,
+                    format!(
+                        "Visual {}/{} • diff {:.4} • intended-only {}",
+                        va.attempt,
+                        va.max_attempts,
+                        va.diff_score,
+                        if va.only_intended { "✓" } else { "✗" }
+                    ),
+                );
+            }
+            if let Some(o) = &self.workflow_outcome {
+                ui.colored_label(self.settings.theme.palette().success, &o.completion_summary);
+                ui.small(format!("Final PDF: {}", o.final_pdf.display()));
+                ui.small(format!(
+                    "Re-parsed transactions: {} • final imbalance ${:.2}",
+                    o.transactions_re_parsed, o.final_imbalance
+                ));
+            }
+        });
+    }
+
     fn draw_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Toolbar above canvas
@@ -1074,7 +1499,8 @@ impl MyApp {
                     if self.show_curtain {
                         if let Some(after) = self.after_texture.clone() {
                             let split_x = rect.min.x + rect.width() * self.curtain_ratio;
-                            let after_rect = egui::Rect::from_min_max(egui::pos2(split_x, rect.min.y), rect.max);
+                            let after_rect =
+                                egui::Rect::from_min_max(egui::pos2(split_x, rect.min.y), rect.max);
                             let uv_min = egui::pos2(self.curtain_ratio, 0.0);
                             painter.image(
                                 after.id(),
@@ -1083,7 +1509,10 @@ impl MyApp {
                                 egui::Color32::WHITE,
                             );
                             painter.line_segment(
-                                [egui::pos2(split_x, rect.min.y), egui::pos2(split_x, rect.max.y)],
+                                [
+                                    egui::pos2(split_x, rect.min.y),
+                                    egui::pos2(split_x, rect.max.y),
+                                ],
                                 egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 0)),
                             );
                         }
@@ -1099,10 +1528,14 @@ impl MyApp {
                                 (relative.x / self.zoom_factor, relative.y / self.zoom_factor)
                             };
                             let (tx, rx) = tokio::sync::oneshot::channel();
-                            if self.job_tx
+                            if self
+                                .job_tx
                                 .send(Job::Python(
                                     PythonJob::FindTextBlockAtClick {
-                                        pdf_path: self.current_pdf_path.to_string_lossy().to_string(),
+                                        pdf_path: self
+                                            .current_pdf_path
+                                            .to_string_lossy()
+                                            .to_string(),
                                         page_num: self.current_page,
                                         x,
                                         y,
@@ -1183,19 +1616,38 @@ impl MyApp {
             top += btn_h + gap;
             let resp = ui.allocate_rect(rect, egui::Sense::click());
             ui.painter().rect_filled(rect, 8.0, p.surface);
-            ui.painter().rect_stroke(rect, 8.0, egui::Stroke::new(1.0, p.accent.linear_multiply(0.6)));
-            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(14.0), p.text);
+            ui.painter().rect_stroke(
+                rect,
+                8.0,
+                egui::Stroke::new(1.0, p.accent.linear_multiply(0.6)),
+            );
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::proportional(14.0),
+                p.text,
+            );
             resp.clone().on_hover_text(hint).clicked()
         };
         if button(ui, "📂 Open PDF…", "Browse for a bank statement PDF") {
-            if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("PDF", &["pdf"])
+                .pick_file()
+            {
                 self.open_pdf(path);
             }
         }
-        if button(ui, "⏯ Resume last session", "Reload the last autosaved history") {
+        if button(
+            ui,
+            "⏯ Resume last session",
+            "Reload the last autosaved history",
+        ) {
             let auto = std::path::PathBuf::from("audit").join("history.json");
             if auto.exists() {
-                let _ = self.job_tx.send(Job::LoadHistory { input: auto.clone() });
+                let _ = self.job_tx.send(Job::LoadHistory {
+                    input: auto.clone(),
+                });
                 self.in_flight += 1;
                 self.toast(ToastKind::Info, format!("Resuming from {}", auto.display()));
             } else {
@@ -1203,7 +1655,11 @@ impl MyApp {
             }
         }
         if !self.settings.recent_files.is_empty()
-            && button(ui, "📜 Open most recent", &format!("Open {}", self.settings.recent_files[0]))
+            && button(
+                ui,
+                "📜 Open most recent",
+                &format!("Open {}", self.settings.recent_files[0]),
+            )
         {
             let path = PathBuf::from(self.settings.recent_files[0].clone());
             self.open_pdf(path);
@@ -1240,7 +1696,10 @@ impl MyApp {
                         let remaining = toast.expires_at.saturating_duration_since(now);
                         let alpha = (remaining.as_millis() as f32 / 6000.0).clamp(0.4, 1.0);
                         let bg = egui::Color32::from_rgba_unmultiplied(
-                            bg.r(), bg.g(), bg.b(), (alpha * 230.0) as u8,
+                            bg.r(),
+                            bg.g(),
+                            bg.b(),
+                            (alpha * 230.0) as u8,
                         );
                         egui::Frame::none()
                             .fill(bg)
@@ -1262,7 +1721,10 @@ impl MyApp {
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         let input = ctx.input(|i| i.clone());
         if input.modifiers.command && input.key_pressed(egui::Key::O) {
-            if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("PDF", &["pdf"])
+                .pick_file()
+            {
                 self.open_pdf(path);
             }
         }
@@ -1306,7 +1768,10 @@ impl MyApp {
 
     fn open_pdf(&mut self, path: PathBuf) {
         if !path.exists() {
-            self.toast(ToastKind::Error, format!("File not found: {}", path.display()));
+            self.toast(
+                ToastKind::Error,
+                format!("File not found: {}", path.display()),
+            );
             return;
         }
         self.input_path = path.to_string_lossy().to_string();
@@ -1318,7 +1783,9 @@ impl MyApp {
         self.last_verification = None;
         self.last_warning = None;
         self.selected_block = None;
-        let _ = self.job_tx.send(Job::LoadDocument { path: self.current_pdf_path.clone() });
+        let _ = self.job_tx.send(Job::LoadDocument {
+            path: self.current_pdf_path.clone(),
+        });
         self.in_flight += 1;
     }
 }

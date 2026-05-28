@@ -19,6 +19,11 @@ service-account*.json
 credentials.json
 secrets.json
 *.gcp-credentials.json
+# OAuth 2.0 client secrets downloaded from Google Cloud Console
+client_secret*.json
+client-secret*.json
+*.apps.googleusercontent.com.json
+*.apps.googleusercontent.com.txt
 
 # =============================================================================
 # Rust / Cargo

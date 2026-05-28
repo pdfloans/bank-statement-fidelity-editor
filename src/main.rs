@@ -1,20 +1,20 @@
 //! Bank Statement Fidelity Editor v0.4.0
 //! High-fidelity text & number editing with automatic balance reconciliation + smart targeted selection
 
-use dual_core_pdf_pipeline::*;
 use clap::Parser;
+use dual_core_pdf_pipeline::*;
 use std::sync::Arc;
 
 fn main() {
     dotenvy::dotenv().ok();
-    
+
     let config = Arc::new(app::config::AppConfig::from_env().unwrap_or_else(|e| {
         eprintln!("Configuration Error: {}", e);
         std::process::exit(1);
     }));
-    
+
     let _telemetry_guard = app::telemetry::init(&config);
-    
+
     // Parse CLI early so --help works without security gate
     let cli = app::cli::Cli::parse();
 

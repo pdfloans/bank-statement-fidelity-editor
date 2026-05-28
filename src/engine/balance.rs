@@ -42,8 +42,8 @@
 //! - This is the same safe reconciliation method used by professional accounting software.
 //! - The user is always informed exactly what was corrected and why.
 
-use thiserror::Error;
 use crate::engine::model::Transaction;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum BalanceError {
@@ -91,9 +91,10 @@ pub fn recalculate_and_validate(
             return Err(BalanceError::BothDebitAndCredit { line: line_num });
         }
 
-        let change = tx.debit.unwrap_or(0.0) - tx.credit.unwrap_or(0.0);
-        current_balance += change;
-        
+        // `net_delta()` is `+debit - credit`. See engine/model.rs module docs
+        // for the (deliberate) sign convention.
+        current_balance += tx.net_delta();
+
         // Round to 2 decimal places to avoid IEEE-754 drift
         current_balance = (current_balance * 100.0).round() / 100.0;
 
@@ -116,7 +117,7 @@ pub fn recalculate_and_validate(
 /// 1. Calculate the exact discrepancy.
 /// 2. Adjust the **last transaction's running balance** by that amount.
 /// 3. Return the corrected transactions + a clear message of what was changed.
-/// 
+///
 /// This keeps all previous calculations untouched and only fixes the final number.
 pub fn auto_correct_final_balance(
     mut transactions: Vec<Transaction>,
@@ -135,12 +136,15 @@ pub fn auto_correct_final_balance(
         }
         0.0
     });
-    
+
     let discrepancy = expected_final_balance - current_final;
 
     if discrepancy.abs() < 0.01 {
         // Already correct — no action needed
-        return Ok((transactions, "Balances already match perfectly.".to_string()));
+        return Ok((
+            transactions,
+            "Balances already match perfectly.".to_string(),
+        ));
     }
 
     // Apply the correction to the last running balance
@@ -167,7 +171,10 @@ pub fn process_and_reconcile(
 
     // Step 2: Auto-correct final balance if expected value is provided and mismatch exists
     if let Some(expected) = expected_final_balance {
-        let last_balance = corrected.last().and_then(|t| t.running_balance).unwrap_or(0.0);
+        let last_balance = corrected
+            .last()
+            .and_then(|t| t.running_balance)
+            .unwrap_or(0.0);
 
         if (last_balance - expected).abs() > 0.01 {
             let (fixed, message) = auto_correct_final_balance(corrected, expected)?;
@@ -181,7 +188,7 @@ pub fn process_and_reconcile(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::model::{Transaction, Provenance};
+    use crate::engine::model::{Provenance, Transaction};
 
     fn make_tx(debit: Option<f64>, credit: Option<f64>) -> Transaction {
         Transaction {
@@ -212,14 +219,20 @@ mod tests {
     fn recalculate_rejects_both_debit_and_credit_on_same_line() {
         let txs = vec![make_tx(Some(10.0), Some(10.0))];
         let res = recalculate_and_validate(txs, 100.0);
-        assert!(matches!(res, Err(BalanceError::BothDebitAndCredit { line: 1 })));
+        assert!(matches!(
+            res,
+            Err(BalanceError::BothDebitAndCredit { line: 1 })
+        ));
     }
 
     #[test]
     fn recalculate_rejects_negative_balance() {
         let txs = vec![make_tx(None, Some(150.0))];
         let res = recalculate_and_validate(txs, 100.0);
-        assert!(matches!(res, Err(BalanceError::NegativeBalance { line: 1, .. })));
+        assert!(matches!(
+            res,
+            Err(BalanceError::NegativeBalance { line: 1, .. })
+        ));
     }
 
     #[test]
@@ -242,7 +255,7 @@ mod tests {
         let mut txs = vec![make_tx(None, None), make_tx(None, None)];
         txs[0].running_balance = Some(100.0);
         txs[1].running_balance = Some(100.0);
-        
+
         let (res, _) = auto_correct_final_balance(txs, 120.0).unwrap();
         assert_eq!(res[0].running_balance, Some(100.0));
         assert_eq!(res[1].running_balance, Some(120.0));
@@ -252,7 +265,7 @@ mod tests {
     fn auto_correct_message_contains_old_new_and_diff() {
         let mut txs = vec![make_tx(None, None)];
         txs[0].running_balance = Some(100.0);
-        
+
         let (_, msg) = auto_correct_final_balance(txs, 120.0).unwrap();
         assert!(msg.contains("100.00"));
         assert!(msg.contains("120.00"));

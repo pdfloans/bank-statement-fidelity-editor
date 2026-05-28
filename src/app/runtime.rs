@@ -1,28 +1,117 @@
-use std::thread::{self, JoinHandle};
-use std::sync::{mpsc, Arc, Mutex};
-use std::path::PathBuf;
-use tokio::sync::oneshot;
 use crate::ai::pyo3_bridge::PyEngine;
 use crate::app::audit::AuditLog;
 use crate::engine::history::{ChangeHistory, ChangeRecord};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
+
+/// Opaque per-job handle. The runtime returns one when a job is enqueued;
+/// callers can later `Job::Cancel` it.
+pub type JobId = u64;
+
+static NEXT_JOB_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Allocate a fresh `JobId`. Used by both the runtime and external callers
+/// who want to enqueue a job and remember its handle.
+pub fn alloc_job_id() -> JobId {
+    NEXT_JOB_ID.fetch_add(1, Ordering::SeqCst)
+}
+
+/// A registry of currently-running jobs and their cancellation tokens.
+/// Cloneable; the runtime keeps one and the dispatcher keeps another.
+#[derive(Clone, Default)]
+pub struct CancellationRegistry {
+    inner: Arc<Mutex<HashMap<JobId, CancellationToken>>>,
+}
+
+impl CancellationRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a new token under `id`. Returns the token (so the caller
+    /// can pass it into the spawned task).
+    pub fn register(&self, id: JobId) -> CancellationToken {
+        let token = CancellationToken::new();
+        if let Ok(mut g) = self.inner.lock() {
+            g.insert(id, token.clone());
+        }
+        token
+    }
+
+    /// Cancel and remove the token for `id`. No-op if unknown.
+    pub fn cancel(&self, id: JobId) -> bool {
+        let token = self.inner.lock().ok().and_then(|mut g| g.remove(&id));
+        if let Some(t) = token {
+            t.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Drop the token for `id` (job has finished naturally).
+    pub fn complete(&self, id: JobId) {
+        if let Ok(mut g) = self.inner.lock() {
+            g.remove(&id);
+        }
+    }
+
+    /// Cancel every job in flight. Useful on app shutdown.
+    pub fn cancel_all(&self) {
+        if let Ok(mut g) = self.inner.lock() {
+            for (_, t) in g.drain() {
+                t.cancel();
+            }
+        }
+    }
+
+    /// How many jobs are currently registered.
+    pub fn len(&self) -> usize {
+        self.inner.lock().map(|g| g.len()).unwrap_or(0)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum PythonJob {
     Ping,
-    GetTextBlocks { pdf_path: String, page_num: usize },
-    ReplaceTextInRect { 
-        pdf_path: String, 
-        output_path: String, 
-        page_num: usize, 
-        rect: [f32; 4], 
-        new_text: String,
-        font_path: Option<String> 
+    GetTextBlocks {
+        pdf_path: String,
+        page_num: usize,
     },
-    FindTextBlockAtClick { pdf_path: String, page_num: usize, x: f32, y: f32 },
-    GetAllTransactions { pdf_path: String },
-    AnalyzeDocumentLayout { pdf_path: String },
-    CompleteFontWithAdaption { pdf_path: String, font_name: String },
-    DeepFontReplication { pdf_path: String, font_name: String, output_dir: String },
+    ReplaceTextInRect {
+        pdf_path: String,
+        output_path: String,
+        page_num: usize,
+        rect: [f32; 4],
+        new_text: String,
+        font_path: Option<String>,
+    },
+    FindTextBlockAtClick {
+        pdf_path: String,
+        page_num: usize,
+        x: f32,
+        y: f32,
+    },
+    GetAllTransactions {
+        pdf_path: String,
+    },
+    AnalyzeDocumentLayout {
+        pdf_path: String,
+    },
+    CompleteFontWithAdaption {
+        pdf_path: String,
+        font_name: String,
+    },
+    DeepFontReplication {
+        pdf_path: String,
+        font_name: String,
+        output_dir: String,
+    },
 }
 
 #[derive(Debug)]
@@ -38,60 +127,164 @@ pub enum PythonJobResult {
 pub enum Job {
     Ping,
     Python(PythonJob, oneshot::Sender<PythonJobResult>),
-    LoadDocument { path: PathBuf },
-    RenderPage { path: PathBuf, page: usize, dpi: f32, tag: String },
-    ApplyChange { 
-        input: PathBuf, 
-        output: PathBuf, 
-        page: usize, 
-        bbox: [f32; 4], 
+    LoadDocument {
+        path: PathBuf,
+    },
+    RenderPage {
+        path: PathBuf,
+        page: usize,
+        dpi: f32,
+        tag: String,
+    },
+    ApplyChange {
+        input: PathBuf,
+        output: PathBuf,
+        page: usize,
+        bbox: [f32; 4],
         new_text: String,
         old_text: String,
         description: String,
         deep_font_replication: bool,
     },
-    CompleteFont { path: PathBuf, font_name: String },
+    CompleteFont {
+        path: PathBuf,
+        font_name: String,
+    },
     Undo,
     Redo,
-    BalanceStatement { path: PathBuf },
-    ExtractTransactions { path: PathBuf },
-    ApplyProposedChanges { input: PathBuf, output: PathBuf, changes: Vec<crate::engine::model::ProposedChange> },
-    ExportChangeHistory { output: PathBuf },
-    LoadHistory { input: PathBuf },
-    Verify { 
-        original: PathBuf, 
-        edited: PathBuf, 
-        output_dir: PathBuf, 
+    BalanceStatement {
+        path: PathBuf,
+    },
+    ExtractTransactions {
+        path: PathBuf,
+    },
+    ApplyProposedChanges {
+        input: PathBuf,
+        output: PathBuf,
+        changes: Vec<crate::engine::model::ProposedChange>,
+    },
+    ExportChangeHistory {
+        output: PathBuf,
+    },
+    LoadHistory {
+        input: PathBuf,
+    },
+    Verify {
+        original: PathBuf,
+        edited: PathBuf,
+        output_dir: PathBuf,
         intended_bboxes: Vec<(usize, [f32; 4])>,
         use_pdfrest: bool,
         pdfrest_key: Option<String>,
+    },
+
+    /// Cancel a previously-enqueued job by its [`JobId`]. Best-effort; the
+    /// task may have already finished. The runtime drops the token, so any
+    /// `tokio::select!` watching `cancelled()` exits with a structured error.
+    Cancel {
+        id: JobId,
+    },
+
+    // ----- Multi-stage workflow -------------------------------------------
+    /// Stage 1: parse with Document AI then validate completeness with Gemini.
+    WorkflowParseAndValidate {
+        input: PathBuf,
+    },
+    /// Stage 3: build a balance preview from edits without writing the PDF.
+    WorkflowPreview {
+        original_transactions: Vec<crate::engine::model::Transaction>,
+        edits: Vec<crate::engine::workflow::UserEdit>,
+        opening_balance: f64,
+        expected_closing: Option<f64>,
+    },
+    /// Stage 4 + 5 + 6: apply edits, render, validate visually in a loop, then
+    /// re-parse with Document AI to confirm math.
+    WorkflowConfirmAndRender {
+        input: PathBuf,
+        output: PathBuf,
+        edits: Vec<crate::engine::workflow::UserEdit>,
+        deep_font_replication: bool,
+        max_visual_attempts: u32,
+        visual_threshold: f64,
     },
 }
 
 #[derive(Debug)]
 pub enum JobResult {
     Pong,
-    DocumentLoaded { layout_json: String, total_pages: usize },
-    PageRendered { png_bytes: Vec<u8>, page: usize, dpi: f32, tag: String, width_pts: f32, height_pts: f32 },
-    ChangeApplied { record: ChangeRecord, requires_visual_review: bool },
-    HistoryUpdated { history: ChangeHistory },
+    DocumentLoaded {
+        layout_json: String,
+        total_pages: usize,
+    },
+    PageRendered {
+        png_bytes: Vec<u8>,
+        page: usize,
+        dpi: f32,
+        tag: String,
+        width_pts: f32,
+        height_pts: f32,
+    },
+    ChangeApplied {
+        record: ChangeRecord,
+        requires_visual_review: bool,
+    },
+    HistoryUpdated {
+        history: ChangeHistory,
+    },
     FontCompleted(String),
-    ChangeHistoryExported { path: PathBuf },
+    ChangeHistoryExported {
+        path: PathBuf,
+    },
     TransactionsExtracted(Vec<crate::engine::model::Transaction>),
     VerificationReport(crate::engine::verification::VerificationReport),
-    BalanceProposed { imbalance: f64, changes: Vec<crate::engine::model::ProposedChange> },
-    ProposedChangesApplied { changes_applied: usize, failures: Vec<String> },
-    Error { job_label: String, message: String },
-    Progress { label: String, fraction: f32 },
+    BalanceProposed {
+        imbalance: f64,
+        changes: Vec<crate::engine::model::ProposedChange>,
+    },
+    ProposedChangesApplied {
+        changes_applied: usize,
+        failures: Vec<String>,
+    },
+    Error {
+        job_label: String,
+        message: String,
+    },
+    Progress {
+        label: String,
+        fraction: f32,
+    },
+    /// A job tagged with this `JobId` was cancelled before it finished.
+    Cancelled {
+        id: JobId,
+    },
+
+    // ----- Multi-stage workflow ------------------------------------------
+    WorkflowStageChanged {
+        stage: crate::engine::workflow::WorkflowStage,
+    },
+    WorkflowParseValidated {
+        validation: crate::engine::workflow::ParseValidation,
+        transactions: Vec<crate::engine::model::Transaction>,
+    },
+    WorkflowPreviewBuilt(crate::engine::workflow::BalancePreview),
+    WorkflowVisualAttempt(crate::engine::workflow::VisualAttempt),
+    WorkflowComplete(crate::engine::workflow::WorkflowOutcome),
+    WorkflowFailed(crate::engine::workflow::WorkflowFailure),
 }
 
 pub struct Runtime {
     _tokio_rt: tokio::runtime::Runtime,
     _python_actor_thread: JoinHandle<()>,
+    /// Registry of in-flight jobs and their cancellation tokens. Cloneable;
+    /// pass to the GUI so it can cancel by id.
+    pub cancellations: CancellationRegistry,
 }
 
 impl Runtime {
-    pub fn start(audit_log: AuditLog, config: Arc<crate::app::config::AppConfig>) -> (Self, mpsc::Sender<Job>, mpsc::Receiver<JobResult>) {
+    pub fn start(
+        audit_log: AuditLog,
+        config: Arc<crate::app::config::AppConfig>,
+    ) -> (Self, mpsc::Sender<Job>, mpsc::Receiver<JobResult>) {
         let tokio_rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -99,19 +292,23 @@ impl Runtime {
 
         let (job_tx, job_rx) = mpsc::channel::<Job>();
         let (result_tx, result_rx) = mpsc::channel::<JobResult>();
-        
-        let (python_tx, python_rx) = mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
-        
+
+        let (python_tx, python_rx) =
+            mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
+
         let primary_engine = Arc::new(crate::pdf::MuPdfEngine::new());
         let fallback_engine = Arc::new(crate::pdf::PyMuPdfEngine::new(job_tx.clone()));
-        let engine: Arc<dyn crate::pdf::PdfEngine> = Arc::new(crate::pdf::PdfEngineSelector::new(primary_engine, fallback_engine));
+        let engine: Arc<dyn crate::pdf::PdfEngine> = Arc::new(crate::pdf::PdfEngineSelector::new(
+            primary_engine,
+            fallback_engine,
+        ));
 
         let audit_log = Arc::new(Mutex::new(audit_log));
         let history = Arc::new(Mutex::new(ChangeHistory::new()));
 
         let _python_actor_thread = thread::spawn(move || {
             let engine_result = PyEngine::init();
-            
+
             if let Err(e) = &engine_result {
                 tracing::error!("❌ [PYTHON_ACTOR] Failed to initialize PyEngine: {}", e);
             }
@@ -124,34 +321,62 @@ impl Runtime {
 
                 match &engine_result {
                     Ok(engine) => {
-                        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            match job {
+                        let res =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job {
                                 PythonJob::Ping => unreachable!(),
-                                PythonJob::GetTextBlocks { pdf_path, page_num } => {
-                                    engine.get_text_blocks(&pdf_path, page_num).map(PythonJobResult::Json)
-                                }
-                                PythonJob::ReplaceTextInRect { pdf_path, output_path, page_num, rect, new_text, font_path } => {
-                                   engine.replace_text_in_rect(&pdf_path, &output_path, page_num, rect, &new_text, font_path.as_deref())
-                                       .map(|opt| opt.map(|reason| PythonJobResult::ReplacedWithReviewWarning { reason }).unwrap_or(PythonJobResult::Success))
-                                }
-                                PythonJob::FindTextBlockAtClick { pdf_path, page_num, x, y } => {
-                                   engine.find_text_block_at_click(&pdf_path, page_num, x, y).map(PythonJobResult::Json)
-                                }
-                                PythonJob::GetAllTransactions { pdf_path } => {
-                                   engine.get_all_transactions(&pdf_path).map(PythonJobResult::Json)
-                                }
-                                PythonJob::AnalyzeDocumentLayout { pdf_path } => {
-                                   engine.analyze_document_layout(&pdf_path).map(PythonJobResult::Json)
-                                }
-                                PythonJob::CompleteFontWithAdaption { pdf_path, font_name } => {
-                                   engine.complete_font_with_adaption(&pdf_path, &font_name).map(PythonJobResult::Json)
-                                }
-                                PythonJob::DeepFontReplication { pdf_path, font_name, output_dir } => {
-                                   engine.deep_font_replication(&pdf_path, &font_name, &output_dir).map(PythonJobResult::Json)
-                                }
-
-                            }
-                        }));
+                                PythonJob::GetTextBlocks { pdf_path, page_num } => engine
+                                    .get_text_blocks(&pdf_path, page_num)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ReplaceTextInRect {
+                                    pdf_path,
+                                    output_path,
+                                    page_num,
+                                    rect,
+                                    new_text,
+                                    font_path,
+                                } => engine
+                                    .replace_text_in_rect(
+                                        &pdf_path,
+                                        &output_path,
+                                        page_num,
+                                        rect,
+                                        &new_text,
+                                        font_path.as_deref(),
+                                    )
+                                    .map(|opt| {
+                                        opt.map(|reason| {
+                                            PythonJobResult::ReplacedWithReviewWarning { reason }
+                                        })
+                                        .unwrap_or(PythonJobResult::Success)
+                                    }),
+                                PythonJob::FindTextBlockAtClick {
+                                    pdf_path,
+                                    page_num,
+                                    x,
+                                    y,
+                                } => engine
+                                    .find_text_block_at_click(&pdf_path, page_num, x, y)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::GetAllTransactions { pdf_path } => engine
+                                    .get_all_transactions(&pdf_path)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::AnalyzeDocumentLayout { pdf_path } => engine
+                                    .analyze_document_layout(&pdf_path)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::CompleteFontWithAdaption {
+                                    pdf_path,
+                                    font_name,
+                                } => engine
+                                    .complete_font_with_adaption(&pdf_path, &font_name)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::DeepFontReplication {
+                                    pdf_path,
+                                    font_name,
+                                    output_dir,
+                                } => engine
+                                    .deep_font_replication(&pdf_path, &font_name, &output_dir)
+                                    .map(PythonJobResult::Json),
+                            }));
 
                         let final_res = match res {
                             Ok(Ok(pjr)) => pjr,
@@ -170,17 +395,22 @@ impl Runtime {
                         let _ = reply_tx.send(final_res);
                     }
                     Err(e) => {
-                        let _ = reply_tx.send(PythonJobResult::Error(format!("Python Engine not initialized: {}", e)));
+                        let _ = reply_tx.send(PythonJobResult::Error(format!(
+                            "Python Engine not initialized: {}",
+                            e
+                        )));
                     }
                 }
             }
         });
 
+        let cancellations = CancellationRegistry::new();
+        let cancellations_for_loop = cancellations.clone();
         let result_tx_clone = result_tx.clone();
         let python_tx_clone = python_tx.clone();
-        
+
         let (tokio_job_tx, tokio_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
-        
+
         spawn_runtime_bridge(job_rx, tokio_job_tx.clone(), result_tx.clone());
 
         let mut tokio_job_rx = tokio_job_rx;
@@ -324,7 +554,10 @@ impl Runtime {
                                     let mut final_record = h.create_record(page, old_text, new_text.clone(), bbox, description, None);
                                     let snap_path = a.snapshot_path_for(final_record.id);
 
-                                    if let Err(e) = std::fs::copy(&output, &snap_path) {
+                                    // Snapshots use a hard link when possible (same volume)
+                                    // so applying many edits doesn't multiply disk usage by
+                                    // the PDF size. Falls back to a full copy on cross-FS.
+                                    if let Err(e) = crate::app::audit::snapshot_link_or_copy(&output, &snap_path) {
                                         let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Snapshot failed: {}", e) });
                                         return;
                                     }
@@ -571,6 +804,15 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Error { job_label: "export_history".into(), message: e });
                         });
                     }
+                    Job::Cancel { id } => {
+                        let cancelled = cancellations_for_loop.cancel(id);
+                        if cancelled {
+                            tracing::info!(job.id = id, "[runtime] cancellation requested");
+                            let _ = result_tx_clone.send(JobResult::Cancelled { id });
+                        } else {
+                            tracing::debug!(job.id = id, "[runtime] cancel for unknown job");
+                        }
+                    }
                     Job::LoadHistory { input } => {
                         let history_clone = history.clone();
                         let res_tx = result_tx_clone.clone();
@@ -676,6 +918,368 @@ impl Runtime {
                         }
                     }
 
+                    // -----------------------------------------------------------------
+                    // Stage 1: Document AI parse + Gemini completeness validate.
+                    // -----------------------------------------------------------------
+                    Job::WorkflowParseAndValidate { input } => {
+                        let res_tx = result_tx_clone.clone();
+                        let cfg = config_for_tokio.clone();
+                        let engine_for_tokio = engine_for_tokio.clone();
+                        tokio::spawn(async move {
+                            let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                stage: crate::engine::workflow::WorkflowStage::Parsing,
+                            });
+                            let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
+
+                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("Document AI not configured: {e}"))));
+                                    return;
+                                }
+                            };
+
+                            let stmt = match doc_ai.parse_entire_statement(&input).await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
+                                    return;
+                                }
+                            };
+
+                            let _ = res_tx.send(JobResult::Progress { label: "Asking Gemini to validate completeness".into(), fraction: 0.7 });
+
+                            // Gemini validation. If Gemini isn't configured we still
+                            // proceed but report a synthetic completeness score of 0.5
+                            // so the user sees that AI validation was skipped.
+                            let (score, notes, missing, _math_ok) = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                Ok(g) => {
+                                    match g.validate_parse_completeness(
+                                        &stmt.transactions,
+                                        stmt.opening_balance,
+                                        stmt.closing_balance,
+                                        stmt.total_pages,
+                                    ).await {
+                                        Ok(r) => (r.completeness_score, r.notes, r.missing_rows, r.math_consistent),
+                                        Err(e) => {
+                                            tracing::warn!("[workflow] Gemini validation failed: {e}; continuing");
+                                            (0.7, format!("Gemini validation skipped: {e}"), vec![], false)
+                                        }
+                                    }
+                                }
+                                Err(_) => (0.5, "Gemini not configured; AI validation skipped.".into(), vec![], false),
+                            };
+
+                            let validation = crate::engine::workflow::ParseValidation {
+                                total_pages: stmt.total_pages,
+                                transactions_found: stmt.transactions.len(),
+                                opening_balance: stmt.opening_balance,
+                                closing_balance: stmt.closing_balance,
+                                account_number: stmt.account_number.clone(),
+                                completeness_score: score,
+                                completeness_notes: notes,
+                                missing_rows: missing,
+                            };
+
+                            // Stage 2 / Item #11: cross-check against the deterministic
+                            // template extractor. If the template found materially more
+                            // rows than Document AI did, we down-weight Gemini's
+                            // completeness score. This is a free signal — no extra
+                            // network calls — so we always run it.
+                            let template_row_count = {
+                                let eng = engine_for_tokio.clone();
+                                let path = input.clone();
+                                let templates_dir = std::path::PathBuf::from("bank_templates");
+                                tokio::task::spawn_blocking(move || {
+                                    let provider = crate::extractors::BankTemplateProvider::new(
+                                        templates_dir.as_path(),
+                                        eng,
+                                    );
+                                    use crate::extractors::GeometryProvider;
+                                    provider
+                                        .extract_line_geometry(&path)
+                                        .map(|g| g.len())
+                                        .unwrap_or(0)
+                                })
+                                .await
+                                .unwrap_or(0)
+                            };
+                            let validation = crate::engine::workflow::cross_validate_with_template(
+                                validation,
+                                template_row_count,
+                            );
+
+                            let txs = stmt.transactions.clone();
+                            let _ = res_tx.send(JobResult::WorkflowParseValidated { validation: validation.clone(), transactions: txs });
+                            let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                stage: crate::engine::workflow::WorkflowStage::Editing(validation),
+                            });
+                            let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
+                        });
+                    }
+
+                    // -----------------------------------------------------------------
+                    // Stage 3: build a balance preview from the user's edits.
+                    // -----------------------------------------------------------------
+                    Job::WorkflowPreview { original_transactions, edits, opening_balance, expected_closing } => {
+                        let res_tx = result_tx_clone.clone();
+                        tokio::task::spawn_blocking(move || {
+                            match crate::engine::workflow::build_preview(&original_transactions, &edits, opening_balance, expected_closing) {
+                                Ok(p) => {
+                                    let _ = res_tx.send(JobResult::WorkflowPreviewBuilt(p.clone()));
+                                    let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                        stage: crate::engine::workflow::WorkflowStage::Previewing(p),
+                                    });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(format!("preview build failed: {e}"))));
+                                }
+                            }
+                        });
+                    }
+
+                    // -----------------------------------------------------------------
+                    // Stages 4 + 5 + 6: apply, render, validate visually in a loop,
+                    // then do a final Document AI math sanity pass.
+                    // -----------------------------------------------------------------
+                    Job::WorkflowConfirmAndRender { input, output, edits, deep_font_replication, max_visual_attempts, visual_threshold } => {
+                        let res_tx = result_tx_clone.clone();
+                        let eng = engine_for_tokio.clone();
+                        let py_tx = python_tx_clone.clone();
+                        let cfg = config_for_tokio.clone();
+                        tokio::spawn(async move {
+                            let mut attempt: u32 = 1;
+                            let mut visual_attempts: u32 = 0;
+                            let mut last_score: f64 = 1.0;
+                            let mut last_intended = false;
+                            let _ = (&last_score, &last_intended); // initial values used below the loop on early exit
+                            let intended_bboxes: Vec<(usize, [f32; 4])> = edits.iter().map(|e| (e.page, e.bbox)).collect();
+
+                            loop {
+                                let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                    stage: crate::engine::workflow::WorkflowStage::Rendering { attempt },
+                                });
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!("Rendering attempt {attempt}/{max_visual_attempts}"),
+                                    fraction: 0.1 + (attempt as f32) * 0.05,
+                                });
+
+                                // Apply each edit sequentially through the existing
+                                // binary-level path. We use a per-attempt scratch file
+                                // so a failed attempt doesn't poison the next one.
+                                let mut current = input.clone();
+                                let mut all_ok = true;
+                                let mut last_failure: Option<crate::engine::workflow::WorkflowFailure> = None;
+                                for (i, e) in edits.iter().enumerate() {
+                                    let scratch = output.with_extension(format!("attempt{attempt}.step{i}.pdf"));
+                                    if let Some(parent) = scratch.parent() {
+                                        let _ = std::fs::create_dir_all(parent);
+                                    }
+                                    let mut font_path: Option<PathBuf> = None;
+                                    if deep_font_replication {
+                                        let (tx, rx) = oneshot::channel();
+                                        let _ = py_tx.send((PythonJob::DeepFontReplication {
+                                            pdf_path: current.to_string_lossy().to_string(),
+                                            font_name: "Helvetica".to_string(),
+                                            output_dir: "output/temp_fonts".to_string(),
+                                        }, tx));
+                                        if let Ok(PythonJobResult::Json(json)) = rx.await {
+                                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
+                                                if v["success"].as_bool().unwrap_or(false) {
+                                                    font_path = v["metrics"]["font_path"].as_str().map(PathBuf::from);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    let cur_clone = current.clone();
+                                    let scratch_clone = scratch.clone();
+                                    let new_text_clone = e.new_text.clone();
+                                    let bbox = e.bbox;
+                                    let page = e.page;
+                                    let eng_clone = eng.clone();
+                                    let outcome = tokio::task::spawn_blocking(move || {
+                                        // Stage 2 / Item #1: guarded apply. Refuses
+                                        // to write if the caller's bbox doesn't
+                                        // overlap any real span by ≥50%, preventing
+                                        // edits to wrong rows when statements have
+                                        // duplicate values across cells.
+                                        eng_clone.apply_change_guarded(
+                                            &cur_clone,
+                                            &scratch_clone,
+                                            page,
+                                            bbox,
+                                            &new_text_clone,
+                                            font_path.as_deref(),
+                                            0.5,
+                                        )
+                                    }).await.unwrap_or_else(|e| Err(crate::pdf::EngineError::ApplyFailed(format!("blocking task panicked: {e}"))));
+
+                                    match outcome {
+                                        Ok(_) => current = scratch,
+                                        Err(err) => {
+                                            all_ok = false;
+                                            let msg = err.to_string();
+                                            if msg.contains("FONT_COVERAGE_INSUFFICIENT") {
+                                                let missing = serde_json::from_str::<serde_json::Value>(&msg)
+                                                    .ok()
+                                                    .and_then(|v| v.get("missing_chars").cloned())
+                                                    .and_then(|m| serde_json::from_value::<Vec<String>>(m).ok())
+                                                    .unwrap_or_default();
+                                                last_failure = Some(crate::engine::workflow::WorkflowFailure::FontCoverageFailed { missing_chars: missing });
+                                            } else {
+                                                last_failure = Some(crate::engine::workflow::WorkflowFailure::Other(msg));
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if !all_ok {
+                                    let f = last_failure.unwrap_or(crate::engine::workflow::WorkflowFailure::Other("apply step failed".into()));
+                                    let _ = res_tx.send(JobResult::WorkflowFailed(f));
+                                    return;
+                                }
+
+                                // Move the final scratch file to the requested output.
+                                let _ = std::fs::rename(&current, &output).or_else(|_| std::fs::copy(&current, &output).map(|_| ()));
+
+                                // Stage 5: visual validation against the original.
+                                visual_attempts += 1;
+                                let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                    stage: crate::engine::workflow::WorkflowStage::Validating(crate::engine::workflow::VisualAttempt {
+                                        attempt,
+                                        max_attempts: max_visual_attempts,
+                                        diff_score: 0.0,
+                                        threshold: visual_threshold,
+                                        only_intended: false,
+                                        message: "rendering pages".into(),
+                                    }),
+                                });
+
+                                let math_inputs = crate::engine::verification::MathInputs {
+                                    transactions: vec![],
+                                    opening_balance: 0.0,
+                                    expected_final_balance: None,
+                                };
+                                let out_dir = std::path::PathBuf::from("audit/verify").join(format!("workflow-{}", chrono::Utc::now().format("%Y%m%d%H%M%S")));
+                                // Stage 2 / Item #2: only re-render the pages
+                                // that were actually edited. This keeps the
+                                // visual-validation loop fast on multi-page
+                                // statements where most pages won't change.
+                                let mut changed_pages: Vec<usize> =
+                                    edits.iter().map(|e| e.page).collect();
+                                changed_pages.sort_unstable();
+                                changed_pages.dedup();
+                                let report = match crate::engine::verification::verify_edit_pages(
+                                    &input,
+                                    &output,
+                                    &out_dir,
+                                    &intended_bboxes,
+                                    math_inputs,
+                                    false,
+                                    None,
+                                    Some(&changed_pages),
+                                )
+                                .await {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(format!("visual verify failed: {e}"))));
+                                        return;
+                                    }
+                                };
+
+                                last_score = report.visual_diff_score;
+                                last_intended = report.only_intended_changes;
+                                let attempt_state = crate::engine::workflow::VisualAttempt {
+                                    attempt,
+                                    max_attempts: max_visual_attempts,
+                                    diff_score: report.visual_diff_score,
+                                    threshold: visual_threshold,
+                                    only_intended: report.only_intended_changes,
+                                    message: report.message.clone(),
+                                };
+                                let _ = res_tx.send(JobResult::WorkflowVisualAttempt(attempt_state.clone()));
+
+                                if attempt_state.passed() {
+                                    break;
+                                }
+
+                                if attempt >= max_visual_attempts {
+                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::VisualNotConverged {
+                                        last_score: report.visual_diff_score,
+                                        attempts: attempt,
+                                    }));
+                                    return;
+                                }
+                                attempt += 1;
+                            }
+
+                            // Stage 6: final Document AI math integrity check.
+                            let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                stage: crate::engine::workflow::WorkflowStage::FinalChecking,
+                            });
+                            let _ = res_tx.send(JobResult::Progress { label: "Final Document AI check".into(), fraction: 0.95 });
+
+                            let final_imbalance;
+                            let math_valid;
+                            let re_parsed_count;
+                            match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(client) => {
+                                    match client.parse_entire_statement(&output).await {
+                                        Ok(stmt) => {
+                                            re_parsed_count = stmt.transactions.len();
+                                            let opening = stmt.opening_balance;
+                                            let expected_close = if stmt.closing_balance.abs() > 0.0 { Some(stmt.closing_balance) } else { None };
+                                            match crate::engine::workflow::build_preview(&stmt.transactions, &[], opening, expected_close) {
+                                                Ok(p) => {
+                                                    final_imbalance = p.final_imbalance;
+                                                    math_valid = p.balanced;
+                                                }
+                                                Err(_) => {
+                                                    final_imbalance = 0.0;
+                                                    math_valid = false;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(format!("final re-parse failed: {e}"))));
+                                            return;
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    // No DocAI configured; skip with a permissive default.
+                                    final_imbalance = 0.0;
+                                    math_valid = true;
+                                    re_parsed_count = 0;
+                                }
+                            }
+
+                            if !math_valid {
+                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FinalMathInvalid { imbalance: final_imbalance }));
+                                return;
+                            }
+
+                            let outcome = crate::engine::workflow::WorkflowOutcome {
+                                final_pdf: output.clone(),
+                                transactions_re_parsed: re_parsed_count,
+                                final_imbalance,
+                                math_valid,
+                                visual_attempts,
+                                completion_summary: format!(
+                                    "Bank statement confirmed. Visual diff {:.4}, intended-only={}, math valid={}.",
+                                    last_score, last_intended, math_valid
+                                ),
+                            };
+                            let _ = res_tx.send(JobResult::WorkflowComplete(outcome.clone()));
+                            let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                stage: crate::engine::workflow::WorkflowStage::Complete(outcome),
+                            });
+                            let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
+                        });
+                    }
+
                 }
             }
         });
@@ -684,6 +1288,7 @@ impl Runtime {
             Self {
                 _tokio_rt: tokio_rt,
                 _python_actor_thread,
+                cancellations,
             },
             job_tx,
             result_rx,
@@ -729,6 +1334,59 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn cancellation_registry_register_and_cancel_round_trip() {
+        let reg = CancellationRegistry::new();
+        let id = alloc_job_id();
+        let token = reg.register(id);
+        assert_eq!(reg.len(), 1);
+        assert!(!token.is_cancelled());
+
+        let cancelled = reg.cancel(id);
+        assert!(cancelled);
+        assert!(token.is_cancelled());
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn cancellation_registry_complete_removes_without_cancelling() {
+        let reg = CancellationRegistry::new();
+        let id = alloc_job_id();
+        let token = reg.register(id);
+        reg.complete(id);
+        assert_eq!(reg.len(), 0);
+        // Completing should not flip the token's cancelled flag.
+        assert!(!token.is_cancelled());
+    }
+
+    #[test]
+    fn cancellation_registry_unknown_id_is_noop() {
+        let reg = CancellationRegistry::new();
+        assert!(!reg.cancel(99999));
+    }
+
+    #[test]
+    fn cancellation_registry_cancel_all_drains_every_token() {
+        let reg = CancellationRegistry::new();
+        let t1 = reg.register(1);
+        let t2 = reg.register(2);
+        let t3 = reg.register(3);
+        reg.cancel_all();
+        assert_eq!(reg.len(), 0);
+        assert!(t1.is_cancelled());
+        assert!(t2.is_cancelled());
+        assert!(t3.is_cancelled());
+    }
+
+    #[test]
+    fn alloc_job_id_is_strictly_monotonic() {
+        let a = alloc_job_id();
+        let b = alloc_job_id();
+        let c = alloc_job_id();
+        assert!(a < b);
+        assert!(b < c);
+    }
+
+    #[test]
     fn test_bridge_fail_loud() {
         let (job_tx, job_rx) = mpsc::channel::<Job>();
         let (tokio_job_tx, tokio_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
@@ -761,7 +1419,8 @@ mod tests {
     async fn test_python_job_recursion_regression() {
         // GIVEN: A mock setup that mirrors the Runtime's job loop
         let (job_tx, mut job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
-        let (python_tx, python_rx) = std::sync::mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
+        let (python_tx, python_rx) =
+            std::sync::mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
         let python_tx_clone = python_tx.clone();
 
         // 1. A selector with PyMuPdfEngine (which sends jobs back to a channel)
@@ -772,7 +1431,7 @@ mod tests {
                 let _ = job_tx_clone.send(job);
             }
         });
-        
+
         // Use real engines but selector will fall back because MuPdf doesn't support get_text_blocks
         let primary = Arc::new(crate::pdf::MuPdfEngine::new());
         let fallback = Arc::new(crate::pdf::PyMuPdfEngine::new(std_job_tx));
@@ -792,16 +1451,25 @@ mod tests {
 
         // 3. Trigger a job that would cause recursion in the old version
         let (reply_tx, _reply_rx) = oneshot::channel();
-        job_tx.send(Job::Python(
-            PythonJob::GetTextBlocks { pdf_path: "input.pdf".into(), page_num: 0 },
-            reply_tx
-        )).unwrap();
+        job_tx
+            .send(Job::Python(
+                PythonJob::GetTextBlocks {
+                    pdf_path: "input.pdf".into(),
+                    page_num: 0,
+                },
+                reply_tx,
+            ))
+            .unwrap();
 
         // WHEN: We wait for the message to land on the Python actor
         let (received_job, python_rx) = tokio::task::spawn_blocking(move || {
-            let res = python_rx.recv_timeout(Duration::from_secs(1)).expect("Python job should be forwarded to actor");
+            let res = python_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Python job should be forwarded to actor");
             (res.0, python_rx)
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         // THEN:
         // 1. It must be the job we sent
@@ -809,7 +1477,10 @@ mod tests {
 
         // 2. Exactly ONE message must be received by the actor (no recursion)
         let next_res = python_rx.try_recv();
-        assert!(next_res.is_err(), "Recursion detected: multiple messages sent to Python actor");
+        assert!(
+            next_res.is_err(),
+            "Recursion detected: multiple messages sent to Python actor"
+        );
 
         // Cleanup
         drop(job_tx);

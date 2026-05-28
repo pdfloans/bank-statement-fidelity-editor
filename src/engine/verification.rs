@@ -1,14 +1,14 @@
 //! Strong Alteration Verification Module
 //! Combines local pdfium-render + perceptual hashing for maximum confidence.
 
-use pdfium_render::prelude::*;
-use std::path::Path;
-use crate::engine::model::Transaction;
 use crate::engine::balance::{process_and_reconcile, BalanceError};
-use thiserror::Error;
+use crate::engine::model::Transaction;
 use image::RgbaImage;
-use image_hasher::{HasherConfig, HashAlg};
+use image_hasher::{HashAlg, HasherConfig};
+use pdfium_render::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationReport {
@@ -54,6 +54,35 @@ pub async fn verify_edit(
     use_pdfrest: bool,
     pdfrest_key: Option<String>,
 ) -> Result<VerificationReport, VerificationError> {
+    verify_edit_pages(
+        original,
+        edited,
+        output_dir,
+        intended_bboxes,
+        math_inputs,
+        use_pdfrest,
+        pdfrest_key,
+        None,
+    )
+    .await
+}
+
+/// Same as [`verify_edit`] but with the option to restrict the visual diff
+/// to a specific set of pages (Stage 2 / Item #2). Useful for the workflow's
+/// visual-validation loop, which knows from [`crate::engine::workflow::BalancePreview::changed_pages`]
+/// which pages were actually edited and can avoid re-rendering the rest.
+///
+/// `only_pages = None` is identical to `verify_edit`.
+pub async fn verify_edit_pages(
+    original: &Path,
+    edited: &Path,
+    output_dir: &Path,
+    intended_bboxes: &[(usize, [f32; 4])],
+    math_inputs: MathInputs,
+    use_pdfrest: bool,
+    pdfrest_key: Option<String>,
+    only_pages: Option<&[usize]>,
+) -> Result<VerificationReport, VerificationError> {
     std::fs::create_dir_all(output_dir)?;
 
     let mut pdfrest_warning: Option<String> = None;
@@ -80,25 +109,35 @@ pub async fn verify_edit(
                         crate::ai::pdfrest::PdfRestError::Timeout { .. } => "Timeout",
                         _ => "API Error",
                     };
-                    pdfrest_warning = Some(format!("⚠️ pdfRest unavailable ({}); using local rendering.", label));
+                    pdfrest_warning = Some(format!(
+                        "⚠️ pdfRest unavailable ({}); using local rendering.",
+                        label
+                    ));
                 }
             }
         } else {
-            pdfrest_warning = Some("⚠️ pdfRest requested but PDFREST_API_KEY missing; using local rendering.".into());
+            pdfrest_warning = Some(
+                "⚠️ pdfRest requested but PDFREST_API_KEY missing; using local rendering.".into(),
+            );
         }
     }
 
     let pdfium = Pdfium::default();
-    let original_doc = pdfium.load_pdf_from_file(original, None)
+    let original_doc = pdfium
+        .load_pdf_from_file(original, None)
         .map_err(|e| VerificationError::PdfiumLoad(e.to_string()))?;
-    let edited_doc = pdfium.load_pdf_from_file(edited, None)
+    let edited_doc = pdfium
+        .load_pdf_from_file(edited, None)
         .map_err(|e| VerificationError::PdfiumLoad(e.to_string()))?;
 
     let original_len = original_doc.pages().len() as usize;
     let edited_len = edited_doc.pages().len() as usize;
 
     if original_len != edited_len {
-        return Err(VerificationError::PageCountMismatch { original: original_len, edited: edited_len });
+        return Err(VerificationError::PageCountMismatch {
+            original: original_len,
+            edited: edited_len,
+        });
     }
 
     let mut report_files = Vec::new();
@@ -110,72 +149,102 @@ pub async fn verify_edit(
         .to_hasher();
 
     for i in 0..original_len {
+        // Stage 2 / Item #2: skip pages the caller hasn't asked us to check.
+        // This makes the visual-validation loop cheap on multi-page edits.
+        if let Some(pages) = only_pages {
+            if !pages.contains(&i) {
+                continue;
+            }
+        }
         let page_idx = i as u16;
-        
-        let (mut original_img, mut edited_img) = if let Some((orig_paths, edit_paths)) = &pdfrest_images {
-            if i < orig_paths.len() && i < edit_paths.len() {
-                let o = image::open(&orig_paths[i]).map(|img| img.to_rgba8());
-                let e = image::open(&edit_paths[i]).map(|img| img.to_rgba8());
-                
-                match (o, e) {
-                    (Ok(o_img), Ok(e_img)) => {
-                        report_files.push(orig_paths[i].to_string_lossy().to_string());
-                        report_files.push(edit_paths[i].to_string_lossy().to_string());
-                        (o_img, e_img)
-                    }
-                    _ => {
-                        // Fallback to pdfium
-                        let original_page = original_doc.pages().get(page_idx)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
-                        let edited_page = edited_doc.pages().get(page_idx)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
 
-                        let target_width = (original_page.width().value * 300.0 / 72.0) as i32;
-                        let render_config = PdfRenderConfig::new().set_target_width(target_width).set_clear_color(PdfColor::WHITE);
+        let (mut original_img, mut edited_img) =
+            if let Some((orig_paths, edit_paths)) = &pdfrest_images {
+                if i < orig_paths.len() && i < edit_paths.len() {
+                    let o = image::open(&orig_paths[i]).map(|img| img.to_rgba8());
+                    let e = image::open(&edit_paths[i]).map(|img| img.to_rgba8());
 
-                        let o_img = original_page.render_with_config(&render_config)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                            .as_image().to_rgba8();
-                        let e_img = edited_page.render_with_config(&render_config)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                            .as_image().to_rgba8();
-                        (o_img, e_img)
+                    match (o, e) {
+                        (Ok(o_img), Ok(e_img)) => {
+                            report_files.push(orig_paths[i].to_string_lossy().to_string());
+                            report_files.push(edit_paths[i].to_string_lossy().to_string());
+                            (o_img, e_img)
+                        }
+                        _ => {
+                            // Fallback to pdfium
+                            let original_page = original_doc
+                                .pages()
+                                .get(page_idx)
+                                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
+                            let edited_page = edited_doc
+                                .pages()
+                                .get(page_idx)
+                                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
+
+                            let target_width = (original_page.width().value * 300.0 / 72.0) as i32;
+                            let render_config = PdfRenderConfig::new()
+                                .set_target_width(target_width)
+                                .set_clear_color(PdfColor::WHITE);
+
+                            let o_img = original_page
+                                .render_with_config(&render_config)
+                                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
+                                .as_image()
+                                .to_rgba8();
+                            let e_img = edited_page
+                                .render_with_config(&render_config)
+                                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
+                                .as_image()
+                                .to_rgba8();
+                            (o_img, e_img)
+                        }
                     }
+                } else {
+                    (image::RgbaImage::new(1, 1), image::RgbaImage::new(1, 1)) // Should not happen
                 }
             } else {
-                (image::RgbaImage::new(1, 1), image::RgbaImage::new(1, 1)) // Should not happen
-            }
-        } else {
-            let original_page = original_doc.pages().get(page_idx)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
-            let edited_page = edited_doc.pages().get(page_idx)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
+                let original_page = original_doc
+                    .pages()
+                    .get(page_idx)
+                    .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
+                let edited_page = edited_doc
+                    .pages()
+                    .get(page_idx)
+                    .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
 
-            let width_pts = original_page.width().value;
-            let target_width = (width_pts * 300.0 / 72.0) as i32;
+                let width_pts = original_page.width().value;
+                let target_width = (width_pts * 300.0 / 72.0) as i32;
 
-            let render_config = PdfRenderConfig::new()
-                .set_target_width(target_width)
-                .set_clear_color(PdfColor::WHITE);
+                let render_config = PdfRenderConfig::new()
+                    .set_target_width(target_width)
+                    .set_clear_color(PdfColor::WHITE);
 
-            let o_img = original_page.render_with_config(&render_config)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                .as_image().to_rgba8();
+                let o_img = original_page
+                    .render_with_config(&render_config)
+                    .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
+                    .as_image()
+                    .to_rgba8();
 
-            let e_img = edited_page.render_with_config(&render_config)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                .as_image().to_rgba8();
+                let e_img = edited_page
+                    .render_with_config(&render_config)
+                    .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
+                    .as_image()
+                    .to_rgba8();
 
-            let orig_png_path = output_dir.join(format!("original_p{}_300dpi.png", i + 1));
-            let edit_png_path = output_dir.join(format!("edited_p{}_300dpi.png", i + 1));
-            
-            o_img.save(&orig_png_path).map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
-            e_img.save(&edit_png_path).map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
-            
-            report_files.push(orig_png_path.to_string_lossy().to_string());
-            report_files.push(edit_png_path.to_string_lossy().to_string());
-            (o_img, e_img)
-        };
+                let orig_png_path = output_dir.join(format!("original_p{}_300dpi.png", i + 1));
+                let edit_png_path = output_dir.join(format!("edited_p{}_300dpi.png", i + 1));
+
+                o_img
+                    .save(&orig_png_path)
+                    .map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
+                e_img
+                    .save(&edit_png_path)
+                    .map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
+
+                report_files.push(orig_png_path.to_string_lossy().to_string());
+                report_files.push(edit_png_path.to_string_lossy().to_string());
+                (o_img, e_img)
+            };
 
         // Apply masks
         let scale = 300.0 / 72.0;
@@ -222,7 +291,9 @@ pub async fn verify_edit(
         max_visual_score = max_visual_score.max(page_score);
 
         let diff_png_path = output_dir.join(format!("visual_diff_p{}_300dpi.png", i + 1));
-        diff_img.save(&diff_png_path).map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
+        diff_img
+            .save(&diff_png_path)
+            .map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
         report_files.push(diff_png_path.to_string_lossy().to_string());
     }
 
@@ -232,7 +303,7 @@ pub async fn verify_edit(
     let (math_valid, math_message) = match process_and_reconcile(
         math_inputs.transactions,
         math_inputs.opening_balance,
-        math_inputs.expected_final_balance
+        math_inputs.expected_final_balance,
     ) {
         Ok((_, None)) => (true, "✅ Mathematical integrity verified.".to_string()),
         Ok((_, Some(msg))) => (false, format!("⚠️ Mathematical mismatch: {}", msg)),

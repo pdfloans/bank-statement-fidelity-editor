@@ -64,7 +64,14 @@ pub fn apply_text_edit(
     }
 
     engine
-        .apply_change(req.input, req.output, req.page, req.bbox, req.new_text, req.font_path)
+        .apply_change(
+            req.input,
+            req.output,
+            req.page,
+            req.bbox,
+            req.new_text,
+            req.font_path,
+        )
         .map_err(TextEditError::from)
 }
 

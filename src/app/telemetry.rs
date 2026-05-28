@@ -1,10 +1,10 @@
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use crate::app::config::AppConfig;
-use opentelemetry_sdk::trace;
-use opentelemetry_sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace;
+use opentelemetry_sdk::Resource;
 use std::sync::Once;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 static PANIC_HOOK: Once = Once::new();
 
@@ -83,12 +83,9 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
                         .tonic()
                         .with_endpoint(endpoint),
                 )
-                .with_trace_config(
-                    trace::config().with_resource(Resource::new(vec![KeyValue::new(
-                        "service.name",
-                        cfg.otel_service_name.clone(),
-                    )])),
-                )
+                .with_trace_config(trace::config().with_resource(Resource::new(vec![
+                    KeyValue::new("service.name", cfg.otel_service_name.clone()),
+                ])))
                 .install_batch(opentelemetry_sdk::runtime::Tokio)
         }));
 
@@ -98,11 +95,16 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
                 subscriber.with(otel_layer).init();
             }
             Ok(Err(e)) => {
-                eprintln!("⚠️ Failed to initialize OTLP tracer at {}: {}. Continuing without OTLP.", endpoint, e);
+                eprintln!(
+                    "⚠️ Failed to initialize OTLP tracer at {}: {}. Continuing without OTLP.",
+                    endpoint, e
+                );
                 subscriber.init();
             }
             Err(_) => {
-                eprintln!("⚠️ OTLP install panicked (likely missing runtime); continuing without OTLP.");
+                eprintln!(
+                    "⚠️ OTLP install panicked (likely missing runtime); continuing without OTLP."
+                );
                 subscriber.init();
             }
         }

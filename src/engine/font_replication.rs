@@ -61,7 +61,10 @@ mod tests {
         }"#;
         let parsed = DeepFontReplicationResult::from_json(json).unwrap();
         assert!(parsed.success);
-        assert_eq!(parsed.font_path().unwrap().to_string_lossy(), "out/extracted_subset.ttf");
+        assert_eq!(
+            parsed.font_path().unwrap().to_string_lossy(),
+            "out/extracted_subset.ttf"
+        );
         assert_eq!(parsed.images.len(), 1);
     }
 

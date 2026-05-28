@@ -1,8 +1,8 @@
 //! Software Root of Trust — Production-Grade Security Without Any Hardware
-//! 
+//!
 //! Requires a strong passphrase via environment variable or a local key file.
 //! This is the absolute best possible security for users who cannot obtain hardware keys.
-//! 
+//!
 //! Usage:
 //!   export DUAL_CORE_PASSPHRASE="YourSuperStrongPassphrase2026!@#"
 //!   or create .pipeline_key file with the passphrase (gitignored)
@@ -30,7 +30,10 @@ pub fn require_software_attestation() -> Result<(), String> {
         ));
     }
 
-    tracing::info!("[SECURITY] ✓ Strong passphrase verified ({} chars)", passphrase.len());
+    tracing::info!(
+        "[SECURITY] ✓ Strong passphrase verified ({} chars)",
+        passphrase.len()
+    );
     tracing::info!("[SECURITY] ✓ Software root of trust established (production-grade for Alpha).");
     tracing::info!("[SECURITY]    Pipeline unlocked.");
     tracing::info!("[SECURITY] ═══════════════════════════════════════════════");
@@ -66,9 +69,8 @@ fn get_passphrase() -> Result<String, String> {
         return Ok("dev-passphrase-for-testing-only-2026".to_string());
     }
 
-    Err(
-        "No strong passphrase found!\n\
+    Err("No strong passphrase found!\n\
          Set DUAL_CORE_PASSPHRASE environment variable or create .pipeline_key file.\n\
-         Minimum 16 characters recommended for security.".to_string()
-    )
+         Minimum 16 characters recommended for security."
+        .to_string())
 }

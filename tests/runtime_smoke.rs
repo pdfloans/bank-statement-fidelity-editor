@@ -41,8 +41,15 @@ fn runtime_ping_pong_smoke() {
     let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
     job_tx.send(Job::Ping).unwrap();
-    let pong = drain_until(&job_rx, |r| matches!(r, JobResult::Pong), Duration::from_secs(15));
-    assert!(pong.is_some(), "did not receive Pong from runtime within timeout");
+    let pong = drain_until(
+        &job_rx,
+        |r| matches!(r, JobResult::Pong),
+        Duration::from_secs(15),
+    );
+    assert!(
+        pong.is_some(),
+        "did not receive Pong from runtime within timeout"
+    );
 }
 
 #[test]
@@ -64,7 +71,9 @@ fn runtime_load_history_round_trips_through_actor() {
     let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
     job_tx
-        .send(Job::LoadHistory { input: history_path })
+        .send(Job::LoadHistory {
+            input: history_path,
+        })
         .unwrap();
 
     let res = drain_until(

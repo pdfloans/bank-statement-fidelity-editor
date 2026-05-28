@@ -1,7 +1,7 @@
-use std::path::Path;
-use std::fs;
-use serde::{Deserialize, Serialize};
 use super::geometry::*;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BankTemplate {
@@ -38,22 +38,34 @@ impl BankTemplateProvider {
 impl GeometryProvider for BankTemplateProvider {
     fn extract_line_geometry(&self, pdf_path: &Path) -> Result<Vec<LineGeometry>, ExtractorError> {
         let mut geometries = Vec::new();
-        
+
         // 1. Get layout to know total pages
-        let layout = self.engine.analyze_layout(pdf_path)
+        let layout = self
+            .engine
+            .analyze_layout(pdf_path)
             .map_err(|e| ExtractorError::ExtractionFailed(e.to_string()))?;
 
         for page in 0..layout.total_pages {
-            let blocks = self.engine.get_text_blocks(pdf_path, page).unwrap_or_default();
-            let page_text = blocks.iter().map(|b| b.text.clone()).collect::<Vec<_>>().join(" ");
+            let blocks = self
+                .engine
+                .get_text_blocks(pdf_path, page)
+                .unwrap_or_default();
+            let page_text = blocks
+                .iter()
+                .map(|b| b.text.clone())
+                .collect::<Vec<_>>()
+                .join(" ");
 
             // 2. Identify template
             for template in &self.templates {
-                let matches_all = template.header_signatures.iter().all(|sig| page_text.contains(sig));
-                
+                let matches_all = template
+                    .header_signatures
+                    .iter()
+                    .all(|sig| page_text.contains(sig));
+
                 if matches_all {
                     tracing::info!("Matched template '{}' on page {}", template.id, page);
-                    
+
                     // 3. Simple row-based extraction using template-defined columns
                     // This is a placeholder for actual column-based slicing
                     for (i, block) in blocks.iter().enumerate() {
@@ -63,7 +75,9 @@ impl GeometryProvider for BankTemplateProvider {
                             text: block.text.clone(),
                             bbox: block.bbox,
                             confidence: 1.0,
-                            source: GeometrySource::BankTemplate { template_id: template.id.clone() },
+                            source: GeometrySource::BankTemplate {
+                                template_id: template.id.clone(),
+                            },
                         });
                     }
                 }
