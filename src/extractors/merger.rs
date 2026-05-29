@@ -40,12 +40,21 @@ impl HybridMerger {
                 }
             }
 
+            // Stage 7.5: only overwrite the existing bbox when the geometry
+            // provider has higher-trust source data (a bank template). For
+            // anything else we prefer Document AI's bbox (which already
+            // matches the entity that produced the row's content).
             if let Some(m) = best_match {
-                tx.bbox = Some(m.bbox);
-                // Retain the index so we can remove it? We'll just clone.
+                let prefer_geo = matches!(m.source, GeometrySource::BankTemplate { .. })
+                    || tx.bbox.is_none();
+                if prefer_geo {
+                    tx.bbox = Some(m.bbox);
+                }
                 merged.push(tx);
             } else {
-                unmatched_count += 1;
+                if tx.bbox.is_none() {
+                    unmatched_count += 1;
+                }
                 merged.push(tx);
             }
         }
@@ -95,6 +104,7 @@ mod tests {
             credit: None,
             running_balance: None,
             bbox: None,
+            field_bboxes: Default::default(),
             provenance: Provenance::DocumentAI { confidence: 0.9 },
         };
 

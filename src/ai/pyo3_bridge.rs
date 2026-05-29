@@ -13,6 +13,32 @@ impl PyEngine {
         let py_code = include_str!("../../python/pymupdf_pro_integration.py");
 
         Python::with_gil(|py| {
+            // Stage 11: ensure `python/` (where font_replicator.py lives) is
+            // on sys.path so the integration module can `import font_replicator`.
+            // We try in order: (1) the path baked in via PYO3_PYTHON_DIR env
+            // var if set, (2) ./python relative to cwd, (3) the module's own
+            // file path resolved at compile time. Each one's added only if
+            // it actually exists.
+            let sys = py.import_bound("sys").map_err(|e| e.to_string())?;
+            let path = sys.getattr("path").map_err(|e| e.to_string())?;
+            let path_list = path
+                .downcast::<pyo3::types::PyList>()
+                .map_err(|e| e.to_string())?;
+            let candidates: Vec<std::path::PathBuf> = [
+                std::env::var("PYO3_PYTHON_DIR").ok().map(std::path::PathBuf::from),
+                Some(std::path::PathBuf::from("python")),
+                Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            for cand in candidates {
+                if cand.is_dir() {
+                    let s = cand.to_string_lossy().to_string();
+                    let _ = path_list.insert(0, s);
+                }
+            }
+
             let module =
                 PyModule::new_bound(py, "pymupdf_pro_integration").map_err(|e| e.to_string())?;
 
@@ -136,7 +162,9 @@ impl PyEngine {
                     // Capture the Python exception value (which is a JSON string for our
                     // structured failures) and propagate it.
                     let msg = e.to_string();
-                    Err(if msg.contains("FONT_COVERAGE_INSUFFICIENT") {
+                    Err(if msg.contains("FONT_COVERAGE_INSUFFICIENT")
+                        || msg.contains("PDF_NOT_EDITABLE")
+                    {
                         // Already structured; pass through unchanged.
                         msg
                     } else {
@@ -200,6 +228,117 @@ impl PyEngine {
                 py,
                 "deep_font_replication_api",
                 (pdf_path, font_name, output_dir),
+            )
+        })
+    }
+
+    /// Apply many targeted edits in a single open/save pass. See
+    /// `python/pymupdf_pro_integration.py::apply_many_edits`.
+    /// `edits_json` is a JSON array of `{page, rect, new_text, fill_color?}`.
+    /// Returns the JSON dict the Python function returned, or a structured
+    /// error string on `FONT_COVERAGE_INSUFFICIENT`.
+    pub fn apply_many_edits(
+        &self,
+        pdf_path: &str,
+        output_path: &str,
+        edits_json: &str,
+        font_path: Option<&str>,
+    ) -> Result<String, String> {
+        Python::with_gil(|py| {
+            let json_mod = py.import_bound("json").map_err(|e| e.to_string())?;
+            let loads = json_mod.getattr("loads").map_err(|e| e.to_string())?;
+            let edits_obj = loads.call1((edits_json,)).map_err(|e| e.to_string())?;
+
+            let func = self
+                .module
+                .getattr(py, "apply_many_edits")
+                .map_err(|e| e.to_string())?;
+            let kwargs = PyDict::new_bound(py);
+            kwargs
+                .set_item("pdf_path", pdf_path)
+                .map_err(|e| e.to_string())?;
+            kwargs
+                .set_item("output_path", output_path)
+                .map_err(|e| e.to_string())?;
+            kwargs
+                .set_item("edits", edits_obj)
+                .map_err(|e| e.to_string())?;
+            if let Some(fp) = font_path {
+                kwargs.set_item("font_path", fp).map_err(|e| e.to_string())?;
+            }
+
+            let result = func.call_bound(py, (), Some(&kwargs));
+            match result {
+                Ok(obj) => {
+                    let dumps = json_mod.getattr("dumps").map_err(|e| e.to_string())?;
+                    let s: String = dumps
+                        .call1((obj,))
+                        .map_err(|e| e.to_string())?
+                        .extract()
+                        .map_err(|e| e.to_string())?;
+                    Ok(s)
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    Err(if msg.contains("FONT_COVERAGE_INSUFFICIENT")
+                        || msg.contains("PDF_NOT_EDITABLE")
+                    {
+                        msg
+                    } else {
+                        format!("PyMuPDF apply_many_edits failed: {msg}")
+                    })
+                }
+            }
+        })
+    }
+
+    /// Split a PDF into chunks for Document AI. See
+    /// `python/pymupdf_pro_integration.py::chunk_pdf_for_docai`.
+    /// Returns the JSON list of `{path, page_offset, page_count}`.
+    pub fn chunk_pdf_for_docai(
+        &self,
+        pdf_path: &str,
+        output_dir: &str,
+        max_pages_per_chunk: usize,
+    ) -> Result<String, String> {
+        Python::with_gil(|py| {
+            self.call_json(
+                py,
+                "chunk_pdf_for_docai",
+                (pdf_path, output_dir, max_pages_per_chunk),
+            )
+        })
+    }
+
+    /// Stage 8.5: per-font usage and coverage analysis. See
+    /// `python/pymupdf_pro_integration.py::analyze_fonts`.
+    /// Returns the JSON shape documented there.
+    pub fn analyze_fonts(&self, pdf_path: &str) -> Result<String, String> {
+        Python::with_gil(|py| self.call_json(py, "analyze_fonts", (pdf_path,)))
+    }
+
+    /// Stage 11: targeted font cascade.
+    ///
+    /// Calls `python/pymupdf_pro_integration.py::replicate_font_for_missing_chars`
+    /// which delegates to `font_replicator.replicate_font_for_chars`. The
+    /// cascade tries composite synthesis, donor-based subset extension,
+    /// and Gemini Vision typeface ID in order.
+    ///
+    /// Returns the JSON dict produced by the cascade. On `success: true`
+    /// the dict's `extended_font_path` points at a TTF/OTF the editor can
+    /// pass back as `font_path` for the next apply attempt.
+    pub fn replicate_font_for_missing_chars(
+        &self,
+        pdf_path: &str,
+        font_name: &str,
+        missing_chars_csv: &str,
+        output_dir: &str,
+    ) -> Result<String, String> {
+        Python::with_gil(|py| {
+            self.call_json(
+                py,
+                "replicate_font_for_missing_chars",
+                (pdf_path, font_name, missing_chars_csv, output_dir),
             )
         })
     }

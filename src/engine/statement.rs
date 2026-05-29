@@ -13,9 +13,11 @@
 
 use crate::ai::document_ai::DocumentAiClient;
 use crate::ai::gemini_client::GeminiClient;
-use crate::engine::model::{ProposedChange, Transaction};
+use crate::engine::model::{dec_to_f64, f64_to_dec, ProposedChange, Transaction};
 use crate::extractors::merger::HybridMerger;
 use crate::pdf::PdfEngine;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -132,14 +134,14 @@ impl SmartDocumentEngine {
         // 4. Calculate current global balance status
         let imbalance = self.calculate_global_imbalance();
 
-        if imbalance.abs() < 0.01 {
+        if imbalance.abs() < dec!(0.01) {
             self.is_balanced = true;
             tracing::info!("[DOCUMENT ENGINE] ✅ Statement is already perfectly balanced.");
             return Ok(vec![]);
         }
 
         self.is_balanced = false;
-        tracing::info!("[DOCUMENT ENGINE] Imbalance detected: ${:.2}", imbalance);
+        tracing::info!("[DOCUMENT ENGINE] Imbalance detected: ${}", imbalance);
 
         // 5. Use Gemini with FULL document context to propose minimal smart adjustments
         tracing::info!(
@@ -147,9 +149,11 @@ impl SmartDocumentEngine {
         );
         let layout = self.layout.as_ref().ok_or(EngineError::NotLoaded)?;
 
+        // Gemini's REST contract returns JSON-numbers; convert to f64 at the
+        // network boundary, back to Decimal for storage.
         let plan = self
             .gemini
-            .propose_balance_adjustments(&self.all_transactions, imbalance, layout)
+            .propose_balance_adjustments(&self.all_transactions, dec_to_f64(imbalance), layout)
             .await
             .map_err(|e| {
                 if let crate::ai::gemini_client::GeminiError::LowConfidence(c) = e {
@@ -159,14 +163,16 @@ impl SmartDocumentEngine {
                 }
             })?;
 
-        // 6. Map adjustments to ProposedChange
+        // 6. Map adjustments to ProposedChange. Format with two-decimal
+        // precision via Decimal so the user-visible diff text isn't subject
+        // to f64 representation noise.
         let changes: Vec<ProposedChange> = plan
             .adjustments
             .into_iter()
             .map(|adj| ProposedChange {
                 page: adj.page,
-                old_text: format!("{:.2}", adj.old_running_balance),
-                new_text: format!("{:.2}", adj.new_running_balance),
+                old_text: format!("{}", f64_to_dec(adj.old_running_balance)),
+                new_text: format!("{}", f64_to_dec(adj.new_running_balance)),
                 reason: adj.reason,
                 confidence: adj.confidence,
                 affects_subsequent_balances: true,
@@ -183,44 +189,44 @@ impl SmartDocumentEngine {
         Ok(changes)
     }
 
-    pub fn calculate_global_imbalance(&self) -> f64 {
+    pub fn calculate_global_imbalance(&self) -> Decimal {
         if self.all_transactions.is_empty() {
-            return 0.0;
+            return Decimal::ZERO;
         }
 
         let opening_balance = self
             .all_transactions
             .first()
             .map(|t| {
-                t.running_balance.unwrap_or(0.0)
-                    - (t.credit.unwrap_or(0.0) - t.debit.unwrap_or(0.0))
+                t.running_balance.unwrap_or(Decimal::ZERO)
+                    - (t.credit.unwrap_or(Decimal::ZERO) - t.debit.unwrap_or(Decimal::ZERO))
             })
-            .unwrap_or(0.0);
+            .unwrap_or(Decimal::ZERO);
 
-        let sum_credits: f64 = self
+        let sum_credits: Decimal = self
             .all_transactions
             .iter()
-            .map(|t| t.credit.unwrap_or(0.0))
+            .map(|t| t.credit.unwrap_or(Decimal::ZERO))
             .sum();
-        let sum_debits: f64 = self
+        let sum_debits: Decimal = self
             .all_transactions
             .iter()
-            .map(|t| t.debit.unwrap_or(0.0))
+            .map(|t| t.debit.unwrap_or(Decimal::ZERO))
             .sum();
 
         let reported_closing_balance = self
             .all_transactions
             .last()
             .and_then(|t| t.running_balance)
-            .unwrap_or(0.0);
+            .unwrap_or(Decimal::ZERO);
 
         // Correct formula: Calculated = Opening + Credits - Debits
         // Imbalance = Reported - Calculated
         let calculated_closing = opening_balance + sum_credits - sum_debits;
         let diff = reported_closing_balance - calculated_closing;
 
-        // Round to 2 decimal places to avoid floating point noise
-        (diff * 100.0).round() / 100.0
+        // Round to 2 decimal places
+        diff.round_dp(2)
     }
 }
 

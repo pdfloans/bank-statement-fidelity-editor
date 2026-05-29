@@ -5,6 +5,7 @@ A high-fidelity PDF text editor focused on bank statements: replace text and num
 ## What it does
 
 - **Targeted edits.** Click any text on a rendered page to select the exact bounding box; type a new value; the engine performs a redaction-based replacement that re-uses the original glyph metrics.
+- **Multi-stage workflow.** Parse → Edit → Balance Preview → Confirm & Render → Visual Validate → Final Math Check, with autosaved drafts so you can pause and resume mid-edit. See [Workflow](#workflow) below.
 - **Smart Balance Engine.** Runs Document AI over the full PDF, detects mathematical imbalance, and asks Gemini for the minimum cascading adjustment plan. Only the *last* running balance is auto-corrected by default; everything else stays untouched.
 - **Hybrid extraction.** Document AI for semantics, plus geometry providers (per-bank YAML templates, PyMuPDF heuristics, optional Tesseract). Sources are merged with deterministic tiebreak rules.
 - **Verification.** Renders original vs. edited at 300 DPI, computes per-pixel delta + perceptual hash; falls back from pdfRest (Adobe-tier) to local pdfium-render automatically if no key is configured.
@@ -77,6 +78,43 @@ dual-core-pdf-pipeline export-history --from-log audit/2026.log -o history.json
 - `Ctrl+O` open • `Ctrl+Z/Y` undo/redo • `Ctrl+S` export history
 - `+` / `-` zoom • `0` reset zoom • `←/→` page nav
 - Middle-drag (or Shift+drag) to pan; Ctrl+wheel to zoom
+
+## Workflow
+
+The right-hand "Workflow" panel walks the user through six stages. Each
+stage is gated by an explicit button click — the app never silently
+moves to the next step.
+
+1. **① Parse + AI validate.** Document AI extracts every transaction; Gemini
+   double-checks for missed rows. Result: a `ParseValidation` with a
+   completeness score (0..1) and a list of any rows the deterministic
+   geometry extractor saw but Document AI missed.
+2. **Edit.** The inline edit table (powered by `egui_extras::TableBuilder`)
+   shows every parsed row with editable Date / Description / Debit /
+   Credit / Balance columns. Numeric fields turn red when the typed text
+   isn't parseable. Click "↶" on any row to revert every queued edit on
+   that row at once.
+3. **② Balance Out Preview.** Recomputes every running balance with the
+   user's edits applied and shows the per-row diff plus the final
+   imbalance. Translucent yellow boxes appear on the canvas over each
+   `will_change` cell — hover for a `<old> → <new>` tooltip.
+4. **③ Confirm and Render.** Applies edits to the PDF using the binary-level
+   redact-and-overlay path. Drops any "redundant" edits whose typed value
+   already matches what the cascade would produce.
+5. **Visual validate.** Renders the edited PDF, compares to the original
+   page-by-page (only the changed pages — full-document re-renders are
+   avoided), retries up to 5 attempts with growing tolerance.
+6. **Final math check.** Re-parses the rendered PDF through Document AI
+   and verifies all running balances are still consistent.
+
+### Drafts
+
+The whole session (parse, queued edits, stage) autosaves to
+`audit/workflow.json` every 1.5s as you edit. **File → Resume workflow
+draft** restores it; **File → Discard workflow draft** clears it. The
+draft is hashed against the source PDF so the GUI can warn you if you
+re-open the draft against a modified file. On a successful workflow
+completion the draft is automatically removed.
 
 ## Architecture
 

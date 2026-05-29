@@ -1,8 +1,10 @@
 pub mod balance;
+pub mod font_analysis;
 pub mod font_replication;
 pub mod history;
 pub mod layout;
 pub mod model;
+pub mod number_format;
 pub mod statement;
 pub mod text_editor;
 pub mod verification;

@@ -103,6 +103,44 @@ pub enum Commands {
 
     /// Print configuration health check (env vars, file paths, runtime ping)
     Doctor,
+
+    /// Document AI training orchestration (Stage 4 / Item #12).
+    ///
+    /// Reports labelled-document count and, when the dataset has at least
+    /// `--min-labelled` documents (default 8), kicks off training of a new
+    /// processor version. Polls the operation until it completes.
+    DocaiTrain {
+        /// Human-readable display name for the new processor version.
+        /// Auto-generated from a timestamp when omitted.
+        #[arg(long)]
+        display_name: Option<String>,
+        /// Minimum labelled documents required before training is permitted.
+        #[arg(long, default_value_t = 8)]
+        min_labelled: usize,
+        /// After training, set the new version as the processor's default.
+        #[arg(long, default_value_t = false)]
+        set_default: bool,
+        /// Skip the actual training step; just report the dataset state.
+        #[arg(long, default_value_t = false)]
+        report_only: bool,
+    },
+
+    /// Stage 12 / Item #1: bootstrap the font cache used by the Stage 11
+    /// donor cascade.
+    ///
+    /// Downloads a curated seed of Google Fonts to `cache/fonts/` and
+    /// writes a manifest mapping canonical typeface names to local TTF
+    /// paths. Without this the cascade's Tier 2 (subset extension from
+    /// donor) and Tier 3 (Gemini Vision typeface ID + donor lookup) are
+    /// inert.
+    FontcacheInit {
+        /// Force re-download even if a font is already cached.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        /// Override the cache directory. Defaults to `./cache/fonts`.
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
+    },
 }
 
 /// Blocking synchronous receiver helper
@@ -262,13 +300,12 @@ pub fn run(
                 Ok(JobResult::BalanceProposed { imbalance, changes }) => {
                     if changes.is_empty() {
                         println!(
-                            "✅ Statement is already perfectly balanced (imbalance: ${:.2}).",
-                            imbalance
+                            "✅ Statement is already perfectly balanced (imbalance: ${imbalance})."
                         );
                         return 0;
                     }
 
-                    println!("Imbalance detected: ${:.2}", imbalance);
+                    println!("Imbalance detected: ${imbalance}");
                     println!("Proposed Adjustments:");
                     for (i, change) in changes.iter().enumerate() {
                         println!(
@@ -587,6 +624,123 @@ pub fn run(
             } else {
                 println!("Doctor: ⚠️ Some checks failed; see above.");
                 1
+            }
+        }
+        Commands::DocaiTrain {
+            display_name,
+            min_labelled,
+            set_default,
+            report_only,
+        } => {
+            // The training calls are async, so run them on a fresh single-thread
+            // tokio runtime here (we deliberately don't reuse the worker
+            // runtime to keep the CLI flow self-contained).
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("❌ failed to start tokio runtime: {e}");
+                    return 1;
+                }
+            };
+            let cfg = config.clone();
+            rt.block_on(async move {
+                let client = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("❌ Document AI not configured: {e}");
+                        return 1;
+                    }
+                };
+                println!("Polling dataset…");
+                let (labeled, total) = match client.count_labeled_documents().await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("❌ failed to list dataset: {e}");
+                        return 1;
+                    }
+                };
+                println!("  Dataset: {labeled} / {total} labelled");
+                if report_only {
+                    return 0;
+                }
+                if labeled < min_labelled {
+                    eprintln!(
+                        "⚠️ only {labeled} labelled doc(s); need ≥{min_labelled}. Label more in the Console."
+                    );
+                    return 1;
+                }
+                let name = display_name.unwrap_or_else(|| {
+                    format!("au-bank-{}", chrono::Utc::now().format("%Y%m%d-%H%M"))
+                });
+                println!("Starting training: {name}");
+                let op = match client.start_training(&name).await {
+                    Ok(o) => o,
+                    Err(e) => {
+                        eprintln!("❌ training kickoff failed: {e}");
+                        return 1;
+                    }
+                };
+                println!("Operation: {op}");
+                println!("Polling (this typically takes 1-6 hours)…");
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    match client.poll_operation(&op).await {
+                        Ok((true, None)) => {
+                            println!("✅ Training succeeded");
+                            break;
+                        }
+                        Ok((true, Some(err))) => {
+                            eprintln!("❌ Training failed: {err}");
+                            return 1;
+                        }
+                        Ok((false, _)) => {
+                            print!(".");
+                            use std::io::Write;
+                            let _ = std::io::stdout().flush();
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️ poll error (will retry): {e}");
+                        }
+                    }
+                }
+                if set_default {
+                    // The version ID is the last path segment of the operation
+                    // metadata; we don't have it without another GET, so we ask
+                    // the user to set it themselves. Surface a clear message.
+                    println!("ℹ️ --set-default requested. Inspect the operation response for the new version ID, then set it in the Console (Manage versions → Set default).");
+                }
+                0
+            })
+        }
+        Commands::FontcacheInit { force, dir } => {
+            let cache_dir = dir.unwrap_or_else(crate::app::fontcache::default_cache_dir);
+            println!("─────────────────────────────────────────");
+            println!(" Font cache bootstrap (Stage 12 / Item #1)");
+            println!("─────────────────────────────────────────");
+            println!("Cache dir: {}", cache_dir.display());
+            if force {
+                println!("Mode: --force (re-downloading all fonts)");
+            }
+            match crate::app::fontcache::bootstrap(&cache_dir, force) {
+                Ok(report) => {
+                    report.print();
+                    if report.failed.is_empty() {
+                        println!();
+                        println!("✅ Font cache ready. Stage 11 cascade Tier 2/3 will use these donors.");
+                        0
+                    } else {
+                        println!();
+                        println!("⚠️ Some downloads failed. The cache is usable but coverage is partial.");
+                        2
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ bootstrap failed: {e}");
+                    1
+                }
             }
         }
     }

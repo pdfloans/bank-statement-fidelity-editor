@@ -146,6 +146,7 @@ mod tests {
     use tempfile::tempdir;
 
     fn sample_statement() -> BankStatement {
+        use rust_decimal_macros::dec;
         BankStatement {
             total_pages: 1,
             transactions: vec![Transaction {
@@ -153,20 +154,22 @@ mod tests {
                 line_on_page: 0,
                 date: "01/01/2026".into(),
                 raw_text: "Test".into(),
-                debit: Some(50.0),
+                debit: Some(dec!(50.00)),
                 credit: None,
-                running_balance: Some(150.0),
+                running_balance: Some(dec!(150.00)),
                 bbox: None,
+                field_bboxes: Default::default(),
                 provenance: Provenance::DocumentAI { confidence: 0.95 },
             }],
-            opening_balance: 100.0,
-            closing_balance: 150.0,
+            opening_balance: dec!(100.00),
+            closing_balance: dec!(150.00),
             account_number: Some("12345".into()),
         }
     }
 
     #[test]
     fn roundtrip_through_cache() {
+        use rust_decimal_macros::dec;
         let dir = tempdir().unwrap();
         let cache = DocAiCache::open(dir.path().to_path_buf()).unwrap();
         let stmt = sample_statement();
@@ -174,7 +177,7 @@ mod tests {
         let got = cache.get("key1").unwrap();
         assert_eq!(got.total_pages, stmt.total_pages);
         assert_eq!(got.transactions.len(), 1);
-        assert_eq!(got.transactions[0].debit, Some(50.0));
+        assert_eq!(got.transactions[0].debit, Some(dec!(50.00)));
         assert_eq!(got.account_number.as_deref(), Some("12345"));
     }
 

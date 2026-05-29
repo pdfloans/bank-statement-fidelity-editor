@@ -77,6 +77,28 @@ impl AuditLog {
         Ok(())
     }
 
+    /// Stage 12 / Item #4: append an arbitrary single-line event to the
+    /// audit log. The runtime uses this to record cascade invocations
+    /// (which don't fit the `ChangeRecord` shape but still need an audit
+    /// trail). The line is written verbatim with a trailing newline.
+    pub fn append_line(&mut self, line: &str) -> io::Result<()> {
+        if self.log_file.is_none() {
+            self.log_file = Some(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&self.log_path)?,
+            );
+        }
+        let file = self.log_file.as_mut().unwrap();
+        file.write_all(line.as_bytes())?;
+        if !line.ends_with('\n') {
+            file.write_all(b"\n")?;
+        }
+        file.flush()?;
+        Ok(())
+    }
+
     pub fn snapshots_dir(&self) -> &Path {
         &self.snapshots_dir
     }

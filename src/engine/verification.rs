@@ -6,6 +6,7 @@ use crate::engine::model::Transaction;
 use image::RgbaImage;
 use image_hasher::{HashAlg, HasherConfig};
 use pdfium_render::prelude::*;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use thiserror::Error;
@@ -39,8 +40,8 @@ pub enum VerificationError {
 
 pub struct MathInputs {
     pub transactions: Vec<Transaction>,
-    pub opening_balance: f64,
-    pub expected_final_balance: Option<f64>,
+    pub opening_balance: Decimal,
+    pub expected_final_balance: Option<Decimal>,
 }
 
 const VISUAL_DIFF_THRESHOLD: f64 = 0.02;
@@ -82,6 +83,38 @@ pub async fn verify_edit_pages(
     use_pdfrest: bool,
     pdfrest_key: Option<String>,
     only_pages: Option<&[usize]>,
+) -> Result<VerificationReport, VerificationError> {
+    verify_edit_pages_with_padding(
+        original,
+        edited,
+        output_dir,
+        intended_bboxes,
+        math_inputs,
+        use_pdfrest,
+        pdfrest_key,
+        only_pages,
+        0.0,
+    )
+    .await
+}
+
+/// Full-shape verifier with all knobs exposed.
+///
+/// `mask_padding_pts` (Stage 3 / Item #3): grow each `intended_bbox` by this
+/// many PDF points on every side before masking. The visual-validation loop
+/// uses this to widen the mask on retries, accommodating sub-pixel baseline
+/// shifts that would otherwise keep flagging "intended-only = false" forever.
+/// Capped at 12pt is the loop's responsibility, not this function's.
+pub async fn verify_edit_pages_with_padding(
+    original: &Path,
+    edited: &Path,
+    output_dir: &Path,
+    intended_bboxes: &[(usize, [f32; 4])],
+    math_inputs: MathInputs,
+    use_pdfrest: bool,
+    pdfrest_key: Option<String>,
+    only_pages: Option<&[usize]>,
+    mask_padding_pts: f32,
 ) -> Result<VerificationReport, VerificationError> {
     std::fs::create_dir_all(output_dir)?;
 
@@ -253,10 +286,13 @@ pub async fn verify_edit_pages(
 
         for (page, bbox) in intended_bboxes {
             if *page == i {
-                let x0 = (bbox[0] * scale).max(0.0).min(img_w) as u32;
-                let y0 = (bbox[1] * scale).max(0.0).min(img_h) as u32;
-                let x1 = (bbox[2] * scale).max(0.0).min(img_w) as u32;
-                let y1 = (bbox[3] * scale).max(0.0).min(img_h) as u32;
+                // Stage 3 / Item #3: grow the mask by mask_padding_pts on
+                // each side so sub-pixel baseline shifts don't escape it.
+                let pad = mask_padding_pts;
+                let x0 = ((bbox[0] - pad) * scale).max(0.0).min(img_w) as u32;
+                let y0 = ((bbox[1] - pad) * scale).max(0.0).min(img_h) as u32;
+                let x1 = ((bbox[2] + pad) * scale).max(0.0).min(img_w) as u32;
+                let y1 = ((bbox[3] + pad) * scale).max(0.0).min(img_h) as u32;
 
                 for y in y0..y1 {
                     for x in x0..x1 {

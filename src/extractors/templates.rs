@@ -87,3 +87,161 @@ impl GeometryProvider for BankTemplateProvider {
         Ok(geometries)
     }
 }
+
+
+/// Refine a bank template from observed transaction bboxes.
+///
+/// Stage 4 / Item #13: when a workflow completes successfully on a bank
+/// whose template we already match, we know the *actual* column ranges
+/// (from the bboxes of every successfully-edited row). Tighten the
+/// template's `column_x_ranges` to fit those observations, then write a
+/// `<template_id>.refined.yaml` next to the original.
+///
+/// `observed_bboxes` is `(field_name, bbox)` pairs, e.g.
+/// `("date", [40, 100, 105, 120])`. Field names are joined with the
+/// template's existing keys; unknown field names are ignored.
+///
+/// Returns the path of the refined YAML on success, or an error string.
+pub fn learn_template(
+    template_dir: &Path,
+    template: &BankTemplate,
+    observed_bboxes: &[(String, [f32; 4])],
+) -> Result<std::path::PathBuf, String> {
+    use std::collections::HashMap;
+
+    if observed_bboxes.is_empty() {
+        return Err("no observations to learn from".into());
+    }
+
+    // For each field we have observations for, compute the [min_x0, max_x1]
+    // envelope. We expand the existing range to *contain* every observation
+    // (we never tighten so far we'd reject a valid future row), then trim
+    // by the observation's own envelope (so we don't keep stale wide ranges
+    // forever).
+    let mut envelopes: HashMap<String, (f32, f32)> = HashMap::new();
+    for (field, bbox) in observed_bboxes {
+        let entry = envelopes
+            .entry(field.clone())
+            .or_insert((f32::INFINITY, f32::NEG_INFINITY));
+        entry.0 = entry.0.min(bbox[0]);
+        entry.1 = entry.1.max(bbox[2]);
+    }
+
+    let mut refined = template.clone();
+    for (field, (min_x, max_x)) in &envelopes {
+        // Pad each side by 4pt so future rows shifted by sub-pixel rounding
+        // still match. Anything bigger than that and the original template
+        // was probably wrong.
+        let lo = (*min_x - 4.0).max(0.0);
+        let hi = *max_x + 4.0;
+        refined
+            .column_x_ranges
+            .insert(field.clone(), [lo, hi]);
+    }
+
+    // Don't rewrite the original; create a sibling file. The
+    // `BankTemplateProvider` loads any `*.yaml`, so the refined version
+    // ranks alongside the original (and ideally beats it on overlap).
+    let out_path = template_dir.join(format!("{}.refined.yaml", template.id));
+    let yaml = serde_yaml::to_string(&refined)
+        .map_err(|e| format!("yaml encode: {e}"))?;
+    std::fs::write(&out_path, yaml)
+        .map_err(|e| format!("write {}: {e}", out_path.display()))?;
+    tracing::info!(
+        "[templates] refined template written: {} (fields: {:?})",
+        out_path.display(),
+        envelopes.keys().collect::<Vec<_>>()
+    );
+    Ok(out_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tempfile::tempdir;
+
+    fn sample_template() -> BankTemplate {
+        let mut cols = HashMap::new();
+        cols.insert("date".into(), [30.0, 100.0]);
+        cols.insert("amount".into(), [200.0, 300.0]);
+        BankTemplate {
+            id: "test_bank".into(),
+            header_signatures: vec!["TEST BANK".into()],
+            date_format: "%d/%m/%Y".into(),
+            amount_regex: r"^-?\$?\d+\.\d{2}$".into(),
+            column_x_ranges: cols,
+        }
+    }
+
+    #[test]
+    fn learn_template_writes_refined_yaml_with_observed_columns() {
+        let dir = tempdir().unwrap();
+        let tmpl = sample_template();
+        let observations = vec![
+            ("date".to_string(), [42.0, 105.0, 95.0, 120.0]),
+            ("date".to_string(), [42.0, 130.0, 95.0, 145.0]),
+            ("amount".to_string(), [220.0, 105.0, 280.0, 120.0]),
+        ];
+
+        let out = learn_template(dir.path(), &tmpl, &observations).unwrap();
+        assert!(out.ends_with("test_bank.refined.yaml"));
+
+        let raw = std::fs::read_to_string(&out).unwrap();
+        let refined: BankTemplate = serde_yaml::from_str(&raw).unwrap();
+
+        // date column: observed envelope x0=42, x1=95 → padded ±4 → [38, 99]
+        let date = refined.column_x_ranges.get("date").unwrap();
+        assert!((date[0] - 38.0).abs() < 0.1);
+        assert!((date[1] - 99.0).abs() < 0.1);
+
+        // amount column: observed envelope x0=220, x1=280 → padded → [216, 284]
+        let amt = refined.column_x_ranges.get("amount").unwrap();
+        assert!((amt[0] - 216.0).abs() < 0.1);
+        assert!((amt[1] - 284.0).abs() < 0.1);
+
+        // Other template fields are preserved.
+        assert_eq!(refined.id, "test_bank");
+        assert_eq!(refined.header_signatures, vec!["TEST BANK".to_string()]);
+    }
+
+    #[test]
+    fn learn_template_clamps_negative_lo_to_zero() {
+        let dir = tempdir().unwrap();
+        let tmpl = sample_template();
+        // Observation at x0=2 → padded x0 = -2, must clamp to 0.
+        let observations = vec![("date".to_string(), [2.0, 100.0, 95.0, 120.0])];
+        let out = learn_template(dir.path(), &tmpl, &observations).unwrap();
+        let refined: BankTemplate =
+            serde_yaml::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        let date = refined.column_x_ranges.get("date").unwrap();
+        assert_eq!(date[0], 0.0);
+    }
+
+    #[test]
+    fn learn_template_rejects_empty_observations() {
+        let dir = tempdir().unwrap();
+        let tmpl = sample_template();
+        let out = learn_template(dir.path(), &tmpl, &[]);
+        assert!(out.is_err());
+    }
+
+    #[test]
+    fn learn_template_ignores_repeated_field_observations_correctly() {
+        let dir = tempdir().unwrap();
+        let tmpl = sample_template();
+        // Three rows for "date", varying widths. Refined envelope must cover all.
+        let observations = vec![
+            ("date".to_string(), [50.0, 100.0, 90.0, 120.0]),
+            ("date".to_string(), [40.0, 130.0, 95.0, 145.0]),
+            ("date".to_string(), [45.0, 160.0, 100.0, 175.0]),
+        ];
+        let out = learn_template(dir.path(), &tmpl, &observations).unwrap();
+        let refined: BankTemplate =
+            serde_yaml::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        let date = refined.column_x_ranges.get("date").unwrap();
+        // min x0 = 40, max x1 = 100 -> padded -> [36, 104]
+        assert!((date[0] - 36.0).abs() < 0.1);
+        assert!((date[1] - 104.0).abs() < 0.1);
+    }
+}

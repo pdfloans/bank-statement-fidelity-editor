@@ -280,7 +280,7 @@ pub struct MyApp {
     last_warning: Option<String>,
     last_verification: Option<VerificationReport>,
     proposed_changes: Vec<(crate::engine::model::ProposedChange, bool)>,
-    last_imbalance: Option<f64>,
+    last_imbalance: Option<rust_decimal::Decimal>,
     in_flight: usize,
     settings: AppSettings,
     toasts: VecDeque<Toast>,
@@ -302,6 +302,35 @@ pub struct MyApp {
     workflow_preview: Option<crate::engine::workflow::BalancePreview>,
     workflow_visual: Option<crate::engine::workflow::VisualAttempt>,
     workflow_outcome: Option<crate::engine::workflow::WorkflowOutcome>,
+
+    /// Stage 8.5: per-font breakdown for the loaded PDF, populated
+    /// automatically when `JobResult::FontAnalysisReady` arrives.
+    font_analysis: Option<crate::engine::font_analysis::FontAnalysis>,
+    /// Stage 13 / Item #12: pending modal confirmations. Each entry is
+    /// (title, body, on_confirm action).
+    show_discard_draft_confirm: bool,
+    /// Stage 12 / Item #3: history of cascade invocations during the
+    /// current workflow attempt. Reset on a new workflow start; appended
+    /// to whenever the runtime reports `JobResult::FontCascadeUsed`.
+    font_cascade_reports: Vec<crate::engine::font_analysis::FontCascadeReport>,
+
+    /// True when in-memory workflow state has changed since the last
+    /// autosave to `audit/workflow.json`. Set whenever
+    /// `workflow_validation`, `workflow_transactions` or `workflow_edits`
+    /// is mutated; cleared after a successful save. Stage 5 / Item #9.
+    workflow_dirty: bool,
+    /// Last instant we wrote `audit/workflow.json`. Used to debounce — at
+    /// most one save every 1.5s while edits are flying in.
+    workflow_last_save: Option<Instant>,
+    /// Cached `(input_path, sha256)` for the currently-open PDF so the
+    /// autosave doesn't re-hash multi-MB files every 1.5s. Stage 6.
+    workflow_input_hash: Option<(String, String)>,
+    /// Per-cell text buffers for the inline edit table. Keyed by
+    /// (page, line_on_page, field). Stage 5 / Item #6.
+    workflow_cell_buffers: std::collections::HashMap<
+        (usize, usize, crate::engine::workflow::EditField),
+        String,
+    >,
 
     // Config (read-only)
     config: std::sync::Arc<crate::app::config::AppConfig>,
@@ -361,6 +390,13 @@ impl MyApp {
             workflow_preview: None,
             workflow_visual: None,
             workflow_outcome: None,
+            font_analysis: None,
+            font_cascade_reports: Vec::new(),
+            show_discard_draft_confirm: false,
+            workflow_dirty: false,
+            workflow_last_save: None,
+            workflow_input_hash: None,
+            workflow_cell_buffers: std::collections::HashMap::new(),
             config,
             settings,
         }
@@ -516,7 +552,91 @@ impl eframe::App for MyApp {
         // theme
         self.settings.theme.apply(ctx);
 
-        // Drag-and-drop support: open the first dropped PDF.
+        // Stage 13 / Item #6: workflow shortcuts.
+        //   Ctrl+1 → Parse + AI validate
+        //   Ctrl+2 → Balance Out Preview
+        //   Ctrl+3 → Confirm and Render
+        let want_parse = ctx.input(|i| {
+            i.modifiers.command_only() && i.key_pressed(egui::Key::Num1)
+        });
+        let want_preview = ctx.input(|i| {
+            i.modifiers.command_only() && i.key_pressed(egui::Key::Num2)
+        });
+        let want_confirm = ctx.input(|i| {
+            i.modifiers.command_only() && i.key_pressed(egui::Key::Num3)
+        });
+        if want_parse && !self.input_path.is_empty() {
+            let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+                input: PathBuf::from(&self.input_path),
+            });
+            self.in_flight += 1;
+            self.workflow_edits.clear();
+            self.workflow_preview = None;
+            self.workflow_visual = None;
+            self.workflow_outcome = None;
+            self.font_cascade_reports.clear();
+            self.workflow_dirty = true;
+            self.toast(ToastKind::Info, "Parse triggered (Ctrl+1)");
+        }
+        if want_preview {
+            if let Some(v) = &self.workflow_validation {
+                let _ = self.job_tx.send(Job::WorkflowPreview {
+                    original_transactions: self.workflow_transactions.clone(),
+                    edits: self.workflow_edits.clone(),
+                    opening_balance: v.opening_balance,
+                    expected_closing: if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
+                        Some(v.closing_balance)
+                    } else {
+                        None
+                    },
+                });
+                self.in_flight += 1;
+                self.toast(ToastKind::Info, "Preview triggered (Ctrl+2)");
+            }
+        }
+        if want_confirm {
+            if let Some(p) = self.workflow_preview.clone() {
+                let (kept, _) =
+                    crate::engine::workflow::prune_redundant_edits(&self.workflow_edits, &p);
+                let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
+                    input: PathBuf::from(&self.input_path),
+                    output: PathBuf::from(&self.output_path),
+                    edits: kept,
+                    deep_font_replication: self.settings.deep_font_replication,
+                    max_visual_attempts: 5,
+                    visual_threshold: 0.02,
+                });
+                self.in_flight += 1;
+                self.toast(ToastKind::Info, "Confirm + Render triggered (Ctrl+3)");
+            }
+        }
+
+        // Stage 13 / Item #15: Ctrl+Shift+Z removes the last queued edit
+        // (regular Ctrl+Z is reserved by egui::TextEdit for buffer undo).
+        let want_undo_last_edit = ctx.input(|i| {
+            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z)
+        });
+        if want_undo_last_edit && !self.workflow_edits.is_empty() {
+            let removed = self.workflow_edits.pop();
+            if let Some(e) = removed {
+                // Drop the matching cell-buffer entry so the table shows
+                // the original value next frame.
+                self.workflow_cell_buffers.remove(&(e.page, e.line_on_page, e.field));
+                self.workflow_dirty = true;
+                self.toast(
+                    ToastKind::Info,
+                    format!(
+                        "Undid last edit on P{} L{} ({} pending)",
+                        e.page + 1,
+                        e.line_on_page + 1,
+                        self.workflow_edits.len()
+                    ),
+                );
+            }
+        }
+
+        // Drag-and-drop support: open the first dropped PDF and tell the
+        // user about additional drops. Stage 13 / Item #8.
         if !ctx.input(|i| i.raw.dropped_files.is_empty()) {
             let dropped: Vec<PathBuf> = ctx.input(|i| {
                 i.raw
@@ -525,15 +645,25 @@ impl eframe::App for MyApp {
                     .filter_map(|f| f.path.clone())
                     .collect()
             });
-            for path in dropped {
-                if path
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .map(|s| s.to_lowercase())
-                    == Some("pdf".into())
-                {
-                    self.open_pdf(path);
-                    break;
+            let pdfs: Vec<PathBuf> = dropped
+                .into_iter()
+                .filter(|p| {
+                    p.extension()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_lowercase())
+                        == Some("pdf".into())
+                })
+                .collect();
+            if let Some(first) = pdfs.first().cloned() {
+                self.open_pdf(first);
+                if pdfs.len() > 1 {
+                    self.toast(
+                        ToastKind::Warn,
+                        format!(
+                            "Opened the first PDF; ignored {} other(s). The app handles one statement at a time.",
+                            pdfs.len() - 1
+                        ),
+                    );
                 }
             }
         }
@@ -576,6 +706,10 @@ impl eframe::App for MyApp {
             }
         }
 
+        // Stage 5 / Item #9: autosave the workflow draft if anything has
+        // changed since the last save (debounced to 1.5s inside the helper).
+        self.autosave_workflow_draft();
+
         // ---- 2. Check pending Python click reply ---------------------------
         if let Some(rx) = self.pending_python.as_mut() {
             match rx.try_recv() {
@@ -617,6 +751,9 @@ impl eframe::App for MyApp {
 
         // ---- 6. Toasts ----------------------------------------------------
         self.draw_toasts(ctx);
+
+        // ---- 6b. Modal confirmations -------------------------------------
+        self.draw_modals(ctx);
 
         // ---- 7. Keyboard shortcuts ---------------------------------------
         self.handle_shortcuts(ctx);
@@ -778,6 +915,22 @@ impl MyApp {
             JobResult::Pong => {
                 self.toast(ToastKind::Info, "pong");
             }
+            JobResult::FontAnalysisReady(analysis) => {
+                let line = analysis.one_line_summary();
+                let kind = if analysis.summary.all_fonts_covered {
+                    ToastKind::Success
+                } else {
+                    ToastKind::Warn
+                };
+                self.toast(kind, line);
+                self.font_analysis = Some(analysis);
+            }
+            JobResult::FontCascadeUsed(report) => {
+                let summary = report.one_line_summary();
+                let kind = if report.success { ToastKind::Success } else { ToastKind::Warn };
+                self.toast(kind, summary);
+                self.font_cascade_reports.push(report);
+            }
             JobResult::Cancelled { id } => {
                 self.toast(ToastKind::Info, format!("Cancelled job #{id}"));
                 self.status = format!("Cancelled job #{id}");
@@ -796,6 +949,15 @@ impl MyApp {
                 let score = validation.completeness_score;
                 self.workflow_validation = Some(validation);
                 self.workflow_transactions = transactions;
+                // Stage 13 / Item #4: stale cell-buffer entries from a
+                // prior parse can still appear in the inline edit table
+                // because they are keyed by (page, line_on_page, field).
+                // Re-parsing may produce new line_on_page indices for the
+                // same transactions; clear the buffers so the table
+                // re-initialises from the fresh values.
+                self.workflow_cell_buffers.clear();
+                self.workflow_edits.clear();
+                self.workflow_dirty = true;
                 self.toast(
                     if score >= 0.85 {
                         ToastKind::Success
@@ -841,6 +1003,14 @@ impl MyApp {
             JobResult::WorkflowComplete(outcome) => {
                 self.toast(ToastKind::Success, outcome.completion_summary.clone());
                 self.workflow_outcome = Some(outcome);
+                // Stage 6: workflow finished cleanly — clear the in-flight
+                // edit queue and remove the autosaved draft so the next
+                // session starts fresh. Resume-draft now correctly reports
+                // "no draft to resume" until new edits accumulate.
+                self.workflow_edits.clear();
+                self.workflow_cell_buffers.clear();
+                self.workflow_dirty = false;
+                Self::discard_workflow_draft_quiet();
             }
             JobResult::WorkflowFailed(failure) => {
                 let msg = match &failure {
@@ -901,6 +1071,28 @@ impl MyApp {
                             );
                         } else {
                             self.toast(ToastKind::Warn, "No previous session found.");
+                        }
+                        ui.close_menu();
+                    }
+                    if ui
+                        .button("📋 Resume workflow draft")
+                        .on_hover_text("Reload audit/workflow.json — restores parse, queued edits and stage")
+                        .clicked()
+                    {
+                        self.resume_workflow_draft();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .button("🗑 Discard workflow draft")
+                        .on_hover_text("Delete audit/workflow.json so next resume starts fresh")
+                        .clicked()
+                    {
+                        // Stage 13 / Item #12: confirm before destructive action.
+                        let path = Self::workflow_draft_path();
+                        if path.exists() {
+                            self.show_discard_draft_confirm = true;
+                        } else {
+                            self.toast(ToastKind::Warn, "No workflow draft to discard");
                         }
                         ui.close_menu();
                     }
@@ -1084,6 +1276,7 @@ impl MyApp {
                                 new_text: self.new_text.clone(),
                                 field,
                             });
+                            self.workflow_dirty = true;
                             self.toast(ToastKind::Info, format!("Queued edit ({} pending)", self.workflow_edits.len()));
                         }
                     });
@@ -1099,6 +1292,7 @@ impl MyApp {
             .show(ctx, |ui| {
                 ui.heading("Analysis & Tools");
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.draw_font_analysis_section(ui);
                     self.draw_workflow_section(ui);
 
                     ui.collapsing("⚖ Smart Balance Engine", |ui| {
@@ -1112,7 +1306,7 @@ impl MyApp {
                             self.in_flight += 1;
                         }
                         if let Some(imb) = self.last_imbalance {
-                            ui.label(format!("Global imbalance: ${imb:.2}"));
+                            ui.label(format!("Global imbalance: ${imb}"));
                         }
                         if !self.proposed_changes.is_empty() {
                             ui.separator();
@@ -1242,14 +1436,540 @@ impl MyApp {
             });
     }
 
+    /// Stage 5 / Item #6 + #8: inline editable table of parsed transactions.
+    /// Each numeric cell becomes a `TextEdit`; on change we upsert the
+    /// matching `UserEdit` in `self.workflow_edits`. The "↶" button on each
+    /// row reverts every queued edit on that row at once.
+    ///
+    /// Validation: an unparseable amount (anything `parse_money` can't read)
+    /// gets a red border and is *not* committed to the queue, but the buffer
+    /// keeps the user's keystrokes so they can fix it.
+    fn draw_workflow_edit_table(&mut self, ui: &mut egui::Ui) {
+        use crate::engine::workflow::{EditField, UserEdit};
+        if self.workflow_transactions.is_empty() {
+            return;
+        }
+        let palette = self.settings.theme.palette();
+
+        ui.label(format!(
+            "📋 Inline edit ({} rows) — Tab to next field, ↶ reverts row",
+            self.workflow_transactions.len()
+        ));
+
+        // Snapshot what we need; the closure below mutates self.workflow_edits
+        // and self.workflow_cell_buffers, so collect transaction copies first.
+        let txs: Vec<crate::engine::model::Transaction> =
+            self.workflow_transactions.clone();
+
+        let mut cell_changes: Vec<(usize, usize, EditField, String, [f32; 4], String)> =
+            Vec::new();
+        let mut row_reverts: Vec<(usize, usize)> = Vec::new();
+
+        egui::ScrollArea::both()
+            .max_height(220.0)
+            .id_source("workflow-edit-table")
+            .show(ui, |ui| {
+                use egui_extras::{Column, TableBuilder};
+                TableBuilder::new(ui)
+                    .striped(true)
+                    .resizable(true)
+                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                    .column(Column::auto().at_least(28.0)) // P
+                    .column(Column::auto().at_least(28.0)) // L
+                    .column(Column::initial(78.0))         // Date
+                    .column(Column::initial(180.0).at_least(120.0)) // Desc
+                    .column(Column::initial(82.0))         // Debit
+                    .column(Column::initial(82.0))         // Credit
+                    .column(Column::initial(94.0))         // Balance
+                    .column(Column::auto().at_least(28.0)) // Revert
+                    .header(20.0, |mut header| {
+                        for label in ["P", "#", "Date", "Description", "Debit", "Credit", "Balance", ""].iter() {
+                            header.col(|ui| { ui.strong(*label); });
+                        }
+                    })
+                    .body(|mut body| {
+                        for tx in txs.iter() {
+                            let key = (tx.page, tx.line_on_page);
+                            let has_edit = self
+                                .workflow_edits
+                                .iter()
+                                .any(|e| e.page == key.0 && e.line_on_page == key.1);
+
+                            body.row(20.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.label(format!("{}", tx.page + 1));
+                                });
+                                row.col(|ui| {
+                                    ui.label(format!("{}", tx.line_on_page + 1));
+                                });
+
+                                // Date — text field
+                                row.col(|ui| {
+                                    let buf = Self::cell_buffer(
+                                        &mut self.workflow_cell_buffers,
+                                        &self.workflow_edits,
+                                        tx,
+                                        EditField::Date,
+                                        || tx.date.clone(),
+                                    );
+                                    if ui
+                                        .add(egui::TextEdit::singleline(buf).desired_width(76.0))
+                                        .changed()
+                                    {
+                                        cell_changes.push((
+                                            tx.page,
+                                            tx.line_on_page,
+                                            EditField::Date,
+                                            buf.clone(),
+                                            Self::bbox_for_field(tx, EditField::Date),
+                                            tx.date.clone(),
+                                        ));
+                                    }
+                                });
+
+                                // Description — text field
+                                row.col(|ui| {
+                                    let buf = Self::cell_buffer(
+                                        &mut self.workflow_cell_buffers,
+                                        &self.workflow_edits,
+                                        tx,
+                                        EditField::Description,
+                                        || tx.raw_text.clone(),
+                                    );
+                                    if ui
+                                        .add(egui::TextEdit::singleline(buf).desired_width(178.0))
+                                        .changed()
+                                    {
+                                        cell_changes.push((
+                                            tx.page,
+                                            tx.line_on_page,
+                                            EditField::Description,
+                                            buf.clone(),
+                                            Self::bbox_for_field(tx, EditField::Description),
+                                            tx.raw_text.clone(),
+                                        ));
+                                    }
+                                });
+
+                                // Debit / Credit / Balance — money fields with red border on parse failure.
+                                Self::money_cell(
+                                    &mut row,
+                                    &mut self.workflow_cell_buffers,
+                                    &self.workflow_edits,
+                                    tx,
+                                    EditField::Debit,
+                                    tx.debit,
+                                    palette.warn,
+                                    &mut cell_changes,
+                                );
+                                Self::money_cell(
+                                    &mut row,
+                                    &mut self.workflow_cell_buffers,
+                                    &self.workflow_edits,
+                                    tx,
+                                    EditField::Credit,
+                                    tx.credit,
+                                    palette.warn,
+                                    &mut cell_changes,
+                                );
+                                Self::money_cell(
+                                    &mut row,
+                                    &mut self.workflow_cell_buffers,
+                                    &self.workflow_edits,
+                                    tx,
+                                    EditField::RunningBalance,
+                                    tx.running_balance,
+                                    palette.warn,
+                                    &mut cell_changes,
+                                );
+
+                                // Revert column
+                                row.col(|ui| {
+                                    let label = if has_edit { "↶" } else { " " };
+                                    if ui
+                                        .add_enabled(
+                                            has_edit,
+                                            egui::Button::new(label).small(),
+                                        )
+                                        .on_hover_text("Revert all queued edits on this row")
+                                        .clicked()
+                                    {
+                                        row_reverts.push((tx.page, tx.line_on_page));
+                                    }
+                                });
+                            });
+                        }
+                    });
+            });
+
+        // Apply collected changes after the table render so we don't double-borrow self.
+        for (page, line, field, new_text, bbox, old_text) in cell_changes {
+            self.upsert_edit(UserEdit {
+                page,
+                line_on_page: line,
+                bbox,
+                old_text,
+                new_text,
+                field,
+            });
+        }
+        if !row_reverts.is_empty() {
+            for (page, line) in row_reverts {
+                self.revert_row_edits(page, line);
+            }
+        }
+    }
+
+    /// Pick the per-field bbox for an edit. Falls back to the row-level
+    /// bbox when the field-specific one isn't known (older parses, manual
+    /// transactions). Stage 7.5 — without this, a debit edit would redact
+    /// the entire row.
+    fn bbox_for_field(
+        tx: &crate::engine::model::Transaction,
+        field: crate::engine::workflow::EditField,
+    ) -> [f32; 4] {
+        use crate::engine::workflow::EditField;
+        let specific = match field {
+            EditField::Date => tx.field_bboxes.date,
+            EditField::Description => tx.field_bboxes.description,
+            EditField::Debit => tx.field_bboxes.debit,
+            EditField::Credit => tx.field_bboxes.credit,
+            EditField::RunningBalance => tx.field_bboxes.running_balance,
+        };
+        specific.or(tx.bbox).unwrap_or([0.0; 4])
+    }
+
+    /// Get-or-init the per-cell text buffer. If the user has already queued
+    /// an edit for this cell, the buffer reflects the queued new text;
+    /// otherwise it starts from the parsed value.
+    fn cell_buffer<'a>(
+        buffers: &'a mut std::collections::HashMap<
+            (usize, usize, crate::engine::workflow::EditField),
+            String,
+        >,
+        edits: &[crate::engine::workflow::UserEdit],
+        tx: &crate::engine::model::Transaction,
+        field: crate::engine::workflow::EditField,
+        default: impl FnOnce() -> String,
+    ) -> &'a mut String {
+        let key = (tx.page, tx.line_on_page, field);
+        buffers.entry(key).or_insert_with(|| {
+            edits
+                .iter()
+                .find(|e| e.page == tx.page && e.line_on_page == tx.line_on_page && e.field == field)
+                .map(|e| e.new_text.clone())
+                .unwrap_or_else(default)
+        })
+    }
+
+    /// Render a single money cell (debit/credit/balance). Red border when
+    /// the typed text isn't parseable.
+    fn money_cell(
+        row: &mut egui_extras::TableRow<'_, '_>,
+        buffers: &mut std::collections::HashMap<
+            (usize, usize, crate::engine::workflow::EditField),
+            String,
+        >,
+        edits: &[crate::engine::workflow::UserEdit],
+        tx: &crate::engine::model::Transaction,
+        field: crate::engine::workflow::EditField,
+        original: Option<rust_decimal::Decimal>,
+        warn_color: egui::Color32,
+        out: &mut Vec<(
+            usize,
+            usize,
+            crate::engine::workflow::EditField,
+            String,
+            [f32; 4],
+            String,
+        )>,
+    ) {
+        row.col(|ui| {
+            let buf = Self::cell_buffer(buffers, edits, tx, field, || {
+                original.map(|v| format!("{v:.2}")).unwrap_or_default()
+            });
+            let valid = buf.trim().is_empty()
+                || buf
+                    .chars()
+                    .filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.')
+                    .collect::<String>()
+                    .parse::<f64>()
+                    .is_ok();
+            let mut edit = egui::TextEdit::singleline(buf).desired_width(80.0);
+            if !valid {
+                edit = edit.text_color(warn_color);
+            }
+            let resp = ui.add(edit);
+            if resp.changed() {
+                let old_text = original.map(|v| format!("{v:.2}")).unwrap_or_default();
+                out.push((
+                    tx.page,
+                    tx.line_on_page,
+                    field,
+                    buf.clone(),
+                    Self::bbox_for_field(tx, field),
+                    old_text,
+                ));
+            }
+        });
+    }
+
+    /// Insert or replace the edit on (page, line, field). When the new
+    /// text equals the originally-parsed value, the edit is removed from
+    /// the queue instead — typing a value back to its original is
+    /// equivalent to no edit at all.
+    fn upsert_edit(&mut self, mut edit: crate::engine::workflow::UserEdit) {
+        // If the new text equals the original, drop any matching edit.
+        let parsed_original = self
+            .workflow_transactions
+            .iter()
+            .find(|t| t.page == edit.page && t.line_on_page == edit.line_on_page);
+        let original_text = parsed_original
+            .map(|t| match edit.field {
+                crate::engine::workflow::EditField::Date => t.date.clone(),
+                crate::engine::workflow::EditField::Description => t.raw_text.clone(),
+                crate::engine::workflow::EditField::Debit => {
+                    t.debit.map(|v| format!("{:.2}", v.round_dp(2))).unwrap_or_default()
+                }
+                crate::engine::workflow::EditField::Credit => {
+                    t.credit.map(|v| format!("{:.2}", v.round_dp(2))).unwrap_or_default()
+                }
+                crate::engine::workflow::EditField::RunningBalance => t
+                    .running_balance
+                    .map(|v| format!("{:.2}", v.round_dp(2)))
+                    .unwrap_or_default(),
+            })
+            .unwrap_or_default();
+
+        // Use the original text we just looked up.
+        if edit.old_text.is_empty() {
+            edit.old_text = original_text.clone();
+        }
+
+        // No-op if the user typed back to the original — drop it.
+        if edit.new_text == original_text {
+            self.workflow_edits.retain(|e| {
+                !(e.page == edit.page && e.line_on_page == edit.line_on_page && e.field == edit.field)
+            });
+            self.workflow_dirty = true;
+            return;
+        }
+
+        if let Some(slot) = self.workflow_edits.iter_mut().find(|e| {
+            e.page == edit.page && e.line_on_page == edit.line_on_page && e.field == edit.field
+        }) {
+            slot.new_text = edit.new_text;
+            slot.bbox = edit.bbox;
+        } else {
+            self.workflow_edits.push(edit);
+        }
+        self.workflow_dirty = true;
+    }
+
+    /// Drop every queued edit on (page, line) and reset the cell buffers
+    /// for that row so the table reflects the parsed values.
+    fn revert_row_edits(&mut self, page: usize, line_on_page: usize) {
+        let before = self.workflow_edits.len();
+        self.workflow_edits
+            .retain(|e| !(e.page == page && e.line_on_page == line_on_page));
+        let removed = before.saturating_sub(self.workflow_edits.len());
+        // Clear the cached cell buffers for this row so they re-init from
+        // the parsed transaction next frame.
+        self.workflow_cell_buffers
+            .retain(|(p, l, _), _| !(*p == page && *l == line_on_page));
+        if removed > 0 {
+            self.workflow_dirty = true;
+            self.toast(
+                ToastKind::Info,
+                format!("Reverted {} edit(s) on P{} L{}", removed, page + 1, line_on_page + 1),
+            );
+        }
+    }
+
+    /// Stage 8.5: per-font breakdown for the loaded PDF. Shows the user which
+    /// fonts can be edited freely and which would need glyph creation, with
+    /// an exact list of missing characters per font and the creation scope.
+    fn draw_font_analysis_section(&mut self, ui: &mut egui::Ui) {
+        let palette = self.settings.theme.palette();
+        let analysis = match &self.font_analysis {
+            Some(a) => a.clone(),
+            None => {
+                ui.collapsing("🔤 Font analysis", |ui| {
+                    ui.label("Loading...");
+                    if ui.button("Re-analyze").clicked() {
+                        let _ = self.job_tx.send(Job::AnalyzeFonts {
+                            path: PathBuf::from(&self.input_path),
+                        });
+                        self.in_flight += 1;
+                    }
+                });
+                return;
+            }
+        };
+
+        let header = if analysis.summary.all_fonts_covered {
+            format!(
+                "🔤 Font analysis — ✅ {} font(s), all covered",
+                analysis.summary.total_fonts
+            )
+        } else {
+            format!(
+                "🔤 Font analysis — ⚠ {}/{} font(s) need attention",
+                analysis.summary.fonts_needing_action, analysis.summary.total_fonts
+            )
+        };
+
+        ui.collapsing(header, |ui| {
+            // High-level summary line.
+            let summary_color = if analysis.summary.all_fonts_covered {
+                palette.success
+            } else {
+                palette.warn
+            };
+            ui.colored_label(summary_color, analysis.one_line_summary());
+
+            if !analysis.summary.all_fonts_covered {
+                ui.horizontal(|ui| {
+                    if analysis.summary.missing_digit_count > 0 {
+                        ui.colored_label(
+                            palette.warn,
+                            format!("Digits: {}", analysis.summary.missing_digit_count),
+                        );
+                    }
+                    if analysis.summary.missing_letter_count > 0 {
+                        ui.colored_label(
+                            palette.warn,
+                            format!("Letters: {}", analysis.summary.missing_letter_count),
+                        );
+                    }
+                    if analysis.summary.missing_other_count > 0 {
+                        ui.colored_label(
+                            palette.warn,
+                            format!("Other: {}", analysis.summary.missing_other_count),
+                        );
+                    }
+                });
+            }
+
+            ui.separator();
+
+            if ui.button("🔄 Re-analyze").clicked() {
+                let _ = self.job_tx.send(Job::AnalyzeFonts {
+                    path: PathBuf::from(&self.input_path),
+                });
+                self.in_flight += 1;
+            }
+
+            ui.separator();
+
+            // Per-font breakdown.
+            egui::ScrollArea::vertical()
+                .id_source("font-analysis-list")
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    for (i, font) in analysis.fonts.iter().enumerate() {
+                        let needs_action = !font.missing_chars.is_empty();
+                        let row_color = if needs_action {
+                            palette.warn
+                        } else {
+                            palette.success
+                        };
+                        let role_label = match font.usage_role {
+                            crate::engine::font_analysis::UsageRole::Digits => "digits",
+                            crate::engine::font_analysis::UsageRole::Letters => "letters",
+                            crate::engine::font_analysis::UsageRole::Mixed => "mixed",
+                            crate::engine::font_analysis::UsageRole::Punctuation => "punct",
+                            crate::engine::font_analysis::UsageRole::Other => "other",
+                        };
+                        let header = format!(
+                            "{} {} • {} • {} use(s) on {} page(s)",
+                            if needs_action { "⚠" } else { "✅" },
+                            font.base_name,
+                            role_label,
+                            font.occurrences,
+                            font.pages_used_on.len(),
+                        );
+                        let id = ui.make_persistent_id(("font-analysis", i));
+                        egui::collapsing_header::CollapsingState::load_with_default_open(
+                            ui.ctx(),
+                            id,
+                            false,
+                        )
+                        .show_header(ui, |ui| {
+                            ui.colored_label(row_color, header);
+                        })
+                        .body(|ui| {
+                            ui.label(font.fidelity_impact.as_str());
+                            ui.label(font.creation_scope.as_str());
+                            ui.small(format!(
+                                "Standard-14: {} • Subset: {}",
+                                if font.is_standard_14 { "yes" } else { "no" },
+                                if font.is_subset { "yes" } else { "no" },
+                            ));
+                            // Truncate the used-character preview at 80 chars
+                            // so a font with hundreds of glyphs doesn't dominate
+                            // the panel.
+                            let used_preview: String = if font.characters_used.chars().count() > 80
+                            {
+                                let head: String =
+                                    font.characters_used.chars().take(80).collect();
+                                format!("{head}…")
+                            } else {
+                                font.characters_used.clone()
+                            };
+                            ui.small(format!("Used characters: {used_preview}"));
+                            if !font.missing_chars.is_empty() {
+                                let missing_str = font.missing_chars.join(" ");
+                                ui.colored_label(
+                                    palette.warn,
+                                    format!("Missing: {missing_str}"),
+                                );
+                                let bd = &font.missing_breakdown;
+                                if !bd.digits.is_empty() {
+                                    ui.small(format!("  Digits: {}", bd.digits.join(" ")));
+                                }
+                                if !bd.letters.is_empty() {
+                                    ui.small(format!("  Letters: {}", bd.letters.join(" ")));
+                                }
+                                if !bd.other.is_empty() {
+                                    ui.small(format!("  Other: {}", bd.other.join(" ")));
+                                }
+                            }
+                            ui.small(format!(
+                                "Sizes: {:.1}–{:.1}pt • Pages: {}",
+                                font.size_range[0],
+                                font.size_range[1],
+                                font.pages_used_on
+                                    .iter()
+                                    .map(|p| (p + 1).to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            ));
+                        });
+                    }
+                });
+        });
+    }
+
     fn draw_workflow_section(&mut self, ui: &mut egui::Ui) {
         ui.collapsing("🤖 Workflow (AI parse → preview → render → verify)", |ui| {
             let stage = self.workflow_stage.clone();
             let p = self.settings.theme.palette();
 
-            // Step indicator
+            // Step indicator. Stage 13 / Item #1: each label is hoverable
+            // so the user can read what the step actually does, and the
+            // active step gets a strong color so the indicator never looks
+            // muted at idle.
             let step = stage.step_index();
             ui.horizontal(|ui| {
+                let descriptions = [
+                    "Run Document AI + Gemini completeness check",
+                    "Edit values inline; queued edits go to Preview",
+                    "Recompute every running balance with your edits",
+                    "Apply edits to the PDF (binary-level redact-and-replace)",
+                    "Render & compare; loop until visual match passes",
+                    "Re-parse with Document AI to confirm math integrity",
+                ];
                 for (i, name) in [
                     "Parse", "Edit", "Preview", "Render", "Verify", "Confirm",
                 ]
@@ -1257,14 +1977,14 @@ impl MyApp {
                 .enumerate()
                 {
                     let active_step = (i + 1) as u8;
-                    let color = if active_step < step {
-                        p.success
+                    let (color, label) = if active_step < step {
+                        (p.success, format!("✓ {}. {name}", i + 1))
                     } else if active_step == step.min(6) {
-                        p.accent
+                        (p.accent, format!("► {}. {name}", i + 1))
                     } else {
-                        p.weak
+                        (p.weak, format!("{}. {name}", i + 1))
                     };
-                    ui.colored_label(color, format!("{}. {name}", i + 1));
+                    ui.colored_label(color, label).on_hover_text(descriptions[i]);
                 }
             });
             ui.label(format!("Status: {}", stage.label()));
@@ -1286,6 +2006,8 @@ impl MyApp {
                 self.workflow_preview = None;
                 self.workflow_visual = None;
                 self.workflow_outcome = None;
+                self.font_cascade_reports.clear();
+                self.workflow_dirty = true;
             }
 
             if let Some(v) = &self.workflow_validation {
@@ -1311,6 +2033,11 @@ impl MyApp {
 
             ui.separator();
 
+            // Stage 5 / Item #6 + #8: inline edit table with per-row revert.
+            self.draw_workflow_edit_table(ui);
+
+            ui.separator();
+
             // Stage 3 button: balance preview
             let preview_enabled = self.workflow_validation.is_some();
             ui.label(format!("Pending edits queued: {}", self.workflow_edits.len()));
@@ -1324,7 +2051,7 @@ impl MyApp {
                         original_transactions: self.workflow_transactions.clone(),
                         edits: self.workflow_edits.clone(),
                         opening_balance: v.opening_balance,
-                        expected_closing: if v.closing_balance.abs() > 0.0 {
+                        expected_closing: if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
                             Some(v.closing_balance)
                         } else {
                             None
@@ -1350,11 +2077,19 @@ impl MyApp {
                 // Compact diff list
                 egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
                     for r in p.rows.iter().filter(|r| r.will_change).take(20) {
+                        // Char-aware truncation so multi-byte UTF-8 (CJK,
+                        // accented Latin) doesn't panic on byte slicing.
+                        let desc_short: String = if r.description.chars().count() > 24 {
+                            let head: String = r.description.chars().take(24).collect();
+                            format!("{head}…")
+                        } else {
+                            r.description.clone()
+                        };
                         ui.small(format!(
                             "P{} L{} {} • bal {:?} → {:?}",
                             r.page + 1,
                             r.line_on_page + 1,
-                            if r.description.len() > 24 { &r.description[..24] } else { &r.description },
+                            desc_short,
                             r.old_running_balance,
                             r.new_running_balance,
                         ));
@@ -1421,6 +2156,41 @@ impl MyApp {
                     "Re-parsed transactions: {} • final imbalance ${:.2}",
                     o.transactions_re_parsed, o.final_imbalance
                 ));
+            }
+
+            // Stage 12 / Item #3: surface cascade results so the user can
+            // see exactly which tier(s) closed any font-coverage gap.
+            if !self.font_cascade_reports.is_empty() {
+                ui.separator();
+                ui.label("🔧 Font cascade history:");
+                let palette = self.settings.theme.palette();
+                for report in &self.font_cascade_reports {
+                    let color = if report.success { palette.success } else { palette.warn };
+                    ui.colored_label(
+                        color,
+                        format!(
+                            "Attempt {} on '{}': {}",
+                            report.workflow_attempt,
+                            report.original_font,
+                            report.one_line_summary()
+                        ),
+                    );
+                    if !report.synthesised.is_empty() {
+                        ui.small(format!("  composite: {}", report.synthesised.join(", ")));
+                    }
+                    if !report.donor_extended.is_empty() {
+                        ui.small(format!("  donor:     {}", report.donor_extended.join(", ")));
+                    }
+                    if !report.ai_extended.is_empty() {
+                        ui.small(format!("  AI donor:  {}", report.ai_extended.join(", ")));
+                    }
+                    if !report.still_missing.is_empty() {
+                        ui.colored_label(
+                            palette.warn,
+                            format!("  still missing: {}", report.still_missing.join(", ")),
+                        );
+                    }
+                }
             }
         });
     }
@@ -1567,6 +2337,80 @@ impl MyApp {
                             );
                         }
                     }
+
+                    // Stage 5 / Item #20: live diff overlay during preview.
+                    // Translucent yellow over each `will_change` bbox on the
+                    // current page; tooltip shows old → new.
+                    if let Some(preview) = self.workflow_preview.clone() {
+                        let (sx, sy) = if let Some((w, h)) = self.current_page_size_pts {
+                            (size.x / w, size.y / h)
+                        } else {
+                            (self.zoom_factor, self.zoom_factor)
+                        };
+                        let mouse = response.hover_pos();
+                        for prow in preview
+                            .rows
+                            .iter()
+                            .filter(|r| r.will_change && r.page == self.current_page)
+                        {
+                            // Find the underlying transaction so we can use its bbox.
+                            let Some(tx) = self.workflow_transactions.iter().find(|t| {
+                                t.page == prow.page && t.line_on_page == prow.line_on_page
+                            }) else {
+                                continue;
+                            };
+                            let Some(bbox) = tx.bbox else {
+                                continue;
+                            };
+                            let min = rect.min + egui::vec2(bbox[0] * sx, bbox[1] * sy);
+                            let max = rect.min + egui::vec2(bbox[2] * sx, bbox[3] * sy);
+                            let cell = egui::Rect::from_min_max(min, max);
+                            // Translucent yellow fill + amber border.
+                            painter.rect_filled(
+                                cell,
+                                2.0,
+                                egui::Color32::from_rgba_unmultiplied(255, 220, 0, 70),
+                            );
+                            painter.rect_stroke(
+                                cell,
+                                2.0,
+                                egui::Stroke::new(
+                                    1.0,
+                                    egui::Color32::from_rgb(220, 180, 0),
+                                ),
+                            );
+                            // Hover tooltip with the diff text — only when
+                            // the pointer is actually over this cell.
+                            if let Some(m) = mouse {
+                                if cell.contains(m) {
+                                    let old_str = prow
+                                        .old_running_balance
+                                        .map(|v| format!("{v:.2}"))
+                                        .unwrap_or_else(|| "—".into());
+                                    let new_str = prow
+                                        .new_running_balance
+                                        .map(|v| format!("{v:.2}"))
+                                        .unwrap_or_else(|| "—".into());
+                                    egui::show_tooltip(
+                                        ctx,
+                                        egui::LayerId::new(
+                                            egui::Order::Tooltip,
+                                            egui::Id::new("diff-tooltip"),
+                                        ),
+                                        egui::Id::new(("diff-tooltip", prow.page, prow.line_on_page)),
+                                        |ui| {
+                                            ui.label(format!(
+                                                "P{} L{}",
+                                                prow.page + 1,
+                                                prow.line_on_page + 1
+                                            ));
+                                            ui.label(format!("{} → {}", old_str, new_str));
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
                 } else {
                     // Welcome / empty placeholder
                     self.draw_empty_canvas(ui, response.rect, &painter);
@@ -1654,6 +2498,13 @@ impl MyApp {
                 self.toast(ToastKind::Warn, "No previous session found.");
             }
         }
+        if button(
+            ui,
+            "📋 Resume workflow draft",
+            "Reload audit/workflow.json — restores parse, queued edits and stage",
+        ) {
+            self.resume_workflow_draft();
+        }
         if !self.settings.recent_files.is_empty()
             && button(
                 ui,
@@ -1663,6 +2514,46 @@ impl MyApp {
         {
             let path = PathBuf::from(self.settings.recent_files[0].clone());
             self.open_pdf(path);
+        }
+    }
+
+    /// Stage 13 / Item #12: confirmation modals.
+    fn draw_modals(&mut self, ctx: &egui::Context) {
+        if self.show_discard_draft_confirm {
+            let mut keep_open = true;
+            let mut confirm = false;
+            egui::Window::new("Discard workflow draft?")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .open(&mut keep_open)
+                .show(ctx, |ui| {
+                    ui.label("This will permanently delete audit/workflow.json.");
+                    ui.label("Any pending edits in the current workflow draft will be lost.");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            self.show_discard_draft_confirm = false;
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new("Discard")
+                                    .fill(self.settings.theme.palette().warn),
+                            )
+                            .clicked()
+                        {
+                            confirm = true;
+                        }
+                    });
+                });
+            if confirm {
+                Self::discard_workflow_draft_quiet();
+                self.toast(ToastKind::Info, "Workflow draft discarded");
+                self.show_discard_draft_confirm = false;
+            }
+            if !keep_open {
+                self.show_discard_draft_confirm = false;
+            }
         }
     }
 
@@ -1783,10 +2674,188 @@ impl MyApp {
         self.last_verification = None;
         self.last_warning = None;
         self.selected_block = None;
+        // Stage 6: opening a new PDF invalidates any cached hash and any
+        // in-flight workflow buffers — those belong to the previous file.
+        self.workflow_input_hash = None;
+        self.workflow_cell_buffers.clear();
+        // Stage 8.5: clear the font analysis; the runtime will produce a
+        // fresh one for the new PDF.
+        self.font_analysis = None;
         let _ = self.job_tx.send(Job::LoadDocument {
             path: self.current_pdf_path.clone(),
         });
         self.in_flight += 1;
+    }
+
+    /// Path of the on-disk autosave for the current workflow. One file per
+    /// session — overwritten as edits change. Stage 5 / Item #9.
+    fn workflow_draft_path() -> PathBuf {
+        PathBuf::from("audit").join("workflow.json")
+    }
+
+    /// Delete the on-disk draft if it exists. Used after a successful
+    /// `WorkflowComplete` and from the "Discard draft" menu. Errors are
+    /// logged but never surfaced — the file may legitimately be missing.
+    fn discard_workflow_draft_quiet() {
+        let path = Self::workflow_draft_path();
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                tracing::warn!("[gui] removing workflow draft failed: {}", e);
+            }
+        }
+    }
+
+    /// Persist the current workflow state to `audit/workflow.json` if there
+    /// is anything worth saving (validation has been done, OR there are
+    /// queued edits) and the dirty flag is set. Debounced to at most one
+    /// write per 1.5s. Failures are logged but never raised — losing an
+    /// autosave is non-fatal.
+    fn autosave_workflow_draft(&mut self) {
+        if !self.workflow_dirty {
+            return;
+        }
+        // Nothing to save until a parse has produced a baseline.
+        if self.workflow_validation.is_none() && self.workflow_edits.is_empty() {
+            self.workflow_dirty = false;
+            return;
+        }
+        // Debounce: 1.5s between writes.
+        if let Some(t) = self.workflow_last_save {
+            if t.elapsed() < Duration::from_millis(1500) {
+                return;
+            }
+        }
+        let pdf = PathBuf::from(&self.input_path);
+        if !pdf.exists() {
+            self.workflow_dirty = false;
+            return;
+        }
+        // Cache the PDF SHA-256 once per (input_path, file change) so the
+        // autosave doesn't re-read multi-MB files every 1.5s. The cache key
+        // is just the path; if the user opens a new PDF the cache is
+        // cleared in `open_pdf`. Stage 6.
+        let hash = match &self.workflow_input_hash {
+            Some((cached_path, h)) if cached_path == &self.input_path => h.clone(),
+            _ => {
+                let bytes = match std::fs::read(&pdf) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!("[gui] reading PDF for hash failed: {}", e);
+                        self.workflow_dirty = false;
+                        return;
+                    }
+                };
+                let h = crate::engine::workflow::sha256_hex_of(&bytes);
+                self.workflow_input_hash = Some((self.input_path.clone(), h.clone()));
+                h
+            }
+        };
+        let draft = crate::engine::workflow::WorkflowDraft::new_with_hash(
+            &pdf,
+            hash,
+            self.workflow_validation.clone(),
+            self.workflow_transactions.clone(),
+            self.workflow_edits.clone(),
+        );
+        let path = Self::workflow_draft_path();
+        match draft.save_to_file(&path) {
+            Ok(()) => {
+                tracing::debug!("[gui] saved workflow draft to {}", path.display());
+                self.workflow_dirty = false;
+                self.workflow_last_save = Some(Instant::now());
+            }
+            Err(e) => {
+                tracing::warn!("[gui] saving workflow draft failed: {}", e);
+                // Leave dirty=true so we retry next frame.
+            }
+        }
+    }
+
+    /// Resume a workflow from `audit/workflow.json`, restoring validation,
+    /// transactions and queued edits. Verifies the on-disk PDF still
+    /// hashes to what the draft expects; if not, surfaces a warning toast
+    /// but proceeds — the user might intentionally be loading a draft
+    /// against a manually-saved copy.
+    fn resume_workflow_draft(&mut self) {
+        let path = Self::workflow_draft_path();
+        if !path.exists() {
+            self.toast(ToastKind::Warn, "No workflow draft to resume.");
+            return;
+        }
+        let draft = match crate::engine::workflow::WorkflowDraft::load_from_file(&path) {
+            Ok(d) => d,
+            Err(e) => {
+                self.toast(ToastKind::Error, format!("Could not load draft: {e}"));
+                return;
+            }
+        };
+
+        // Stage 13 / Item #11: when the original PDF is missing, prompt the
+        // user to locate it instead of orphaning the draft. If they
+        // cancel, leave the draft untouched so they can retry later.
+        let mut pdf_path = PathBuf::from(&draft.input_path);
+        if !pdf_path.exists() {
+            self.toast(
+                ToastKind::Warn,
+                format!(
+                    "PDF missing: {} — please pick the file",
+                    pdf_path.display()
+                ),
+            );
+            match rfd::FileDialog::new()
+                .add_filter("PDF", &["pdf"])
+                .set_title("Locate the PDF this draft was saved against")
+                .pick_file()
+            {
+                Some(picked) => {
+                    pdf_path = picked;
+                }
+                None => {
+                    self.toast(
+                        ToastKind::Info,
+                        "Resume cancelled — draft kept; pick the PDF later.",
+                    );
+                    return;
+                }
+            }
+        }
+
+        let same = draft.matches_pdf(&pdf_path);
+        // Restore session state.
+        self.input_path = pdf_path.to_string_lossy().to_string();
+        self.current_pdf_path = pdf_path.clone();
+        self.workflow_validation = draft.validation.clone();
+        self.workflow_transactions = draft.transactions.clone();
+        self.workflow_edits = draft.edits.clone();
+        self.workflow_preview = None;
+        self.workflow_visual = None;
+        self.workflow_outcome = None;
+        self.workflow_stage = match draft.validation.clone() {
+            Some(v) => crate::engine::workflow::WorkflowStage::Editing(v),
+            None => crate::engine::workflow::WorkflowStage::Idle,
+        };
+        self.workflow_dirty = false;
+
+        // Trigger a render of the PDF.
+        let _ = self.job_tx.send(Job::LoadDocument {
+            path: pdf_path.clone(),
+        });
+        self.in_flight += 1;
+
+        if same {
+            self.toast(
+                ToastKind::Success,
+                format!(
+                    "Resumed workflow draft — {} edits queued",
+                    draft.edits.len()
+                ),
+            );
+        } else {
+            self.toast(
+                ToastKind::Warn,
+                "Draft loaded but the PDF has changed since it was saved.",
+            );
+        }
     }
 }
 

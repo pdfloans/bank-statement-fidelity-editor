@@ -7,5 +7,5 @@ pub mod tesseract;
 pub use geometry::*;
 pub use merger::*;
 pub use pymupdf_heuristic::PyMuPdfHeuristicProvider;
-pub use templates::BankTemplateProvider;
+pub use templates::{learn_template, BankTemplate, BankTemplateProvider};
 pub use tesseract::TesseractProvider;

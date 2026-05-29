@@ -15,13 +15,14 @@
 use base64::{engine::general_purpose::STANDARD as Base64Standard, Engine};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, StatusCode};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
 use crate::app::config::{AppConfig, DocumentAiConfig};
-use crate::engine::model::{Provenance, Transaction};
+use crate::engine::model::{f64_to_dec, FieldBboxes, Provenance, Transaction};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DocAiError {
@@ -45,8 +46,8 @@ pub enum DocAiError {
 pub struct BankStatement {
     pub total_pages: usize,
     pub transactions: Vec<Transaction>,
-    pub opening_balance: f64,
-    pub closing_balance: f64,
+    pub opening_balance: Decimal,
+    pub closing_balance: Decimal,
     pub account_number: Option<String>,
 }
 
@@ -365,15 +366,117 @@ impl DocumentAiClient {
         Ok(stmt)
     }
 
+    /// Parse a list of pre-chunked PDFs in parallel and merge the results
+    /// into a single [`BankStatement`]. Stage 3 / Item #16: avoids the 30
+    /// page-per-request processor cap by chunking + parallelising.
+    ///
+    /// `chunks` is a slice of `(chunk_path, page_offset)` pairs — typically
+    /// produced by `python/pymupdf_pro_integration.py::chunk_pdf_for_docai`.
+    /// `max_concurrency` caps how many chunk parses run simultaneously to
+    /// stay under Document AI's per-second QPS limits (4 is a safe default).
+    pub async fn parse_chunked_statement(
+        &self,
+        chunks: &[(std::path::PathBuf, usize)],
+        max_concurrency: usize,
+    ) -> Result<BankStatement, DocAiError> {
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+        use std::future::Future;
+        use std::pin::Pin;
+
+        if chunks.is_empty() {
+            return Err(DocAiError::MissingConfig("no chunks supplied"));
+        }
+
+        type ChunkFut<'a> = Pin<
+            Box<dyn Future<Output = (usize, usize, Result<BankStatement, DocAiError>)> + Send + 'a>,
+        >;
+        let mut in_flight: FuturesUnordered<ChunkFut<'_>> = FuturesUnordered::new();
+        let mut next_idx = 0usize;
+        let mut results: Vec<Option<(usize, BankStatement)>> = (0..chunks.len()).map(|_| None).collect();
+
+        // Prime up to `max_concurrency` parses.
+        while next_idx < chunks.len() && in_flight.len() < max_concurrency {
+            let (path, offset) = chunks[next_idx].clone();
+            let idx = next_idx;
+            in_flight.push(Box::pin(async move {
+                let r = self.parse_entire_statement(&path).await;
+                (idx, offset, r)
+            }));
+            next_idx += 1;
+        }
+
+        while let Some((idx, offset, res)) = in_flight.next().await {
+            let stmt = res?;
+            // Re-write each transaction's `page` to the absolute index in the
+            // unchunked document.
+            let shifted_txs: Vec<Transaction> = stmt
+                .transactions
+                .into_iter()
+                .map(|mut t| {
+                    t.page += offset;
+                    t
+                })
+                .collect();
+            results[idx] = Some((
+                offset,
+                BankStatement {
+                    transactions: shifted_txs,
+                    ..stmt
+                },
+            ));
+            // Top up.
+            if next_idx < chunks.len() {
+                let (path, offset) = chunks[next_idx].clone();
+                let i = next_idx;
+                in_flight.push(Box::pin(async move {
+                    let r = self.parse_entire_statement(&path).await;
+                    (i, offset, r)
+                }));
+                next_idx += 1;
+            }
+        }
+
+        // Merge in chunk-index order so transactions stay in document order.
+        let chunked: Vec<BankStatement> = results
+            .into_iter()
+            .filter_map(|r| r.map(|(_, s)| s))
+            .collect();
+        Ok(merge_chunk_results(chunked))
+    }
+
     fn parse_response_into_bank_statement(
         result: &serde_json::Value,
     ) -> Result<BankStatement, DocAiError> {
-        let total_pages = result["document"]["pages"]
-            .as_array()
-            .map_or(0, |p| p.len());
+        let pages_node = result["document"]["pages"].as_array();
+        let total_pages = pages_node.map_or(0, |p| p.len());
+
+        // Build a page-index → (width_pts, height_pts) map. DocAI normalizes
+        // bbox vertices in 0..1, so we need page dimensions to convert back
+        // to PDF-points-equivalent units. The `dimension` block has a `unit`
+        // field ("inches", "cm", "points", "pixels"); when missing or "pixels"
+        // we fall back to the raw values which still work for the editor —
+        // the editor consumes whatever unit pdfium-render is using to render
+        // the same page, and as long as both ends agree it's a no-op.
+        let pages_dim: Vec<(f32, f32, String)> = pages_node
+            .map(|pages| {
+                pages
+                    .iter()
+                    .map(|p| {
+                        let w = p["dimension"]["width"].as_f64().unwrap_or(0.0) as f32;
+                        let h = p["dimension"]["height"].as_f64().unwrap_or(0.0) as f32;
+                        let unit = p["dimension"]["unit"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
+                        (w, h, unit)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let mut transactions = Vec::new();
-        let mut opening_balance = 0.0;
-        let mut closing_balance = 0.0;
+        let mut opening_balance = Decimal::ZERO;
+        let mut closing_balance = Decimal::ZERO;
         let mut account_number: Option<String> = None;
 
         if let Some(entities) = result["document"]["entities"].as_array() {
@@ -385,6 +488,11 @@ impl DocumentAiClient {
                     .trim()
                     .to_string();
                 let confidence = entity["confidence"].as_f64().unwrap_or(0.0) as f32;
+
+                // Pull the page index and bbox (in PDF-points-equivalent units)
+                // from the entity's pageAnchor. Falls back to (0, None) if the
+                // anchor is missing.
+                let (page_idx, row_bbox) = entity_page_and_bbox(entity, &pages_dim);
 
                 match etype {
                     // Document AI Bank Statement Parser emits a `table_item`
@@ -421,15 +529,42 @@ impl DocumentAiClient {
                             continue;
                         }
 
+                        // Per-field bbox extraction so the binary edit redacts
+                        // the cell, not the whole row. Stage 7.5.
+                        let field_bboxes = FieldBboxes {
+                            date: property_bbox(
+                                entity,
+                                &["transaction_deposit_date", "transaction_withdrawal_date", "transaction_date"],
+                                &pages_dim,
+                            ),
+                            description: property_bbox(
+                                entity,
+                                &[
+                                    "transaction_deposit_description",
+                                    "transaction_withdrawal_description",
+                                    "transaction_description",
+                                ],
+                                &pages_dim,
+                            ),
+                            debit: property_bbox(entity, &["transaction_withdrawal", "debit"], &pages_dim),
+                            credit: property_bbox(entity, &["transaction_deposit", "credit"], &pages_dim),
+                            running_balance: property_bbox(
+                                entity,
+                                &["running_balance", "transaction_balance"],
+                                &pages_dim,
+                            ),
+                        };
+
                         transactions.push(Transaction {
-                            page: 0,
+                            page: page_idx,
                             line_on_page: idx,
                             date,
                             raw_text: description,
                             debit,
                             credit,
                             running_balance,
-                            bbox: None,
+                            bbox: row_bbox,
+                            field_bboxes,
                             provenance: Provenance::DocumentAI { confidence },
                         });
                     }
@@ -437,8 +572,19 @@ impl DocumentAiClient {
                     // Some processors emit "transaction" directly with the
                     // same property layout — keep this branch as a fallback.
                     "transaction" => {
+                        let field_bboxes = FieldBboxes {
+                            date: property_bbox(
+                                entity,
+                                &["transaction_date", "transaction_deposit_date"],
+                                &pages_dim,
+                            ),
+                            description: None,
+                            debit: property_bbox(entity, &["debit", "transaction_withdrawal"], &pages_dim),
+                            credit: property_bbox(entity, &["credit", "transaction_deposit"], &pages_dim),
+                            running_balance: property_bbox(entity, &["running_balance"], &pages_dim),
+                        };
                         transactions.push(Transaction {
-                            page: 0,
+                            page: page_idx,
                             line_on_page: idx,
                             date: extract_string_property(entity, "transaction_date")
                                 .or_else(|| {
@@ -452,19 +598,20 @@ impl DocumentAiClient {
                             credit: extract_number_property(entity, "credit")
                                 .or_else(|| extract_number_property(entity, "transaction_deposit")),
                             running_balance: extract_number_property(entity, "running_balance"),
-                            bbox: None,
+                            bbox: row_bbox,
+                            field_bboxes,
                             provenance: Provenance::DocumentAI { confidence },
                         });
                     }
 
                     "starting_balance" | "opening_balance" => {
                         if let Ok(v) = text.replace(['$', ','], "").parse::<f64>() {
-                            opening_balance = v;
+                            opening_balance = f64_to_dec(v);
                         }
                     }
                     "ending_balance" | "closing_balance" => {
                         if let Ok(v) = text.replace(['$', ','], "").parse::<f64>() {
-                            closing_balance = v;
+                            closing_balance = f64_to_dec(v);
                         }
                     }
                     "account_number" => {
@@ -485,6 +632,189 @@ impl DocumentAiClient {
             account_number,
         })
     }
+
+    // -----------------------------------------------------------------------
+    // Stage 4 / Item #12: Training orchestration.
+    //
+    // Document AI lets us train a custom processor version on a labelled
+    // dataset. The flow:
+    //   1. Poll dataset to count labelled documents.
+    //   2. When ≥8 are labelled, kick off `processorVersions:train`.
+    //   3. Poll the returned long-running operation until done.
+    //   4. Optionally set the new version as the processor's default.
+    //
+    // All four steps go through the same auth path as `parse_entire_statement`
+    // (API key first, ADC, service account). We always use v1beta3 because
+    // the training API isn't on v1.
+    // -----------------------------------------------------------------------
+
+    /// Authenticate the next request, returning either a complete URL with
+    /// `?key=...` appended, or `(url, Some(bearer_token))`.
+    ///
+    /// Hides the auth tier selection from each training method.
+    async fn authed_url(&self, base_url: &str) -> Result<(String, Option<String>), DocAiError> {
+        if !self.config.api_key.is_empty() {
+            let glue = if base_url.contains('?') { '&' } else { '?' };
+            return Ok((format!("{base_url}{glue}key={}", self.config.api_key), None));
+        }
+        if self.config.adc_path.is_empty() && self.config.service_account_path.is_empty() {
+            return Err(DocAiError::MissingConfig(
+                "no OAuth credential available (neither ADC nor service account)",
+            ));
+        }
+        let token = self.get_access_token().await?;
+        Ok((base_url.to_string(), Some(token)))
+    }
+
+    /// Apply auth to a `RequestBuilder`. Caller has already chosen the URL
+    /// from [`authed_url`]; here we just attach the bearer if present.
+    fn apply_auth(
+        &self,
+        builder: reqwest::RequestBuilder,
+        token: Option<&str>,
+    ) -> reqwest::RequestBuilder {
+        match token {
+            Some(t) => builder.bearer_auth(t),
+            None => builder,
+        }
+    }
+
+    /// Count documents marked as `LABELED` in the processor's dataset.
+    /// Returns `(labeled_count, total_count)`.
+    pub async fn count_labeled_documents(&self) -> Result<(usize, usize), DocAiError> {
+        let base = format!(
+            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}/dataset/documents:list",
+            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+        );
+        let (url, token) = self.authed_url(&base).await?;
+        let req = self.http.get(&url);
+        let req = self.apply_auth(req, token.as_deref());
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+        let body: serde_json::Value = resp.json().await?;
+        let docs = body["documentMetadata"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let total = docs.len();
+        let labeled = docs
+            .iter()
+            .filter(|d| {
+                d["datasetType"].as_str() == Some("DATASET_SPLIT_TRAIN")
+                    || d["datasetType"].as_str() == Some("DATASET_SPLIT_TEST")
+            })
+            .filter(|d| {
+                d["labelingState"].as_str() == Some("DOCUMENT_LABELED")
+            })
+            .count();
+        Ok((labeled, total))
+    }
+
+    /// Kick off training for a new processor version. Returns the LRO name
+    /// (`projects/.../operations/<id>`) the caller can poll.
+    pub async fn start_training(&self, display_name: &str) -> Result<String, DocAiError> {
+        let base = format!(
+            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}/processorVersions:train",
+            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+        );
+        let (url, token) = self.authed_url(&base).await?;
+        let body = serde_json::json!({
+            "processorVersion": {
+                "displayName": display_name
+            }
+        });
+        let req = self.http.post(&url).json(&body);
+        let req = self.apply_auth(req, token.as_deref());
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+        let body: serde_json::Value = resp.json().await?;
+        body["name"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| DocAiError::Parse(serde::de::Error::custom("training response missing 'name'")))
+    }
+
+    /// Poll an LRO once. Returns `(done, error_message_if_failed)`.
+    pub async fn poll_operation(&self, op_name: &str) -> Result<(bool, Option<String>), DocAiError> {
+        let base = format!(
+            "https://{}-documentai.googleapis.com/v1beta3/{}",
+            self.config.location, op_name
+        );
+        let (url, token) = self.authed_url(&base).await?;
+        let req = self.http.get(&url);
+        let req = self.apply_auth(req, token.as_deref());
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+        let body: serde_json::Value = resp.json().await?;
+        let done = body["done"].as_bool().unwrap_or(false);
+        let err = body["error"]["message"].as_str().map(|s| s.to_string());
+        Ok((done, err))
+    }
+
+    /// Set a processor version as the processor's default.
+    pub async fn set_default_version(&self, version_id: &str) -> Result<(), DocAiError> {
+        let base = format!(
+            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}:setDefaultProcessorVersion",
+            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+        );
+        let (url, token) = self.authed_url(&base).await?;
+        let body = serde_json::json!({
+            "defaultProcessorVersion": format!(
+                "projects/{}/locations/{}/processors/{}/processorVersions/{}",
+                self.config.project_id, self.config.location, self.config.processor_id, version_id
+            )
+        });
+        let req = self.http.post(&url).json(&body);
+        let req = self.apply_auth(req, token.as_deref());
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Merge per-chunk parses into one `BankStatement`. Stage 3 / Item #16.
+///
+/// Chunks are assumed to be in document order. Transactions retain their
+/// (already shifted) `page` numbers; total_pages sums; opening balance and
+/// account number come from the first chunk; closing balance from the last.
+fn merge_chunk_results(chunked: Vec<BankStatement>) -> BankStatement {
+    let mut merged = BankStatement {
+        total_pages: 0,
+        transactions: Vec::new(),
+        opening_balance: Decimal::ZERO,
+        closing_balance: Decimal::ZERO,
+        account_number: None,
+    };
+    for (i, stmt) in chunked.into_iter().enumerate() {
+        merged.total_pages += stmt.total_pages;
+        merged.transactions.extend(stmt.transactions);
+        if i == 0 {
+            merged.opening_balance = stmt.opening_balance;
+            merged.account_number = stmt.account_number;
+        }
+        merged.closing_balance = stmt.closing_balance;
+    }
+    merged
 }
 
 fn extract_string_property(entity: &serde_json::Value, kind: &str) -> Option<String> {
@@ -497,8 +827,110 @@ fn extract_string_property(entity: &serde_json::Value, kind: &str) -> Option<Str
     })
 }
 
-fn extract_number_property(entity: &serde_json::Value, kind: &str) -> Option<f64> {
-    extract_string_property(entity, kind).and_then(|s| s.replace(['$', ','], "").parse().ok())
+fn extract_number_property(entity: &serde_json::Value, kind: &str) -> Option<Decimal> {
+    extract_string_property(entity, kind)
+        .and_then(|s| s.replace(['$', ','], "").parse::<f64>().ok())
+        .map(f64_to_dec)
+}
+
+/// Stage 7.5: read the page index (0-based) and the row's bbox in
+/// document-page units from a Document AI entity. Returns `(0, None)` when
+/// the entity has no `pageAnchor.pageRefs[0]`.
+///
+/// `pages_dim` is the per-page `(width, height, unit)` table built from
+/// `document.pages[].dimension`. We multiply normalized vertices by
+/// `(width, height)` to land back in PDF-points-equivalent units. If the
+/// entity stores bbox vertices already in absolute units we use those
+/// directly.
+fn entity_page_and_bbox(
+    entity: &serde_json::Value,
+    pages_dim: &[(f32, f32, String)],
+) -> (usize, Option<[f32; 4]>) {
+    let Some(refs) = entity["pageAnchor"]["pageRefs"].as_array() else {
+        return (0, None);
+    };
+    let Some(first) = refs.first() else {
+        return (0, None);
+    };
+    let page_idx = first["page"]
+        .as_str()
+        .and_then(|s| s.parse::<usize>().ok())
+        .or_else(|| first["page"].as_u64().map(|n| n as usize))
+        .unwrap_or(0);
+    let bbox = bbox_from_bounding_poly(&first["boundingPoly"], page_idx, pages_dim);
+    (page_idx, bbox)
+}
+
+/// Same as [`entity_page_and_bbox`] but for one of the entity's nested
+/// `properties` (debit, credit, running_balance, …). Tries each kind in
+/// order and returns the first one whose property has a bbox.
+fn property_bbox(
+    entity: &serde_json::Value,
+    kinds: &[&str],
+    pages_dim: &[(f32, f32, String)],
+) -> Option<[f32; 4]> {
+    let props = entity["properties"].as_array()?;
+    for kind in kinds {
+        for p in props {
+            if p["type"].as_str() == Some(*kind) {
+                let (_, bbox) = entity_page_and_bbox(p, pages_dim);
+                if bbox.is_some() {
+                    return bbox;
+                }
+            }
+        }
+    }
+    None
+}
+
+fn bbox_from_bounding_poly(
+    poly: &serde_json::Value,
+    page_idx: usize,
+    pages_dim: &[(f32, f32, String)],
+) -> Option<[f32; 4]> {
+    // DocAI prefers `normalizedVertices` (0..1). Older responses use
+    // `vertices` in absolute pixel/point units.
+    if let Some(verts) = poly["normalizedVertices"].as_array() {
+        if verts.is_empty() {
+            return None;
+        }
+        let (w, h) = pages_dim
+            .get(page_idx)
+            .map(|(w, h, _)| (*w, *h))
+            .unwrap_or((1.0, 1.0));
+        let mut x0 = f32::MAX;
+        let mut y0 = f32::MAX;
+        let mut x1 = f32::MIN;
+        let mut y1 = f32::MIN;
+        for v in verts {
+            let x = v["x"].as_f64().unwrap_or(0.0) as f32 * w;
+            let y = v["y"].as_f64().unwrap_or(0.0) as f32 * h;
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+        return Some([x0, y0, x1, y1]);
+    }
+    if let Some(verts) = poly["vertices"].as_array() {
+        if verts.is_empty() {
+            return None;
+        }
+        let mut x0 = f32::MAX;
+        let mut y0 = f32::MAX;
+        let mut x1 = f32::MIN;
+        let mut y1 = f32::MIN;
+        for v in verts {
+            let x = v["x"].as_f64().unwrap_or(0.0) as f32;
+            let y = v["y"].as_f64().unwrap_or(0.0) as f32;
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+        return Some([x0, y0, x1, y1]);
+    }
+    None
 }
 
 #[cfg(test)]
@@ -548,10 +980,10 @@ mod tests {
         let tx = &stmt.transactions[0];
         assert_eq!(tx.date, "09/02/2026");
         assert_eq!(tx.raw_text, "Interest Paid");
-        assert_eq!(tx.credit, Some(242.83));
+        assert_eq!(tx.credit, Some(f64_to_dec(242.83)));
         assert_eq!(tx.debit, None);
-        assert_eq!(stmt.opening_balance, 1000.00);
-        assert_eq!(stmt.closing_balance, 1242.83);
+        assert_eq!(stmt.opening_balance, f64_to_dec(1000.00));
+        assert_eq!(stmt.closing_balance, f64_to_dec(1242.83));
         assert_eq!(stmt.account_number.as_deref(), Some("807466413"));
         match tx.provenance {
             Provenance::DocumentAI { confidence } => assert!((confidence - 0.84).abs() < 0.01),
@@ -581,7 +1013,7 @@ mod tests {
         let val: serde_json::Value = serde_json::from_str(json_str).unwrap();
         let stmt = DocumentAiClient::parse_response_into_bank_statement(&val).unwrap();
         assert_eq!(stmt.transactions.len(), 1);
-        assert_eq!(stmt.transactions[0].debit, Some(3.50));
+        assert_eq!(stmt.transactions[0].debit, Some(f64_to_dec(3.50)));
     }
 
     #[test]
@@ -643,7 +1075,7 @@ mod tests {
             extract_string_property(&entity, "transaction_date").as_deref(),
             Some("2026-05-01")
         );
-        assert_eq!(extract_number_property(&entity, "debit"), Some(3.50));
+        assert_eq!(extract_number_property(&entity, "debit"), Some(f64_to_dec(3.50)));
         assert_eq!(extract_string_property(&entity, "credit"), None);
     }
 
@@ -663,5 +1095,243 @@ mod tests {
         };
         let res = DocumentAiClient::from_app_config(&cfg);
         assert!(matches!(res, Err(DocAiError::MissingConfig(_))));
+    }
+
+    fn fake_chunk(
+        page_count: usize,
+        opening: f64,
+        closing: f64,
+        tx_pages: &[usize],
+    ) -> BankStatement {
+        fake_chunk_with_account(page_count, opening, closing, tx_pages, None)
+    }
+
+    fn fake_chunk_with_account(
+        page_count: usize,
+        opening: f64,
+        closing: f64,
+        tx_pages: &[usize],
+        account: Option<&str>,
+    ) -> BankStatement {
+        BankStatement {
+            total_pages: page_count,
+            transactions: tx_pages
+                .iter()
+                .enumerate()
+                .map(|(i, p)| Transaction {
+                    page: *p,
+                    line_on_page: i,
+                    date: "01/01/2026".into(),
+                    raw_text: format!("tx{i}"),
+                    debit: Some(f64_to_dec(10.0)),
+                    credit: None,
+                    running_balance: Some(f64_to_dec(opening + 10.0 * (i as f64 + 1.0))),
+                    bbox: None,
+                    field_bboxes: Default::default(),
+                    provenance: Provenance::DocumentAI { confidence: 0.9 },
+                })
+                .collect(),
+            opening_balance: f64_to_dec(opening),
+            closing_balance: f64_to_dec(closing),
+            account_number: account.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn merge_chunk_results_sums_pages_keeps_first_opening_last_closing() {
+        // Two chunks: first 30 pages opening 100, second 20 pages closing 500.
+        let chunks = vec![
+            fake_chunk_with_account(30, 100.0, 350.0, &[0, 5, 12], Some("ACC123")),
+            fake_chunk(20, 350.0, 500.0, &[30, 35]),
+        ];
+        let merged = merge_chunk_results(chunks);
+        assert_eq!(merged.total_pages, 50);
+        assert_eq!(merged.transactions.len(), 5);
+        assert_eq!(merged.opening_balance, f64_to_dec(100.0));
+        assert_eq!(merged.closing_balance, f64_to_dec(500.0));
+        assert_eq!(merged.account_number.as_deref(), Some("ACC123"));
+    }
+
+    #[test]
+    fn merge_chunk_results_preserves_transaction_order() {
+        let chunks = vec![
+            fake_chunk(30, 0.0, 0.0, &[0, 1, 2]),
+            fake_chunk(30, 0.0, 0.0, &[30, 31]),
+        ];
+        let merged = merge_chunk_results(chunks);
+        let pages: Vec<usize> = merged.transactions.iter().map(|t| t.page).collect();
+        assert_eq!(pages, vec![0, 1, 2, 30, 31]);
+    }
+
+    #[test]
+    fn merge_chunk_results_handles_single_chunk() {
+        let chunks = vec![fake_chunk_with_account(10, 50.0, 200.0, &[0, 5], Some("X"))];
+        let merged = merge_chunk_results(chunks);
+        assert_eq!(merged.total_pages, 10);
+        assert_eq!(merged.opening_balance, f64_to_dec(50.0));
+        assert_eq!(merged.closing_balance, f64_to_dec(200.0));
+    }
+
+    #[test]
+    fn merge_chunk_results_handles_empty() {
+        let merged = merge_chunk_results(vec![]);
+        assert_eq!(merged.total_pages, 0);
+        assert!(merged.transactions.is_empty());
+    }
+
+    /// Stage 7.5: parse → edit pipeline integrity. Confirm that bbox info
+    /// from Document AI's `pageAnchor.boundingPoly.normalizedVertices`
+    /// flows all the way into `Transaction.bbox` and `Transaction.field_bboxes`.
+    /// Without this the binary editor redacts the wrong region (or no
+    /// region at all).
+    #[test]
+    fn parse_extracts_row_and_per_field_bboxes_from_page_anchor() {
+        let json_str = r#"{
+            "document": {
+                "pages": [{
+                    "pageNumber": 1,
+                    "dimension": { "width": 612, "height": 792, "unit": "points" }
+                }],
+                "entities": [
+                    {
+                        "type": "table_item",
+                        "mentionText": "INTEREST PAID",
+                        "confidence": 0.92,
+                        "pageAnchor": {
+                            "pageRefs": [{
+                                "page": "0",
+                                "boundingPoly": {
+                                    "normalizedVertices": [
+                                        { "x": 0.10, "y": 0.30 },
+                                        { "x": 0.90, "y": 0.30 },
+                                        { "x": 0.90, "y": 0.34 },
+                                        { "x": 0.10, "y": 0.34 }
+                                    ]
+                                }
+                            }]
+                        },
+                        "properties": [
+                            {
+                                "type": "transaction_deposit_date",
+                                "mentionText": "09/02/2026",
+                                "pageAnchor": { "pageRefs": [{
+                                    "page": "0",
+                                    "boundingPoly": { "normalizedVertices": [
+                                        { "x": 0.10, "y": 0.30 }, { "x": 0.20, "y": 0.30 },
+                                        { "x": 0.20, "y": 0.34 }, { "x": 0.10, "y": 0.34 }
+                                    ]}
+                                }]}
+                            },
+                            {
+                                "type": "transaction_deposit_description",
+                                "mentionText": "Interest Paid",
+                                "pageAnchor": { "pageRefs": [{
+                                    "page": "0",
+                                    "boundingPoly": { "normalizedVertices": [
+                                        { "x": 0.22, "y": 0.30 }, { "x": 0.55, "y": 0.30 },
+                                        { "x": 0.55, "y": 0.34 }, { "x": 0.22, "y": 0.34 }
+                                    ]}
+                                }]}
+                            },
+                            {
+                                "type": "transaction_deposit",
+                                "mentionText": "$242.83",
+                                "pageAnchor": { "pageRefs": [{
+                                    "page": "0",
+                                    "boundingPoly": { "normalizedVertices": [
+                                        { "x": 0.60, "y": 0.30 }, { "x": 0.72, "y": 0.30 },
+                                        { "x": 0.72, "y": 0.34 }, { "x": 0.60, "y": 0.34 }
+                                    ]}
+                                }]}
+                            },
+                            {
+                                "type": "running_balance",
+                                "mentionText": "$1,242.83",
+                                "pageAnchor": { "pageRefs": [{
+                                    "page": "0",
+                                    "boundingPoly": { "normalizedVertices": [
+                                        { "x": 0.78, "y": 0.30 }, { "x": 0.90, "y": 0.30 },
+                                        { "x": 0.90, "y": 0.34 }, { "x": 0.78, "y": 0.34 }
+                                    ]}
+                                }]}
+                            }
+                        ]
+                    }
+                ]
+            }
+        }"#;
+        let val: serde_json::Value = serde_json::from_str(json_str).unwrap();
+        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val).unwrap();
+        assert_eq!(stmt.transactions.len(), 1);
+
+        let tx = &stmt.transactions[0];
+        // Row-level bbox: 0.10..0.90 of width 612 = 61.2..550.8, y 237.6..269.28
+        let row = tx.bbox.expect("row bbox should be set from pageAnchor");
+        assert!((row[0] - 61.2).abs() < 1.0, "x0={}", row[0]);
+        assert!((row[1] - 237.6).abs() < 1.0, "y0={}", row[1]);
+        assert!((row[2] - 550.8).abs() < 1.0, "x1={}", row[2]);
+        assert!((row[3] - 269.28).abs() < 1.0, "y1={}", row[3]);
+
+        // Per-field bboxes: each cell is its own narrower rectangle.
+        let credit_box = tx.field_bboxes.credit
+            .expect("transaction_deposit bbox should be set");
+        // Credit box: 0.60..0.72 of width 612 = 367.2..440.64
+        assert!((credit_box[0] - 367.2).abs() < 1.0, "credit x0={}", credit_box[0]);
+        assert!((credit_box[2] - 440.64).abs() < 1.0, "credit x1={}", credit_box[2]);
+
+        let bal_box = tx.field_bboxes.running_balance
+            .expect("running_balance bbox should be set");
+        assert!((bal_box[0] - 477.36).abs() < 1.0, "bal x0={}", bal_box[0]);
+        assert!((bal_box[2] - 550.8).abs() < 1.0, "bal x1={}", bal_box[2]);
+
+        // The credit and running_balance bboxes do not overlap horizontally.
+        assert!(
+            credit_box[2] < bal_box[0],
+            "credit ({}..{}) and balance ({}..{}) overlap",
+            credit_box[0], credit_box[2], bal_box[0], bal_box[2]
+        );
+    }
+
+    /// Edit-payload integrity: the GUI's bbox_for_field equivalent must
+    /// pick the field-specific bbox when present, and the row-level bbox
+    /// otherwise. We test the data shape here so a refactor of the helper
+    /// stays consistent with what DocAI actually returns.
+    #[test]
+    fn parse_falls_back_to_row_bbox_when_property_anchor_missing() {
+        // Same as above but the deposit has no own pageAnchor — falls back
+        // to the row's bbox.
+        let json_str = r#"{
+            "document": {
+                "pages": [{ "pageNumber": 1, "dimension": { "width": 100, "height": 100, "unit": "points" } }],
+                "entities": [
+                    {
+                        "type": "table_item",
+                        "mentionText": "X",
+                        "confidence": 0.9,
+                        "pageAnchor": {
+                            "pageRefs": [{
+                                "page": "0",
+                                "boundingPoly": { "normalizedVertices": [
+                                    { "x": 0.0, "y": 0.0 }, { "x": 1.0, "y": 0.0 },
+                                    { "x": 1.0, "y": 0.1 }, { "x": 0.0, "y": 0.1 }
+                                ]}
+                            }]
+                        },
+                        "properties": [
+                            { "type": "transaction_deposit", "mentionText": "10.00" }
+                        ]
+                    }
+                ]
+            }
+        }"#;
+        let val: serde_json::Value = serde_json::from_str(json_str).unwrap();
+        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val).unwrap();
+        assert_eq!(stmt.transactions.len(), 1);
+        let tx = &stmt.transactions[0];
+        assert!(tx.bbox.is_some(), "row bbox should be set");
+        assert!(
+            tx.field_bboxes.credit.is_none(),
+            "no property anchor → field bbox should be None"
+        );
     }
 }

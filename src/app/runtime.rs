@@ -112,6 +112,36 @@ pub enum PythonJob {
         font_name: String,
         output_dir: String,
     },
+    /// Stage 3 / Item #14: apply N edits in one open/save pass.
+    /// `edits_json` is a JSON array of `{page, rect, new_text, fill_color?}`.
+    ApplyManyEdits {
+        pdf_path: String,
+        output_path: String,
+        edits_json: String,
+        font_path: Option<String>,
+    },
+    /// Stage 3 / Item #16: split a PDF into chunks ≤30 pages so Document AI
+    /// can parse documents above its single-request page cap.
+    ChunkPdfForDocai {
+        pdf_path: String,
+        output_dir: String,
+        max_pages_per_chunk: usize,
+    },
+    /// Stage 8.5: per-font usage + coverage analysis. Returns the JSON
+    /// shape produced by `pymupdf_pro_integration.analyze_fonts`.
+    AnalyzeFonts {
+        pdf_path: String,
+    },
+    /// Stage 11: targeted font cascade. Runs composite synthesis →
+    /// subset extension → Gemini Vision donor identification on the
+    /// supplied `missing_chars`. Returns the JSON dict produced by
+    /// `replicate_font_for_chars`.
+    ReplicateFontForMissingChars {
+        pdf_path: String,
+        font_name: String,
+        missing_chars_csv: String,
+        output_dir: String,
+    },
 }
 
 #[derive(Debug)]
@@ -128,6 +158,11 @@ pub enum Job {
     Ping,
     Python(PythonJob, oneshot::Sender<PythonJobResult>),
     LoadDocument {
+        path: PathBuf,
+    },
+    /// Stage 8.5: standalone font analysis trigger. Useful from a "Re-analyze"
+    /// menu in the GUI; LoadDocument also fires this automatically.
+    AnalyzeFonts {
         path: PathBuf,
     },
     RenderPage {
@@ -194,8 +229,8 @@ pub enum Job {
     WorkflowPreview {
         original_transactions: Vec<crate::engine::model::Transaction>,
         edits: Vec<crate::engine::workflow::UserEdit>,
-        opening_balance: f64,
-        expected_closing: Option<f64>,
+        opening_balance: rust_decimal::Decimal,
+        expected_closing: Option<rust_decimal::Decimal>,
     },
     /// Stage 4 + 5 + 6: apply edits, render, validate visually in a loop, then
     /// re-parse with Document AI to confirm math.
@@ -237,8 +272,17 @@ pub enum JobResult {
     },
     TransactionsExtracted(Vec<crate::engine::model::Transaction>),
     VerificationReport(crate::engine::verification::VerificationReport),
+    /// Stage 8.5: per-font usage and coverage breakdown for the loaded PDF.
+    /// Sent automatically after `Job::LoadDocument` and on demand from
+    /// `Job::AnalyzeFonts`.
+    FontAnalysisReady(crate::engine::font_analysis::FontAnalysis),
+    /// Stage 12 / Item #3: emitted when the workflow's font cascade was
+    /// invoked because the apply step hit FONT_COVERAGE_INSUFFICIENT.
+    /// The GUI uses this to surface a small audit line summarising which
+    /// tiers were used and which characters each tier contributed.
+    FontCascadeUsed(crate::engine::font_analysis::FontCascadeReport),
     BalanceProposed {
-        imbalance: f64,
+        imbalance: rust_decimal::Decimal,
         changes: Vec<crate::engine::model::ProposedChange>,
     },
     ProposedChangesApplied {
@@ -376,6 +420,42 @@ impl Runtime {
                                 } => engine
                                     .deep_font_replication(&pdf_path, &font_name, &output_dir)
                                     .map(PythonJobResult::Json),
+                                PythonJob::ApplyManyEdits {
+                                    pdf_path,
+                                    output_path,
+                                    edits_json,
+                                    font_path,
+                                } => engine
+                                    .apply_many_edits(
+                                        &pdf_path,
+                                        &output_path,
+                                        &edits_json,
+                                        font_path.as_deref(),
+                                    )
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ChunkPdfForDocai {
+                                    pdf_path,
+                                    output_dir,
+                                    max_pages_per_chunk,
+                                } => engine
+                                    .chunk_pdf_for_docai(&pdf_path, &output_dir, max_pages_per_chunk)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::AnalyzeFonts { pdf_path } => engine
+                                    .analyze_fonts(&pdf_path)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ReplicateFontForMissingChars {
+                                    pdf_path,
+                                    font_name,
+                                    missing_chars_csv,
+                                    output_dir,
+                                } => engine
+                                    .replicate_font_for_missing_chars(
+                                        &pdf_path,
+                                        &font_name,
+                                        &missing_chars_csv,
+                                        &output_dir,
+                                    )
+                                    .map(PythonJobResult::Json),
                             }));
 
                         let final_res = match res {
@@ -456,6 +536,8 @@ impl Runtime {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Analyzing layout".to_string(), fraction: 0.1 });
                         let eng = engine_for_tokio.clone();
                         let res_tx = result_tx_clone.clone();
+                        let py_tx_for_fonts = python_tx_clone.clone();
+                        let path_for_fonts = path.clone();
                         tokio::task::spawn_blocking(move || {
                             match eng.analyze_layout(&path) {
                                 Ok(layout) => {
@@ -467,6 +549,116 @@ impl Runtime {
                                     let _ = res_tx.send(JobResult::Error { job_label: "load_document".into(), message: e.to_string() });
                                 }
                             }
+                        });
+                        // Stage 8.5: kick off the font analysis in parallel.
+                        // The result lands in JobResult::FontAnalysisReady when ready.
+                        // Stage 13 / Item #7: cache by SHA-256 of the PDF
+                        // contents under `audit/font_analysis_cache/`. The
+                        // cache is invalidated when the file changes; if a
+                        // hit is found, we surface it immediately and skip
+                        // the (expensive) PyMuPDF traversal.
+                        let res_tx2 = result_tx_clone.clone();
+                        tokio::spawn(async move {
+                            // Compute the hash on a blocking task so we
+                            // don't stall the tokio runtime.
+                            let path_for_hash = path_for_fonts.clone();
+                            let hash_opt: Option<String> = tokio::task::spawn_blocking(move || -> Option<String> {
+                                let bytes = std::fs::read(&path_for_hash).ok()?;
+                                Some(crate::engine::workflow::sha256_hex_of(&bytes))
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+
+                            if let Some(ref hash) = hash_opt {
+                                let cache_path = std::path::PathBuf::from("audit")
+                                    .join("font_analysis_cache")
+                                    .join(format!("{hash}.json"));
+                                if let Ok(raw) = std::fs::read_to_string(&cache_path) {
+                                    if let Ok(analysis) = crate::engine::font_analysis::FontAnalysis::from_json(&raw) {
+                                        tracing::info!("[font-analysis] cache hit for {}", hash);
+                                        let _ = res_tx2.send(JobResult::FontAnalysisReady(analysis));
+                                        return;
+                                    }
+                                }
+                            }
+
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if py_tx_for_fonts
+                                .send((
+                                    PythonJob::AnalyzeFonts {
+                                        pdf_path: path_for_fonts.to_string_lossy().to_string(),
+                                    },
+                                    reply_tx,
+                                ))
+                                .is_ok()
+                            {
+                                if let Ok(PythonJobResult::Json(json)) = reply_rx.await {
+                                    match crate::engine::font_analysis::FontAnalysis::from_json(&json) {
+                                        Ok(analysis) => {
+                                            // Write the cache entry for next time.
+                                            if let Some(hash) = hash_opt.as_ref() {
+                                                let cache_dir = std::path::PathBuf::from("audit")
+                                                    .join("font_analysis_cache");
+                                                let _ = std::fs::create_dir_all(&cache_dir);
+                                                let cache_path = cache_dir.join(format!("{hash}.json"));
+                                                let _ = std::fs::write(&cache_path, &json);
+                                            }
+                                            let _ = res_tx2.send(JobResult::FontAnalysisReady(analysis));
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("[font-analysis] decode failed: {e}");
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    Job::AnalyzeFonts { path } => {
+                        let res_tx = result_tx_clone.clone();
+                        let py_tx = python_tx_clone.clone();
+                        tokio::spawn(async move {
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Analyzing fonts".to_string(),
+                                fraction: 0.1,
+                            });
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if py_tx
+                                .send((
+                                    PythonJob::AnalyzeFonts {
+                                        pdf_path: path.to_string_lossy().to_string(),
+                                    },
+                                    reply_tx,
+                                ))
+                                .is_ok()
+                            {
+                                match reply_rx.await {
+                                    Ok(PythonJobResult::Json(json)) => {
+                                        match crate::engine::font_analysis::FontAnalysis::from_json(&json) {
+                                            Ok(analysis) => {
+                                                let _ = res_tx.send(JobResult::FontAnalysisReady(analysis));
+                                            }
+                                            Err(e) => {
+                                                let _ = res_tx.send(JobResult::Error {
+                                                    job_label: "analyze_fonts".into(),
+                                                    message: e,
+                                                });
+                                            }
+                                        }
+                                    }
+                                    Ok(PythonJobResult::Error(msg)) => {
+                                        let _ = res_tx.send(JobResult::Error {
+                                            job_label: "analyze_fonts".into(),
+                                            message: msg,
+                                        });
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Done".into(),
+                                fraction: 1.0,
+                            });
                         });
                     }
                     Job::RenderPage { path, page, dpi, tag } => {
@@ -862,30 +1054,33 @@ impl Runtime {
                                             line_on_page: r.line_on_page.unwrap_or(0),
                                             date: r.date.clone().unwrap_or_default(),
                                             raw_text: r.raw_text.clone().unwrap_or_default(),
-                                            debit: r.debit,
-                                            credit: r.credit,
-                                            running_balance: r.running_balance,
+                                            debit: r.debit.map(crate::engine::model::f64_to_dec),
+                                            credit: r.credit.map(crate::engine::model::f64_to_dec),
+                                            running_balance: r.running_balance.map(crate::engine::model::f64_to_dec),
                                             bbox: r.bbox,
+                                            field_bboxes: Default::default(),
                                             provenance: crate::engine::model::Provenance::Computed,
                                         }
                                     }).collect();
 
                                     let python_tx_clone2 = python_tx_clone.clone();
-                                    
+
                                     // NEW: We must extract the expected closing balance from the original PDF
-                                    let mut expected_final_balance = None;
-                                    let mut opening_balance = 0.0;
-                                    
+                                    let mut expected_final_balance: Option<rust_decimal::Decimal> = None;
+                                    let mut opening_balance = rust_decimal::Decimal::ZERO;
+
                                     // Parse original PDF for the expected balance
                                     let (reply_tx_orig, reply_rx_orig) = oneshot::channel();
                                     if python_tx_clone2.send((PythonJob::GetAllTransactions { pdf_path: original.to_string_lossy().to_string() }, reply_tx_orig)).is_ok() {
                                         if let Ok(PythonJobResult::Json(json_orig)) = reply_rx_orig.await {
                                             let orig_raw_rows: Vec<RawTxRow> = serde_json::from_str(&json_orig).unwrap_or_default();
                                             if let Some(first) = orig_raw_rows.first() {
-                                                opening_balance = first.running_balance.unwrap_or(0.0) - (first.debit.unwrap_or(0.0) - first.credit.unwrap_or(0.0));
+                                                let bal = first.running_balance.unwrap_or(0.0)
+                                                    - (first.debit.unwrap_or(0.0) - first.credit.unwrap_or(0.0));
+                                                opening_balance = crate::engine::model::f64_to_dec(bal);
                                             }
                                             if let Some(last) = orig_raw_rows.last() {
-                                                expected_final_balance = last.running_balance;
+                                                expected_final_balance = last.running_balance.map(crate::engine::model::f64_to_dec);
                                             }
                                         }
                                     }
@@ -925,6 +1120,7 @@ impl Runtime {
                         let res_tx = result_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
+                        let python_tx_clone = python_tx_clone.clone();
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                 stage: crate::engine::workflow::WorkflowStage::Parsing,
@@ -939,11 +1135,106 @@ impl Runtime {
                                 }
                             };
 
-                            let stmt = match doc_ai.parse_entire_statement(&input).await {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
-                                    return;
+                            // Stage 3 / Item #16: page count first; if it
+                            // exceeds the processor's online sync cap (15
+                            // pages on v1beta3, the API-key-auth path we
+                            // prefer), chunk via the Python actor and parse
+                            // chunks in parallel. v1 sync allows 30 pages
+                            // but we standardise on 15 because the auth
+                            // cascade may fall back to v1beta3 at any time.
+                            let page_count = {
+                                let p = input.clone();
+                                tokio::task::spawn_blocking(move || -> usize {
+                                    use pdfium_render::prelude::Pdfium;
+                                    let pdfium = Pdfium::default();
+                                    pdfium
+                                        .load_pdf_from_file(&p, None)
+                                        .map(|d| d.pages().len() as usize)
+                                        .unwrap_or(0)
+                                })
+                                .await
+                                .unwrap_or(0)
+                            };
+
+                            let stmt = if page_count > 15 {
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!(
+                                        "Document is {} pages — chunking for Document AI",
+                                        page_count
+                                    ),
+                                    fraction: 0.3,
+                                });
+                                // Ask the Python actor to chunk.
+                                let chunk_dir = std::path::PathBuf::from("output")
+                                    .join("docai_chunks")
+                                    .join(format!(
+                                        "{}-{}",
+                                        chrono::Utc::now().format("%Y%m%d%H%M%S"),
+                                        std::process::id()
+                                    ));
+                                let _ = std::fs::create_dir_all(&chunk_dir);
+
+                                let (tx, rx) = oneshot::channel();
+                                let _ = python_tx_clone.send((
+                                    PythonJob::ChunkPdfForDocai {
+                                        pdf_path: input.to_string_lossy().to_string(),
+                                        output_dir: chunk_dir.to_string_lossy().to_string(),
+                                        max_pages_per_chunk: 15,
+                                    },
+                                    tx,
+                                ));
+                                let chunks: Vec<(std::path::PathBuf, usize)> = match rx.await {
+                                    Ok(PythonJobResult::Json(json)) => {
+                                        #[derive(serde::Deserialize)]
+                                        struct ChunkInfo {
+                                            path: String,
+                                            page_offset: usize,
+                                        }
+                                        match serde_json::from_str::<Vec<ChunkInfo>>(&json) {
+                                            Ok(items) => items
+                                                .into_iter()
+                                                .map(|c| (std::path::PathBuf::from(c.path), c.page_offset))
+                                                .collect(),
+                                            Err(e) => {
+                                                let _ = res_tx.send(JobResult::WorkflowFailed(
+                                                    crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk decode: {e}")),
+                                                ));
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    Ok(PythonJobResult::Error(e)) => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(
+                                            crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk failed: {e}")),
+                                        ));
+                                        return;
+                                    }
+                                    _ => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(
+                                            crate::engine::workflow::WorkflowFailure::ParseFailed("chunker returned unexpected result".into()),
+                                        ));
+                                        return;
+                                    }
+                                };
+
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!("Parsing {} chunks in parallel", chunks.len()),
+                                    fraction: 0.5,
+                                });
+                                match doc_ai.parse_chunked_statement(&chunks, 4).await {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
+                                        return;
+                                    }
+                                }
+                            } else {
+                                match doc_ai.parse_entire_statement(&input).await {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
+                                        return;
+                                    }
                                 }
                             };
 
@@ -956,8 +1247,8 @@ impl Runtime {
                                 Ok(g) => {
                                     match g.validate_parse_completeness(
                                         &stmt.transactions,
-                                        stmt.opening_balance,
-                                        stmt.closing_balance,
+                                        crate::engine::model::dec_to_f64(stmt.opening_balance),
+                                        crate::engine::model::dec_to_f64(stmt.closing_balance),
                                         stmt.total_pages,
                                     ).await {
                                         Ok(r) => (r.completeness_score, r.notes, r.missing_rows, r.math_consistent),
@@ -1047,9 +1338,15 @@ impl Runtime {
                         let eng = engine_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
+                        let audit_log_clone = audit_log.clone();
                         tokio::spawn(async move {
                             let mut attempt: u32 = 1;
                             let mut visual_attempts: u32 = 0;
+                            // Stage 13 / Item #5: per-workflow timestamp so
+                            // scratch files from different runs don't
+                            // collide. We append both the timestamp and
+                            // the attempt number to the scratch filename.
+                            let workflow_stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
                             let mut last_score: f64 = 1.0;
                             let mut last_intended = false;
                             let _ = (&last_score, &last_intended); // initial values used below the loop on early exit
@@ -1064,74 +1361,325 @@ impl Runtime {
                                     fraction: 0.1 + (attempt as f32) * 0.05,
                                 });
 
-                                // Apply each edit sequentially through the existing
-                                // binary-level path. We use a per-attempt scratch file
-                                // so a failed attempt doesn't poison the next one.
-                                let mut current = input.clone();
+                                // Stage 3 / Item #14: apply all edits in a single
+                                // open/save pass. Much faster than the previous
+                                // N-roundtrip serial loop. We still pre-flight the
+                                // row-drift guard from Stage 2 / Item #1 once per
+                                // edit before sending the batch.
                                 let mut all_ok = true;
                                 let mut last_failure: Option<crate::engine::workflow::WorkflowFailure> = None;
-                                for (i, e) in edits.iter().enumerate() {
-                                    let scratch = output.with_extension(format!("attempt{attempt}.step{i}.pdf"));
-                                    if let Some(parent) = scratch.parent() {
+
+                                // Pre-flight: optional deep font replication once
+                                // (not per-edit), so the supplied font path is the
+                                // same for the whole batch.
+                                let mut font_path: Option<PathBuf> = None;
+                                if deep_font_replication {
+                                    let (tx, rx) = oneshot::channel();
+                                    let _ = py_tx.send((PythonJob::DeepFontReplication {
+                                        pdf_path: input.to_string_lossy().to_string(),
+                                        font_name: "Helvetica".to_string(),
+                                        output_dir: "output/temp_fonts".to_string(),
+                                    }, tx));
+                                    if let Ok(PythonJobResult::Json(json)) = rx.await {
+                                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
+                                            if v["success"].as_bool().unwrap_or(false) {
+                                                font_path = v["metrics"]["font_path"].as_str().map(PathBuf::from);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Pre-flight: row-drift guard for every edit. We do
+                                // it serially against the *original* input since
+                                // none of the edits have landed yet.
+                                {
+                                    let eng_for_guard = eng.clone();
+                                    let input_for_guard = input.clone();
+                                    let edits_for_guard = edits.clone();
+                                    let drift_check = tokio::task::spawn_blocking(move || -> Result<(), crate::pdf::EngineError> {
+                                        for e in &edits_for_guard {
+                                            let blocks = eng_for_guard
+                                                .get_text_blocks(&input_for_guard, e.page)
+                                                .unwrap_or_default();
+                                            if blocks.is_empty() {
+                                                continue;
+                                            }
+                                            let best = crate::pdf::dominant_span_overlap(&blocks, e.page, e.bbox)
+                                                .map(|(_, f)| f)
+                                                .unwrap_or(0.0);
+                                            if best < 0.5 {
+                                                return Err(crate::pdf::EngineError::RowDrifted {
+                                                    x0: e.bbox[0],
+                                                    y0: e.bbox[1],
+                                                    x1: e.bbox[2],
+                                                    y1: e.bbox[3],
+                                                    required: 50.0,
+                                                    best: best * 100.0,
+                                                });
+                                            }
+                                        }
+                                        Ok(())
+                                    }).await.unwrap_or_else(|e| Err(crate::pdf::EngineError::ApplyFailed(format!("blocking task panicked: {e}"))));
+
+                                    if let Err(err) = drift_check {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(err.to_string())));
+                                        return;
+                                    }
+                                }
+
+                                // Build the batch JSON. Stage 8 / Item #12:
+                                // for numeric fields, reformat the user's
+                                // typed value to match the original cell's
+                                // format pattern (currency symbol, thousand
+                                // separators, decimal separator, negative
+                                // style). Date / Description fields go
+                                // through unchanged.
+                                use crate::engine::number_format::format_like;
+                                use crate::engine::workflow::EditField;
+                                use rust_decimal::Decimal;
+                                use std::str::FromStr;
+                                let edits_json = match serde_json::to_string(
+                                    &edits
+                                        .iter()
+                                        .map(|e| {
+                                            let formatted = match e.field {
+                                                EditField::Debit
+                                                | EditField::Credit
+                                                | EditField::RunningBalance => {
+                                                    // Parse the typed value (loose: strip non-digit/sign/dot).
+                                                    let cleaned: String = e
+                                                        .new_text
+                                                        .chars()
+                                                        .filter(|c| {
+                                                            c.is_ascii_digit() || *c == '-' || *c == '.'
+                                                        })
+                                                        .collect();
+                                                    match Decimal::from_str(&cleaned) {
+                                                        Ok(v) => format_like(v, &e.old_text),
+                                                        Err(_) => e.new_text.clone(),
+                                                    }
+                                                }
+                                                _ => e.new_text.clone(),
+                                            };
+                                            serde_json::json!({
+                                                "page": e.page,
+                                                "rect": e.bbox,
+                                                "new_text": formatted,
+                                            })
+                                        })
+                                        .collect::<Vec<_>>(),
+                                ) {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(
+                                            crate::engine::workflow::WorkflowFailure::Other(format!("edits serialize failed: {e}")),
+                                        ));
+                                        return;
+                                    }
+                                };
+
+                                let scratch = output.with_extension(format!("{workflow_stamp}.attempt{attempt}.pdf"));
+                                if let Some(parent) = scratch.parent() {
+                                    let _ = std::fs::create_dir_all(parent);
+                                }
+                                // Stage 13 / Item #5: defensively clear a
+                                // stale scratch file from any previous run
+                                // before we hand off to the editor. On
+                                // Windows the file may be locked by an
+                                // open PDF viewer; if that happens we
+                                // surface a clean error rather than letting
+                                // PyMuPDF write a corrupted output.
+                                if scratch.exists() {
+                                    if let Err(e) = std::fs::remove_file(&scratch) {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(
+                                            crate::engine::workflow::WorkflowFailure::Other(
+                                                format!("scratch file {} is locked: {e}", scratch.display())
+                                            ),
+                                        ));
+                                        return;
+                                    }
+                                }
+
+                                // Stage 14a / Item #20: idempotent re-apply.
+                                // Hash (input_pdf_sha256 || edit_set) and
+                                // skip the apply when an identical run
+                                // already produced an output we can reuse.
+                                let edit_hash = {
+                                    let pdf_hash = std::fs::read(&input)
+                                        .ok()
+                                        .map(|b| crate::engine::workflow::sha256_hex_of(&b))
+                                        .unwrap_or_default();
+                                    crate::engine::workflow::edit_set_hash(&pdf_hash, &edits)
+                                };
+                                let cached_output = std::path::PathBuf::from("audit")
+                                    .join("apply_cache")
+                                    .join(format!("{edit_hash}.pdf"));
+                                let mut apply_result: Result<PythonJobResult, tokio::sync::oneshot::error::RecvError>;
+                                if cached_output.exists() {
+                                    tracing::info!(
+                                        "[workflow] idempotent re-apply: reusing cached output {}",
+                                        cached_output.display()
+                                    );
+                                    let _ = std::fs::create_dir_all(scratch.parent().unwrap_or_else(|| std::path::Path::new(".")));
+                                    let _ = std::fs::copy(&cached_output, &scratch);
+                                    apply_result = Ok(PythonJobResult::Json("{\"success\":true,\"cached\":true}".into()));
+                                    // Skip the apply call entirely.
+                                } else {
+                                let (tx, rx) = oneshot::channel();
+                                let _ = py_tx.send((PythonJob::ApplyManyEdits {
+                                    pdf_path: input.to_string_lossy().to_string(),
+                                    output_path: scratch.to_string_lossy().to_string(),
+                                    edits_json: edits_json.clone(),
+                                    font_path: font_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+                                }, tx));
+
+                                apply_result = rx.await;
+                                // Cache the successful output for next time.
+                                if let Ok(PythonJobResult::Json(_)) = &apply_result {
+                                    if let Some(parent) = cached_output.parent() {
                                         let _ = std::fs::create_dir_all(parent);
                                     }
-                                    let mut font_path: Option<PathBuf> = None;
-                                    if deep_font_replication {
-                                        let (tx, rx) = oneshot::channel();
-                                        let _ = py_tx.send((PythonJob::DeepFontReplication {
-                                            pdf_path: current.to_string_lossy().to_string(),
-                                            font_name: "Helvetica".to_string(),
-                                            output_dir: "output/temp_fonts".to_string(),
-                                        }, tx));
-                                        if let Ok(PythonJobResult::Json(json)) = rx.await {
-                                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
-                                                if v["success"].as_bool().unwrap_or(false) {
-                                                    font_path = v["metrics"]["font_path"].as_str().map(PathBuf::from);
+                                    let _ = std::fs::copy(&scratch, &cached_output);
+                                }
+                                }
+
+                                // Stage 11: if the apply hit FONT_COVERAGE_INSUFFICIENT,
+                                // run the cascade once and retry with the extended font.
+                                // We do this only once per attempt to avoid loops on
+                                // genuinely-uncoverable glyphs.
+                                if let Ok(PythonJobResult::Error(ref msg)) = apply_result {
+                                    if msg.contains("FONT_COVERAGE_INSUFFICIENT") {
+                                        let parsed: Option<serde_json::Value> =
+                                            serde_json::from_str(msg).ok();
+                                        let missing_chars: Vec<String> = parsed
+                                            .as_ref()
+                                            .and_then(|v| v.get("missing_chars"))
+                                            .cloned()
+                                            .and_then(|m| serde_json::from_value::<Vec<String>>(m).ok())
+                                            .unwrap_or_default();
+                                        let original_font = parsed
+                                            .as_ref()
+                                            .and_then(|v| v.get("original_font"))
+                                            .and_then(|s| s.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        if !missing_chars.is_empty() && !original_font.is_empty() {
+                                            tracing::info!(
+                                                "[workflow] FONT_COVERAGE_INSUFFICIENT: \
+                                                 running font cascade for {} missing char(s) on font {}",
+                                                missing_chars.len(),
+                                                original_font
+                                            );
+                                            let cascade_dir = std::path::PathBuf::from("audit")
+                                                .join("font_cascade")
+                                                .join(format!("attempt{attempt}"));
+                                            let _ = std::fs::create_dir_all(&cascade_dir);
+
+                                            let (cascade_tx, cascade_rx) = oneshot::channel();
+                                            let _ = py_tx.send((
+                                                PythonJob::ReplicateFontForMissingChars {
+                                                    pdf_path: input.to_string_lossy().to_string(),
+                                                    font_name: original_font.clone(),
+                                                    missing_chars_csv: missing_chars.join(","),
+                                                    output_dir: cascade_dir.to_string_lossy().to_string(),
+                                                },
+                                                cascade_tx,
+                                            ));
+                                            if let Ok(PythonJobResult::Json(json)) = cascade_rx.await {
+                                                // Stage 12 / Items #3, #4: decode the cascade
+                                                // result, surface it to the GUI and audit it.
+                                                let report = crate::engine::font_analysis::FontCascadeReport::from_python_json(
+                                                    &json,
+                                                    original_font.clone(),
+                                                    attempt,
+                                                );
+                                                if let Ok(report) = report {
+                                                    tracing::info!(
+                                                        "[workflow] {}",
+                                                        report.one_line_summary()
+                                                    );
+                                                    let _ = res_tx.send(JobResult::FontCascadeUsed(report.clone()));
+
+                                                    // Item #4: write a structured record to
+                                                    // the audit log so the trail captures
+                                                    // every cascade invocation.
+                                                    let audit_payload = serde_json::json!({
+                                                        "event": "font_cascade",
+                                                        "original_font": report.original_font,
+                                                        "workflow_attempt": report.workflow_attempt,
+                                                        "success": report.success,
+                                                        "tiers_used": report.tiers_used,
+                                                        "synthesised": report.synthesised,
+                                                        "donor_extended": report.donor_extended,
+                                                        "ai_extended": report.ai_extended,
+                                                        "still_missing": report.still_missing,
+                                                        "extended_font_path": report.extended_font_path
+                                                            .as_ref()
+                                                            .map(|p| p.to_string_lossy().to_string()),
+                                                    });
+                                                    if let Ok(line) = serde_json::to_string(&audit_payload) {
+                                                        if let Ok(mut log) = audit_log_clone.lock() {
+                                                            let _ = log.append_line(&line);
+                                                        }
+                                                    }
+
+                                                    if report.success {
+                                                        if let Some(ext) = report.extended_font_path {
+                                                            tracing::info!(
+                                                                "[workflow] retrying apply with extended font: {}",
+                                                                ext.display()
+                                                            );
+                                                            let (rt_tx, rt_rx) = oneshot::channel();
+                                                            let _ = py_tx.send((
+                                                                PythonJob::ApplyManyEdits {
+                                                                    pdf_path: input.to_string_lossy().to_string(),
+                                                                    output_path: scratch.to_string_lossy().to_string(),
+                                                                    edits_json,
+                                                                    font_path: Some(ext.to_string_lossy().to_string()),
+                                                                },
+                                                                rt_tx,
+                                                            ));
+                                                            apply_result = rt_rx.await;
+                                                        }
+                                                    } else {
+                                                        tracing::warn!(
+                                                            "[workflow] font cascade incomplete; {} char(s) still missing",
+                                                            report.still_missing.len()
+                                                        );
+                                                    }
+                                                } else {
+                                                    tracing::warn!(
+                                                        "[workflow] cascade response decode failed: {json}"
+                                                    );
                                                 }
                                             }
                                         }
                                     }
+                                }
 
-                                    let cur_clone = current.clone();
-                                    let scratch_clone = scratch.clone();
-                                    let new_text_clone = e.new_text.clone();
-                                    let bbox = e.bbox;
-                                    let page = e.page;
-                                    let eng_clone = eng.clone();
-                                    let outcome = tokio::task::spawn_blocking(move || {
-                                        // Stage 2 / Item #1: guarded apply. Refuses
-                                        // to write if the caller's bbox doesn't
-                                        // overlap any real span by ≥50%, preventing
-                                        // edits to wrong rows when statements have
-                                        // duplicate values across cells.
-                                        eng_clone.apply_change_guarded(
-                                            &cur_clone,
-                                            &scratch_clone,
-                                            page,
-                                            bbox,
-                                            &new_text_clone,
-                                            font_path.as_deref(),
-                                            0.5,
-                                        )
-                                    }).await.unwrap_or_else(|e| Err(crate::pdf::EngineError::ApplyFailed(format!("blocking task panicked: {e}"))));
-
-                                    match outcome {
-                                        Ok(_) => current = scratch,
-                                        Err(err) => {
-                                            all_ok = false;
-                                            let msg = err.to_string();
-                                            if msg.contains("FONT_COVERAGE_INSUFFICIENT") {
-                                                let missing = serde_json::from_str::<serde_json::Value>(&msg)
-                                                    .ok()
-                                                    .and_then(|v| v.get("missing_chars").cloned())
-                                                    .and_then(|m| serde_json::from_value::<Vec<String>>(m).ok())
-                                                    .unwrap_or_default();
-                                                last_failure = Some(crate::engine::workflow::WorkflowFailure::FontCoverageFailed { missing_chars: missing });
-                                            } else {
-                                                last_failure = Some(crate::engine::workflow::WorkflowFailure::Other(msg));
-                                            }
-                                            break;
+                                match apply_result {
+                                    Ok(PythonJobResult::Json(_)) => {
+                                        // Move scratch -> output. Hard-link first.
+                                        let _ = crate::app::audit::snapshot_link_or_copy(&scratch, &output);
+                                    }
+                                    Ok(PythonJobResult::Error(msg)) => {
+                                        all_ok = false;
+                                        if msg.contains("FONT_COVERAGE_INSUFFICIENT") {
+                                            let missing = serde_json::from_str::<serde_json::Value>(&msg)
+                                                .ok()
+                                                .and_then(|v| v.get("missing_chars").cloned())
+                                                .and_then(|m| serde_json::from_value::<Vec<String>>(m).ok())
+                                                .unwrap_or_default();
+                                            last_failure = Some(crate::engine::workflow::WorkflowFailure::FontCoverageFailed { missing_chars: missing });
+                                        } else {
+                                            last_failure = Some(crate::engine::workflow::WorkflowFailure::Other(msg));
                                         }
+                                    }
+                                    _ => {
+                                        all_ok = false;
+                                        last_failure = Some(crate::engine::workflow::WorkflowFailure::Other(
+                                            "apply_many_edits returned unexpected result".into(),
+                                        ));
                                     }
                                 }
 
@@ -1140,9 +1688,6 @@ impl Runtime {
                                     let _ = res_tx.send(JobResult::WorkflowFailed(f));
                                     return;
                                 }
-
-                                // Move the final scratch file to the requested output.
-                                let _ = std::fs::rename(&current, &output).or_else(|_| std::fs::copy(&current, &output).map(|_| ()));
 
                                 // Stage 5: visual validation against the original.
                                 visual_attempts += 1;
@@ -1159,7 +1704,7 @@ impl Runtime {
 
                                 let math_inputs = crate::engine::verification::MathInputs {
                                     transactions: vec![],
-                                    opening_balance: 0.0,
+                                    opening_balance: rust_decimal::Decimal::ZERO,
                                     expected_final_balance: None,
                                 };
                                 let out_dir = std::path::PathBuf::from("audit/verify").join(format!("workflow-{}", chrono::Utc::now().format("%Y%m%d%H%M%S")));
@@ -1171,7 +1716,7 @@ impl Runtime {
                                     edits.iter().map(|e| e.page).collect();
                                 changed_pages.sort_unstable();
                                 changed_pages.dedup();
-                                let report = match crate::engine::verification::verify_edit_pages(
+                                let report = match crate::engine::verification::verify_edit_pages_with_padding(
                                     &input,
                                     &output,
                                     &out_dir,
@@ -1180,6 +1725,7 @@ impl Runtime {
                                     false,
                                     None,
                                     Some(&changed_pages),
+                                    crate::engine::workflow::mask_padding_for_attempt(attempt),
                                 )
                                 .await {
                                     Ok(r) => r,
@@ -1201,8 +1747,101 @@ impl Runtime {
                                 };
                                 let _ = res_tx.send(JobResult::WorkflowVisualAttempt(attempt_state.clone()));
 
-                                if attempt_state.passed() {
-                                    break;
+                                // Stage 3 / Item #3: progressive acceptance. After
+                                // attempt 3, if the diff score is comfortably under
+                                // half the threshold but `only_intended` is still
+                                // false (sub-pixel rendering noise outside the mask),
+                                // accept rather than retry forever.
+                                let near_perfect = crate::engine::workflow::should_accept_near_perfect(
+                                    attempt,
+                                    report.visual_diff_score,
+                                    visual_threshold,
+                                );
+                                if attempt_state.passed() || near_perfect {
+                                    if near_perfect && !attempt_state.passed() {
+                                        tracing::info!(
+                                            "[workflow] accepting near-perfect render at attempt {} (diff {:.4} < {:.4})",
+                                            attempt,
+                                            report.visual_diff_score,
+                                            visual_threshold * 0.5
+                                        );
+                                    }
+
+                                    // Stage 4 / Item #10: vision-based anomaly check.
+                                    // After perceptual diff has passed, ask Gemini
+                                    // Vision to look at the rendered changed pages
+                                    // and flag any visual anomalies (kerning,
+                                    // baseline, ghost glyphs, hallucinated text).
+                                    // Only runs if Gemini is configured.
+                                    let vision_ok = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                        Ok(g) => {
+                                            let mut all_ok = true;
+                                            for &page_num in &changed_pages {
+                                                let page_intended: Vec<[f32; 4]> = intended_bboxes
+                                                    .iter()
+                                                    .filter(|(p, _)| *p == page_num)
+                                                    .map(|(_, b)| *b)
+                                                    .collect();
+                                                let eng_for_render = eng.clone();
+                                                let out_for_render = output.clone();
+                                                let render = tokio::task::spawn_blocking(move || {
+                                                    eng_for_render.render_page(&out_for_render, page_num, 200.0)
+                                                })
+                                                .await
+                                                .ok()
+                                                .and_then(|r| r.ok());
+                                                let png = match render {
+                                                    Some(r) => r.png_bytes,
+                                                    None => continue, // skip if can't render
+                                                };
+                                                match g.validate_render_visually(&png, &page_intended).await {
+                                                    Ok(vr) => {
+                                                        if vr.should_reject(&page_intended, 0.15) {
+                                                            tracing::warn!(
+                                                                "[workflow] vision rejected page {} (score {:.2}, {} hotspots)",
+                                                                page_num + 1,
+                                                                vr.anomaly_score,
+                                                                vr.hotspots.len()
+                                                            );
+                                                            all_ok = false;
+                                                            break;
+                                                        }
+                                                        tracing::info!(
+                                                            "[workflow] vision accepted page {} (score {:.2})",
+                                                            page_num + 1,
+                                                            vr.anomaly_score
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::warn!(
+                                                            "[workflow] vision check errored on page {}: {}; treating as pass",
+                                                            page_num + 1,
+                                                            e
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            all_ok
+                                        }
+                                        Err(_) => true, // Gemini not configured -> skip
+                                    };
+
+                                    if vision_ok {
+                                        break;
+                                    } else if attempt >= max_visual_attempts {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(
+                                            crate::engine::workflow::WorkflowFailure::VisualNotConverged {
+                                                last_score: report.visual_diff_score,
+                                                attempts: attempt,
+                                            },
+                                        ));
+                                        return;
+                                    } else {
+                                        // Vision flagged something -> retry with
+                                        // a wider mask next attempt.
+                                        attempt += 1;
+                                        continue;
+                                    }
                                 }
 
                                 if attempt >= max_visual_attempts {
@@ -1219,9 +1858,15 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                 stage: crate::engine::workflow::WorkflowStage::FinalChecking,
                             });
-                            let _ = res_tx.send(JobResult::Progress { label: "Final Document AI check".into(), fraction: 0.95 });
+                            // Stage 13 / Item #10: emit a beat at the start
+                            // of the final check so the user sees movement
+                            // during the (often slow) DocAI re-parse.
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Final math check: re-parsing rendered output with Document AI…".into(),
+                                fraction: 0.95,
+                            });
 
-                            let final_imbalance;
+                            let final_imbalance: rust_decimal::Decimal;
                             let math_valid;
                             let re_parsed_count;
                             match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
@@ -1230,14 +1875,14 @@ impl Runtime {
                                         Ok(stmt) => {
                                             re_parsed_count = stmt.transactions.len();
                                             let opening = stmt.opening_balance;
-                                            let expected_close = if stmt.closing_balance.abs() > 0.0 { Some(stmt.closing_balance) } else { None };
+                                            let expected_close = if stmt.closing_balance.abs() > rust_decimal::Decimal::ZERO { Some(stmt.closing_balance) } else { None };
                                             match crate::engine::workflow::build_preview(&stmt.transactions, &[], opening, expected_close) {
                                                 Ok(p) => {
                                                     final_imbalance = p.final_imbalance;
                                                     math_valid = p.balanced;
                                                 }
                                                 Err(_) => {
-                                                    final_imbalance = 0.0;
+                                                    final_imbalance = rust_decimal::Decimal::ZERO;
                                                     math_valid = false;
                                                 }
                                             }
@@ -1250,7 +1895,7 @@ impl Runtime {
                                 }
                                 Err(_) => {
                                     // No DocAI configured; skip with a permissive default.
-                                    final_imbalance = 0.0;
+                                    final_imbalance = rust_decimal::Decimal::ZERO;
                                     math_valid = true;
                                     re_parsed_count = 0;
                                 }
@@ -1277,6 +1922,73 @@ impl Runtime {
                                 stage: crate::engine::workflow::WorkflowStage::Complete(outcome),
                             });
                             let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
+
+                            // Stage 4 / Item #13: refine the matched bank template
+                            // from the actual edited bboxes. Background task — we
+                            // don't block completion on it, just fire and log.
+                            let edits_for_learn = edits.clone();
+                            let input_for_learn = input.clone();
+                            let eng_for_learn = eng.clone();
+                            tokio::task::spawn_blocking(move || {
+                                use crate::extractors::GeometryProvider;
+                                let templates_dir = std::path::PathBuf::from("bank_templates");
+                                let provider = crate::extractors::BankTemplateProvider::new(
+                                    templates_dir.as_path(),
+                                    eng_for_learn,
+                                );
+
+                                // Find which template (if any) matched any geometry on the input.
+                                let geos = match provider.extract_line_geometry(&input_for_learn) {
+                                    Ok(g) => g,
+                                    Err(e) => {
+                                        tracing::debug!("[templates] learn skipped (extract failed): {}", e);
+                                        return;
+                                    }
+                                };
+                                let mut matched_id: Option<String> = None;
+                                for g in &geos {
+                                    if let crate::extractors::GeometrySource::BankTemplate { template_id } = &g.source {
+                                        matched_id = Some(template_id.clone());
+                                        break;
+                                    }
+                                }
+                                let Some(template_id) = matched_id else {
+                                    tracing::debug!("[templates] no template matched, skipping refine");
+                                    return;
+                                };
+                                let template = match provider.templates.iter().find(|t| t.id == template_id) {
+                                    Some(t) => t.clone(),
+                                    None => return,
+                                };
+
+                                // Build observations from the user's edits.
+                                let observations: Vec<(String, [f32; 4])> = edits_for_learn
+                                    .iter()
+                                    .filter_map(|e| {
+                                        let field_name = match e.field {
+                                            crate::engine::workflow::EditField::Date => "date",
+                                            crate::engine::workflow::EditField::Description => "description",
+                                            crate::engine::workflow::EditField::Debit => "debit",
+                                            crate::engine::workflow::EditField::Credit => "credit",
+                                            crate::engine::workflow::EditField::RunningBalance => "balance",
+                                        };
+                                        Some((field_name.to_string(), e.bbox))
+                                    })
+                                    .collect();
+
+                                if observations.is_empty() {
+                                    return;
+                                }
+
+                                match crate::extractors::learn_template(
+                                    templates_dir.as_path(),
+                                    &template,
+                                    &observations,
+                                ) {
+                                    Ok(p) => tracing::info!("[templates] refined template -> {}", p.display()),
+                                    Err(e) => tracing::warn!("[templates] refine failed: {}", e),
+                                }
+                            });
                         });
                     }
 
