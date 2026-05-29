@@ -224,6 +224,113 @@ def _try_composite_synthesis(
 # Tier 2: subset extension from a donor font
 # ---------------------------------------------------------------------------
 
+def _char_class(ch: str) -> str:
+    """Bucket a character for metric-matching: digits, upper, lower, other."""
+    if ch.isdigit():
+        return "digit"
+    if ch.isalpha():
+        return "upper" if ch.isupper() else "lower"
+    return "other"
+
+
+def _host_class_advances(font, cmap, hmtx) -> dict:
+    """Stage F / Item #15: return the dominant advance width per character
+    class already present in the host subset. Tabular figures share a single
+    digit advance; matching it keeps injected glyphs column-aligned.
+
+    For each class we collect the advances of existing glyphs of that class
+    and take the mode (most common). Returns {class: advance_units}.
+    """
+    from collections import Counter
+    buckets = {"digit": Counter(), "upper": Counter(), "lower": Counter()}
+    samples = {
+        "digit": "0123456789",
+        "upper": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "lower": "abcdefghijklmnopqrstuvwxyz",
+    }
+    for cls, chars in samples.items():
+        for ch in chars:
+            cp = ord(ch)
+            if cp in cmap:
+                gname = cmap[cp]
+                adv = hmtx.metrics.get(gname, (0, 0))[0]
+                if adv > 0:
+                    buckets[cls][adv] += 1
+    out = {}
+    for cls, ctr in buckets.items():
+        if ctr:
+            out[cls] = ctr.most_common(1)[0][0]
+    return out
+
+
+def _shift_glyph_x(glyph, dx_units: float):
+    """Translate a (simple or composite) TrueType glyph horizontally by
+    `dx_units` font units. Used to re-centre a donor outline inside the
+    host's fixed advance so the injected glyph sits where the column
+    expects it (Item #15)."""
+    dx = int(round(dx_units))
+    if dx == 0:
+        return
+    if getattr(glyph, "numberOfContours", 0) > 0 and hasattr(glyph, "coordinates"):
+        coords = glyph.coordinates
+        for i in range(len(coords)):
+            x, y = coords[i]
+            coords[i] = (x + dx, y)
+    elif getattr(glyph, "numberOfContours", 0) == -1 and hasattr(glyph, "components"):
+        for comp in glyph.components:
+            if hasattr(comp, "x"):
+                comp.x += dx
+
+
+# OS/2 weight (usWeightClass) and width (usWidthClass) keywords for donor
+# scoring (Item #16).
+_WEIGHT_KEYWORDS = [
+    ("thin", 100), ("extralight", 200), ("ultralight", 200), ("light", 300),
+    ("regular", 400), ("normal", 400), ("book", 400), ("medium", 500),
+    ("semibold", 600), ("demibold", 600), ("bold", 700), ("extrabold", 800),
+    ("ultrabold", 800), ("black", 900), ("heavy", 900),
+]
+_WIDTH_KEYWORDS = [
+    ("ultracondensed", 1), ("extracondensed", 2), ("condensed", 3),
+    ("semicondensed", 4), ("narrow", 3), ("normal", 5), ("semiexpanded", 6),
+    ("expanded", 7), ("extraexpanded", 8), ("wide", 7),
+]
+
+
+def _infer_weight_width(name: str):
+    """Infer (usWeightClass, usWidthClass) hints from a font name string."""
+    n = (name or "").lower()
+    weight = 400
+    for kw, val in _WEIGHT_KEYWORDS:
+        if kw in n:
+            weight = val
+            break
+    width = 5
+    for kw, val in _WIDTH_KEYWORDS:
+        if kw in n:
+            width = val
+            break
+    return weight, width
+
+
+def _donor_os2(donor_path: str):
+    """Read (usWeightClass, usWidthClass) from a donor TTF's OS/2 table,
+    falling back to filename inference."""
+    try:
+        from fontTools.ttLib import TTFont
+        f = TTFont(donor_path, lazy=True)
+        if "OS/2" in f:
+            os2 = f["OS/2"]
+            w = int(getattr(os2, "usWeightClass", 400) or 400)
+            wd = int(getattr(os2, "usWidthClass", 5) or 5)
+            f.close()
+            return w, wd
+        f.close()
+    except Exception:
+        pass
+    return _infer_weight_width(os.path.basename(donor_path))
+
+
 def _try_subset_extension(
     original_font_path: str,
     donor_font_path: str,
@@ -291,6 +398,14 @@ def _try_subset_extension(
 
     glyph_order = list(original.getGlyphOrder())
 
+    # Stage F / Item #15: compute the host subset's representative advance per
+    # character class so injected glyphs share the document's metrics. Tabular
+    # bank figures all share ONE advance; a donor digit copied at the donor's
+    # native width would break the column's alignment. We measure the host's
+    # existing digits / uppercase / lowercase advances and snap injected
+    # glyphs of the same class to them.
+    host_class_advance = _host_class_advances(original, original_cmap, original_hmtx)
+
     for ch in missing_chars:
         cp = ord(ch)
         if cp in original_cmap:
@@ -330,7 +445,25 @@ def _try_subset_extension(
         original_glyf[new_name] = new_glyph
         glyph_order.append(new_name)
         donor_w = donor_hmtx.metrics.get(donor_glyph_name, (1000, 0))[0]
-        original_hmtx.metrics[new_name] = (int(round(donor_w * scale)), 0)
+        scaled_w = int(round(donor_w * scale))
+
+        # Item #15: if the host already sets a fixed advance for this glyph's
+        # character class (tabular digits are the common case), adopt it and
+        # horizontally re-centre the donor outline within that advance so the
+        # new glyph aligns with the column instead of using the donor's
+        # native (often proportional) width.
+        cls = _char_class(ch)
+        target_w = host_class_advance.get(cls)
+        if target_w and target_w > 0:
+            shift = (target_w - scaled_w) / 2.0
+            if abs(shift) >= 1.0:
+                try:
+                    _shift_glyph_x(original_glyf[new_name], shift)
+                except Exception:
+                    pass
+            original_hmtx.metrics[new_name] = (int(target_w), 0)
+        else:
+            original_hmtx.metrics[new_name] = (scaled_w, 0)
 
         for table in original["cmap"].tables:
             if table.isUnicode():
@@ -625,8 +758,13 @@ def replicate_font_for_chars(
 
 
 def _pick_local_donor(font_name: str) -> Optional[str]:
-    """Pick a local cached donor whose name best matches `font_name` by
-    case-insensitive substring. Falls back to None.
+    """Pick a local cached donor for `font_name`.
+
+    Stage F / Item #16: among manifest entries that match by name, prefer the
+    donor whose OS/2 weight + width class is closest to the target font's
+    (inferred from its name). This stops a Bold-Condensed digit gap being
+    filled with a Regular glyph, which would visually mismatch its
+    neighbours. Falls back to a pure name match, then None.
     """
     cache = _ensure_cache_dir()
     manifest_path = os.path.join(cache, "manifest.json")
@@ -641,13 +779,43 @@ def _pick_local_donor(font_name: str) -> Optional[str]:
     # Strip subset prefix.
     if "+" in needle:
         needle = needle.split("+", 1)[1]
-    # Direct match.
+
+    target_weight, target_width = _infer_weight_width(font_name)
+
+    name_matches = []
     for name, rel in manifest.items():
         if needle in name.lower() or name.lower() in needle:
             p = os.path.join(cache, rel)
             if os.path.isfile(p):
-                return p
-    return None
+                name_matches.append(p)
+
+    # Score the name matches by weight/width proximity.
+    candidates = name_matches if name_matches else [
+        os.path.join(cache, rel)
+        for rel in manifest.values()
+        if os.path.isfile(os.path.join(cache, rel))
+    ]
+    if not candidates:
+        return None
+
+    # Only do proximity scoring across all candidates when there was no exact
+    # name match (a name match is a stronger signal than metric proximity).
+    if name_matches and len(name_matches) == 1:
+        return name_matches[0]
+
+    best = None
+    best_score = float("inf")
+    for p in candidates:
+        dw, dwd = _donor_os2(p)
+        # Weight distance dominates (per-100 units); width is secondary.
+        score = abs(dw - target_weight) / 100.0 + abs(dwd - target_width) * 2.0
+        # Prefer name matches strongly.
+        if name_matches and p not in name_matches:
+            score += 100.0
+        if score < best_score:
+            best_score = score
+            best = p
+    return best
 
 
 # ---------------------------------------------------------------------------

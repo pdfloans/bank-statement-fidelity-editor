@@ -41,7 +41,17 @@ fn install_panic_hook() {
 }
 
 pub fn init(cfg: &AppConfig) -> TelemetryGuard {
-    std::fs::create_dir_all(&cfg.log_dir).ok();
+    // Best-effort log directory creation. Config loading already validates
+    // this, but we re-check here and warn clearly if it regressed (e.g. the
+    // directory was removed between config load and telemetry init).
+    if let Err(e) = std::fs::create_dir_all(&cfg.log_dir) {
+        eprintln!(
+            "⚠️ Could not create log directory '{}': {}. File logging will be disabled; \
+             logs will go to stdout only.",
+            cfg.log_dir.display(),
+            e
+        );
+    }
     install_panic_hook();
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));

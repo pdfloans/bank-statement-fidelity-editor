@@ -2,9 +2,10 @@
 //! Supports financial compliance by tracking all manual and automated changes.
 
 use crate::engine::history::ChangeRecord;
+use crate::error::{AuditError, AuditResult};
 use chrono::Utc;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 pub struct AuditLog {
@@ -16,10 +17,14 @@ pub struct AuditLog {
 
 impl AuditLog {
     /// Opens the audit log directory and initializes the current session's log file.
-    pub fn open(audit_dir: impl AsRef<Path>) -> io::Result<Self> {
+    ///
+    /// # Errors
+    /// Returns [`AuditError::Open`] if the snapshots directory cannot be created.
+    pub fn open(audit_dir: impl AsRef<Path>) -> AuditResult<Self> {
         let audit_dir = audit_dir.as_ref().to_path_buf();
         let snapshots_dir = audit_dir.join("snapshots");
-        fs::create_dir_all(&snapshots_dir)?;
+        fs::create_dir_all(&snapshots_dir)
+            .map_err(|e| AuditError::open(snapshots_dir.display().to_string(), e))?;
 
         // ISO-8601-utc-with-no-colons for Windows compatibility
         let timestamp = Utc::now().format("%Y%m%dt%H%M%SZ").to_string();
@@ -34,6 +39,9 @@ impl AuditLog {
     }
 
     /// Writes a change record to the persistent log file.
+    ///
+    /// # Errors
+    /// Returns [`AuditError::Write`] if the log file cannot be opened or written.
     pub fn write(
         &mut self,
         record: &ChangeRecord,
@@ -41,15 +49,8 @@ impl AuditLog {
         output: &Path,
         operator: &str,
         requires_visual_review: bool,
-    ) -> io::Result<()> {
-        if self.log_file.is_none() {
-            self.log_file = Some(
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&self.log_path)?,
-            );
-        }
+    ) -> AuditResult<()> {
+        self.ensure_open()?;
 
         let ts = Utc::now().to_rfc3339();
         let old_escaped = serde_json::to_string(&record.old_text).unwrap_or_default();
@@ -71,9 +72,12 @@ impl AuditLog {
             source, output, requires_visual_review
         );
 
-        let file = self.log_file.as_mut().unwrap();
-        file.write_all(line.as_bytes())?;
-        file.flush()?;
+        let file = self
+            .log_file
+            .as_mut()
+            .expect("log_file is Some after ensure_open");
+        file.write_all(line.as_bytes()).map_err(AuditError::Write)?;
+        file.flush().map_err(AuditError::Write)?;
         Ok(())
     }
 
@@ -81,21 +85,33 @@ impl AuditLog {
     /// audit log. The runtime uses this to record cascade invocations
     /// (which don't fit the `ChangeRecord` shape but still need an audit
     /// trail). The line is written verbatim with a trailing newline.
-    pub fn append_line(&mut self, line: &str) -> io::Result<()> {
-        if self.log_file.is_none() {
-            self.log_file = Some(
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&self.log_path)?,
-            );
-        }
-        let file = self.log_file.as_mut().unwrap();
-        file.write_all(line.as_bytes())?;
+    ///
+    /// # Errors
+    /// Returns [`AuditError::Write`] if the log file cannot be opened or written.
+    pub fn append_line(&mut self, line: &str) -> AuditResult<()> {
+        self.ensure_open()?;
+        let file = self
+            .log_file
+            .as_mut()
+            .expect("log_file is Some after ensure_open");
+        file.write_all(line.as_bytes()).map_err(AuditError::Write)?;
         if !line.ends_with('\n') {
-            file.write_all(b"\n")?;
+            file.write_all(b"\n").map_err(AuditError::Write)?;
         }
-        file.flush()?;
+        file.flush().map_err(AuditError::Write)?;
+        Ok(())
+    }
+
+    /// Lazily opens (creating if needed) the session log file in append mode.
+    fn ensure_open(&mut self) -> AuditResult<()> {
+        if self.log_file.is_none() {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.log_path)
+                .map_err(|e| AuditError::open(self.log_path.display().to_string(), e))?;
+            self.log_file = Some(file);
+        }
         Ok(())
     }
 
@@ -116,20 +132,26 @@ impl AuditLog {
 /// hard-link failure (cross-FS, FAT32, etc.).
 ///
 /// Returns `Ok(true)` when the hard link succeeded, `Ok(false)` after a
-/// fallback copy, and `Err` on total failure.
-pub fn snapshot_link_or_copy(source: &Path, dest: &Path) -> std::io::Result<bool> {
+/// fallback copy.
+///
+/// # Errors
+/// Returns [`AuditError::Snapshot`] if the destination directory cannot be
+/// created or the fallback copy fails.
+pub fn snapshot_link_or_copy(source: &Path, dest: &Path) -> AuditResult<bool> {
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)
+            .map_err(|e| AuditError::snapshot(parent.display().to_string(), e))?;
     }
     if dest.exists() {
         // Hard linking onto an existing path errors; remove first.
-        let _ = std::fs::remove_file(dest);
+        let _ = fs::remove_file(dest);
     }
-    match std::fs::hard_link(source, dest) {
+    match fs::hard_link(source, dest) {
         Ok(()) => Ok(true),
         Err(e) => {
             tracing::debug!("[audit] hard_link failed ({}); falling back to copy", e);
-            std::fs::copy(source, dest)?;
+            fs::copy(source, dest)
+                .map_err(|e| AuditError::snapshot(dest.display().to_string(), e))?;
             Ok(false)
         }
     }
@@ -138,13 +160,18 @@ pub fn snapshot_link_or_copy(source: &Path, dest: &Path) -> std::io::Result<bool
 pub struct AuditLogParser;
 
 impl AuditLogParser {
-    pub fn parse_file(path: &Path) -> io::Result<Vec<ChangeRecord>> {
-        let file = File::open(path)?;
+    /// Parses an audit log file into a list of [`ChangeRecord`]s.
+    ///
+    /// # Errors
+    /// Returns [`AuditError::Read`] if the file cannot be opened or a line
+    /// cannot be read.
+    pub fn parse_file(path: &Path) -> AuditResult<Vec<ChangeRecord>> {
+        let file = File::open(path).map_err(|e| AuditError::read(path.display().to_string(), e))?;
         let reader = BufReader::new(file);
         let mut records = Vec::new();
 
         for line in reader.lines() {
-            let line = line?;
+            let line = line.map_err(|e| AuditError::read(path.display().to_string(), e))?;
             if !line.starts_with("audit_v1") {
                 continue;
             }
@@ -322,6 +349,19 @@ mod tests {
             std::fs::write(&source, b"modified").unwrap();
             assert_eq!(std::fs::read(&dest).unwrap(), b"modified");
         }
+    }
+
+    #[test]
+    fn parse_file_missing_returns_read_error() {
+        let dir = tempdir().unwrap();
+        let missing = dir.path().join("does_not_exist.log");
+        let err = AuditLogParser::parse_file(&missing).unwrap_err();
+        assert!(
+            matches!(err, AuditError::Read { .. }),
+            "expected AuditError::Read, got {err:?}"
+        );
+        // The error message should carry the offending path for diagnosis.
+        assert!(err.to_string().contains("does_not_exist.log"));
     }
 
     #[test]

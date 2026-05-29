@@ -2,15 +2,30 @@
 //! Provides parity between GUI and CLI capabilities by sharing the same Runtime Job interface.
 
 use crate::app::audit::AuditLogParser;
+use crate::app::env_spec::{self, Requirement};
 use crate::app::runtime::{Job, JobResult};
 use crate::engine::history::ChangeHistory;
+use crate::error::exit_code;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 
 #[derive(Parser)]
 #[command(name = "dual-core-pdf-pipeline")]
-#[command(about = "Bank Statement Fidelity Editor CLI", long_about = None)]
+#[command(version)]
+#[command(
+    about = "Bank Statement Fidelity Editor — high-fidelity PDF editing toolkit",
+    long_about = "Bank Statement Fidelity Editor CLI\n\n\
+        A toolkit for rendering, extracting, and verifying PDF documents with the \
+        same capabilities as the GUI.\n\n\
+        FIRST-TIME SETUP:\n  \
+        1. Copy .env.example to .env and fill in the required values.\n  \
+        2. Run `dual-core-pdf-pipeline doctor` to verify your configuration.\n  \
+        3. Use `dual-core-pdf-pipeline <command> --help` for command-specific options.\n\n\
+        EXIT CODES:\n  \
+        0 success · 1 general error · 2 config · 3 invalid input · \
+        4 not found · 5 I/O · 6 partial success"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -143,6 +158,76 @@ pub enum Commands {
     },
 }
 
+/// Parses a bounding box string in the format "x0,y0,x1,y1".
+///
+/// # Errors
+/// Returns an error if the string is malformed or contains invalid numbers.
+fn parse_bbox(bbox: &str) -> Result<[f32; 4], String> {
+    let parts: Vec<&str> = bbox.split(',').collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "bbox must have 4 comma-separated values (x0,y0,x1,y1), got {} parts",
+            parts.len()
+        ));
+    }
+
+    let mut coords = [0.0f32; 4];
+    for (i, part) in parts.iter().enumerate() {
+        match part.trim().parse::<f32>() {
+            Ok(v) => coords[i] = v,
+            Err(e) => {
+                return Err(format!(
+                    "bbox value {} ('{}') is not a valid number: {}",
+                    i + 1,
+                    part,
+                    e
+                ));
+            }
+        }
+    }
+
+    // Validate coordinates form a valid rectangle
+    if coords[0] >= coords[2] {
+        return Err(format!(
+            "bbox x0 ({}) must be less than x1 ({})",
+            coords[0], coords[2]
+        ));
+    }
+    if coords[1] >= coords[3] {
+        return Err(format!(
+            "bbox y0 ({}) must be less than y1 ({})",
+            coords[1], coords[3]
+        ));
+    }
+
+    Ok(coords)
+}
+
+/// Validates that a path exists and is a PDF file.
+///
+/// # Errors
+/// Returns an error if the file doesn't exist or isn't a PDF.
+fn validate_pdf_path(path: &std::path::Path, name: &str) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!("{} not found: {}", name, path.display()));
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_lowercase());
+
+    if ext != Some("pdf".to_string()) {
+        return Err(format!(
+            "{} must be a PDF file, got: {:?}",
+            name,
+            path.extension().and_then(|s| s.to_str())
+        ));
+    }
+
+    Ok(())
+}
+
 /// Blocking synchronous receiver helper
 /// Drains progress beats and handles errors.
 fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (String, String)> {
@@ -160,9 +245,184 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
     }
 }
 
-fn print_check(name: &str, ok: bool, detail: &str) {
-    let icon = if ok { "✅" } else { "❌" };
-    println!(" {}  {:32}  {}", icon, name, detail);
+/// Status of a single diagnostic check.
+enum CheckStatus {
+    Ok,
+    Warn,
+    Fail,
+}
+
+fn print_status(status: &CheckStatus, name: &str, detail: &str) {
+    let icon = match status {
+        CheckStatus::Ok => "✅",
+        CheckStatus::Warn => "⚠️ ",
+        CheckStatus::Fail => "❌",
+    };
+    println!("  {}  {:34}  {}", icon, name, detail);
+}
+
+/// Runs the `doctor` diagnostics command.
+///
+/// Reports configuration health grouped by requirement level, with explicit
+/// setup guidance for anything missing. Returns a process exit code:
+/// `SUCCESS` when ready, `CONFIG` when a required item is missing, or
+/// `PARTIAL` when only optional/recommended items are absent.
+fn run_doctor(
+    config: &crate::app::config::AppConfig,
+    job_tx: &Sender<Job>,
+    job_rx: &Receiver<JobResult>,
+) -> i32 {
+    println!("══════════════════════════════════════════════════════════");
+    println!("  Bank Statement Fidelity Editor — Doctor");
+    println!("══════════════════════════════════════════════════════════");
+
+    let mut missing_required: Vec<&'static str> = Vec::new();
+    let mut missing_recommended: Vec<&'static str> = Vec::new();
+
+    // ---- Environment variables, grouped by requirement -------------------
+    println!("\n Environment variables");
+    for spec in env_spec::ENV_VARS {
+        let present = is_env_present(spec.name, config);
+        let status = match (present, spec.requirement) {
+            (true, _) => CheckStatus::Ok,
+            (false, Requirement::Required) => CheckStatus::Fail,
+            (false, Requirement::Recommended) => CheckStatus::Warn,
+            (false, Requirement::Optional) => CheckStatus::Warn,
+        };
+
+        let detail = if present {
+            spec.enables.to_string()
+        } else {
+            format!("[{}] {}", spec.requirement.label(), spec.enables)
+        };
+        print_status(&status, spec.name, &detail);
+
+        if !present {
+            match spec.requirement {
+                Requirement::Required => missing_required.push(spec.name),
+                Requirement::Recommended => missing_recommended.push(spec.name),
+                Requirement::Optional => {}
+            }
+        }
+    }
+
+    // ---- Document AI auth method (only meaningful when configured) -------
+    if let Some(da) = &config.document_ai {
+        let auth = if !da.api_key.is_empty() {
+            "API key (v1beta3) — primary"
+        } else if !da.adc_path.is_empty() {
+            "Application Default Credentials (gcloud)"
+        } else if !da.service_account_path.is_empty() {
+            "service-account JSON (v1)"
+        } else {
+            "no credential"
+        };
+        let status = if da.has_auth() {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Fail
+        };
+        print_status(&status, "Document AI auth", auth);
+    }
+
+    // ---- Filesystem checks ----------------------------------------------
+    println!("\n Filesystem");
+    let mut fs_ok = true;
+    for (label, dir) in [
+        ("logs/ writable", config.log_dir.as_path()),
+        ("audit/ writable", std::path::Path::new("audit")),
+        ("output/ writable", std::path::Path::new("output")),
+    ] {
+        let ok = std::fs::create_dir_all(dir).is_ok();
+        fs_ok &= ok;
+        let status = if ok { CheckStatus::Ok } else { CheckStatus::Fail };
+        print_status(&status, label, &dir.display().to_string());
+    }
+
+    let templates = std::fs::read_dir("bank_templates")
+        .map(|d| d.filter_map(|e| e.ok()).count())
+        .unwrap_or(0);
+    print_status(
+        if templates > 0 {
+            &CheckStatus::Ok
+        } else {
+            &CheckStatus::Warn
+        },
+        "Bank templates",
+        &format!("{} template(s) found", templates),
+    );
+
+    // ---- Runtime check ---------------------------------------------------
+    println!("\n Runtime");
+    let _ = job_tx.send(Job::Ping);
+    let runtime_ok = matches!(wait_for_terminal_result(job_rx), Ok(JobResult::Pong));
+    print_status(
+        if runtime_ok {
+            &CheckStatus::Ok
+        } else {
+            &CheckStatus::Fail
+        },
+        "Worker responding",
+        "Tokio + Python actor",
+    );
+
+    // ---- Summary & actionable guidance ----------------------------------
+    println!("\n══════════════════════════════════════════════════════════");
+
+    if !missing_required.is_empty() || !runtime_ok || !fs_ok {
+        println!(" Doctor: ❌ Not ready — required items are missing.\n");
+        for name in &missing_required {
+            println!("{}\n", indent_block(&env_spec::guidance_for(name)));
+        }
+        if !runtime_ok {
+            println!("  • Runtime worker did not respond. Check logs in {}.",
+                config.log_dir.display());
+        }
+        if !fs_ok {
+            println!("  • One or more required directories are not writable.");
+        }
+        return exit_code::CONFIG;
+    }
+
+    if !missing_recommended.is_empty() {
+        println!(" Doctor: ⚠️  Usable, but some recommended features are off.\n");
+        for name in &missing_recommended {
+            if let Some(spec) = env_spec::lookup(name) {
+                println!("  • {} → enables: {}", spec.name, spec.enables);
+            }
+        }
+        println!("\n Run with these set to unlock the full feature set.");
+        return exit_code::PARTIAL;
+    }
+
+    println!(" Doctor: ✅ Ready for use. All systems go.");
+    exit_code::SUCCESS
+}
+
+/// Returns whether a given environment variable is effectively present,
+/// preferring the parsed `AppConfig` where available (so we reflect the
+/// values the app actually loaded rather than just raw env state).
+fn is_env_present(name: &str, config: &crate::app::config::AppConfig) -> bool {
+    match name {
+        "DUAL_CORE_PASSPHRASE" => !config.passphrase.is_empty(),
+        "PYMUPDF_PRO_KEY" => config.pymupdf_pro_key.is_some(),
+        "GEMINI_API_KEY" => config.gemini_api_key.is_some(),
+        "PDFREST_API_KEY" => config.pdfrest_api_key.is_some(),
+        "OTEL_EXPORTER_OTLP_ENDPOINT" => config.otel_endpoint.is_some(),
+        "DOCUMENT_AI_PROJECT_ID" | "DOCUMENT_AI_LOCATION" | "DOCUMENT_AI_PROCESSOR_ID" => {
+            config.document_ai.is_some()
+        }
+        // For everything else, fall back to the raw environment.
+        other => std::env::var(other).map(|v| !v.is_empty()).unwrap_or(false),
+    }
+}
+
+/// Indents every line of a multi-line block by two spaces for display.
+fn indent_block(text: &str) -> String {
+    text.lines()
+        .map(|l| format!("  {}", l))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn run(
@@ -183,18 +443,18 @@ pub fn run(
         } => {
             if !original.exists() {
                 eprintln!("❌ Original PDF not found: {}", original.display());
-                return 1;
+                return exit_code::NOT_FOUND;
             }
             if !edited.exists() {
                 eprintln!("❌ Edited PDF not found: {}", edited.display());
-                return 1;
+                return exit_code::NOT_FOUND;
             }
             None
         }
         Commands::ExportHistory { from_log, .. } => {
             if !from_log.exists() {
                 eprintln!("❌ Audit log not found: {}", from_log.display());
-                return 1;
+                return exit_code::NOT_FOUND;
             }
             None
         }
@@ -203,7 +463,7 @@ pub fn run(
     if let Some(path) = preflight {
         if !path.exists() {
             eprintln!("❌ Input file not found: {}", path.display());
-            return 1;
+            return exit_code::NOT_FOUND;
         }
         if path
             .extension()
@@ -212,7 +472,7 @@ pub fn run(
             != Some("pdf".into())
         {
             eprintln!("❌ Input must be a .pdf file: {}", path.display());
-            return 1;
+            return exit_code::VALIDATION;
         }
     }
 
@@ -220,9 +480,9 @@ pub fn run(
         Commands::Gui => {
             if let Err(e) = crate::app::gui::run_gui(job_tx, job_rx, config.clone()) {
                 tracing::error!("Failed to launch GUI: {}", e);
-                return 1;
+                return exit_code::GENERAL;
             }
-            0
+            exit_code::SUCCESS
         }
         Commands::Text {
             input,
@@ -232,42 +492,26 @@ pub fn run(
             page,
             bbox,
         } => {
-            // Parse bbox as x0,y0,x1,y1
-            let parts: Vec<&str> = bbox.split(',').collect();
-            if parts.len() != 4 {
-                tracing::error!(
-                    "❌ [cli_text] --bbox must be x0,y0,x1,y1 (found {} parts)",
-                    parts.len()
-                );
-                return 1;
+            // Validate input file first
+            if let Err(e) = validate_pdf_path(&input, "Input PDF") {
+                eprintln!("❌ {}", e);
+                return exit_code::VALIDATION;
             }
 
-            let coords: Vec<f32> = parts
-                .iter()
-                .map(|s| s.parse::<f32>())
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap_or_else(|_| Vec::new());
-
-            if coords.len() != 4 {
-                tracing::error!("❌ [cli_text] --bbox contains invalid numbers: {}", bbox);
-                return 1;
-            }
-
-            let x0 = coords[0];
-            let y0 = coords[1];
-            let x1 = coords[2];
-            let y1 = coords[3];
-
-            if x0 >= x1 || y0 >= y1 {
-                tracing::error!("❌ [cli_text] --bbox produces zero or negative area ([{}, {}, {}, {}]); cannot redact", x0, y0, x1, y1);
-                return 1;
-            }
+            // Parse bbox with proper error handling
+            let coords = match parse_bbox(&bbox) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("❌ [cli_text] Invalid bbox: {}", e);
+                    return exit_code::VALIDATION;
+                }
+            };
 
             let _ = job_tx.send(Job::ApplyChange {
                 input,
                 output,
                 page: page.unwrap_or(0),
-                bbox: [x0, y0, x1, y1],
+                bbox: coords,
                 new_text: new,
                 old_text: old,
                 description: "CLI manual edit".into(),
@@ -527,105 +771,7 @@ pub fn run(
                 _ => 1,
             }
         }
-        Commands::Doctor => {
-            println!("─────────────────────────────────────────");
-            println!(" Bank Statement Fidelity Editor — Doctor");
-            println!("─────────────────────────────────────────");
-
-            // Required: passphrase
-            print_check(
-                "DUAL_CORE_PASSPHRASE",
-                std::env::var("DUAL_CORE_PASSPHRASE").is_ok(),
-                "set in environment",
-            );
-
-            // Optional: Gemini
-            print_check(
-                "GEMINI_API_KEY",
-                config.gemini_api_key.is_some(),
-                "Smart Balance Engine available",
-            );
-
-            // Optional: Document AI
-            print_check(
-                "Document AI configured",
-                config.document_ai.is_some(),
-                "Required for Extract / Balance",
-            );
-
-            // Show which auth method is in play
-            if let Some(da) = &config.document_ai {
-                let auth = if !da.api_key.is_empty() {
-                    "API key (v1beta3) primary"
-                } else if !da.adc_path.is_empty() {
-                    "Application Default Credentials (gcloud)"
-                } else if !da.service_account_path.is_empty() {
-                    "service-account (v1) only"
-                } else {
-                    "no credential!"
-                };
-                print_check("Document AI auth", !auth.starts_with("no"), auth);
-            }
-
-            // Optional: pdfRest
-            print_check(
-                "PDFREST_API_KEY",
-                config.pdfrest_api_key.is_some(),
-                "Adobe-tier visual verification available",
-            );
-
-            // OTLP
-            print_check(
-                "OTEL_EXPORTER_OTLP_ENDPOINT",
-                config.otel_endpoint.is_some(),
-                "Telemetry export available",
-            );
-
-            // Files
-            print_check(
-                "logs/ writable",
-                std::fs::create_dir_all(&config.log_dir).is_ok(),
-                "Log directory ok",
-            );
-            print_check(
-                "audit/ writable",
-                std::fs::create_dir_all("audit").is_ok(),
-                "Audit directory ok",
-            );
-            print_check(
-                "output/ writable",
-                std::fs::create_dir_all("output").is_ok(),
-                "Output directory ok",
-            );
-
-            // Bank templates
-            let templates = std::fs::read_dir("bank_templates")
-                .map(|d| d.filter_map(|e| e.ok()).count())
-                .unwrap_or(0);
-            print_check(
-                "Bank templates",
-                templates > 0,
-                &format!("{} template(s) found", templates),
-            );
-
-            // Runtime ping
-            let _ = job_tx.send(Job::Ping);
-            let runtime_ok = matches!(wait_for_terminal_result(&job_rx), Ok(JobResult::Pong));
-            print_check(
-                "Runtime worker",
-                runtime_ok,
-                "Tokio + Python actor responding",
-            );
-
-            println!("─────────────────────────────────────────");
-            if runtime_ok && config.passphrase.len() >= 16 {
-                println!("Doctor: ✅ Ready for use.");
-                0
-            } else {
-                println!("Doctor: ⚠️ Some checks failed; see above.");
-                1
-            }
-        }
+        Commands::Doctor => run_doctor(&config, &job_tx, &job_rx),
         Commands::DocaiTrain {
             display_name,
             min_labelled,

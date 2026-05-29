@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod cli;
 pub mod config;
+pub mod env_spec;
 pub mod fontcache;
 pub mod gui;
 pub mod notify;

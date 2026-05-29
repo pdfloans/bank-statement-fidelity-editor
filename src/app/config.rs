@@ -1,6 +1,14 @@
 use std::env;
 use std::path::PathBuf;
 
+use crate::error::{ConfigError, ConfigResult};
+
+/// Minimum passphrase length for security (16 characters)
+const MIN_PASSPHRASE_LENGTH: usize = 16;
+
+/// Minimum passphrase length for development mode
+const DEV_PASSPHRASE_MIN_LENGTH: usize = 8;
+
 #[derive(Debug, Clone, Default)]
 pub struct DocumentAiConfig {
     pub project_id: String,
@@ -17,17 +25,26 @@ pub struct DocumentAiConfig {
     pub adc_path: String,
 }
 
+impl DocumentAiConfig {
+    /// Returns true if the Document AI configuration has valid authentication.
+    pub fn has_auth(&self) -> bool {
+        !self.api_key.is_empty() || !self.adc_path.is_empty() || !self.service_account_path.is_empty()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gemini_api_key: Option<String>,
     pub pdfrest_api_key: Option<String>,
     pub document_ai: Option<DocumentAiConfig>,
-    pub pymupdf_pro_key: String,
+    pub pymupdf_pro_key: Option<String>, // Changed to Option - must come from env
     pub passphrase: String,
     pub otel_endpoint: Option<String>,
     pub otel_service_name: String,
     pub log_dir: PathBuf,
     pub webhook_url: Option<String>,
+    /// Whether we're in development mode (relaxed security requirements)
+    pub is_dev_mode: bool,
 }
 
 impl Default for AppConfig {
@@ -36,36 +53,31 @@ impl Default for AppConfig {
             gemini_api_key: None,
             pdfrest_api_key: None,
             document_ai: None,
-            pymupdf_pro_key: "hFKt4hca03GCFLAFLEGz5Bd3".into(),
+            pymupdf_pro_key: None,
             passphrase: "DEV_PASSPHRASE".into(),
             otel_endpoint: None,
             otel_service_name: "dual-core-pdf-pipeline".into(),
             log_dir: PathBuf::from("./logs"),
             webhook_url: None,
+            is_dev_mode: cfg!(debug_assertions),
         }
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum ConfigError {
-    #[error("Missing required environment variable: {0}")]
-    MissingRequired(String),
-}
-
 impl AppConfig {
-    pub fn from_env() -> Result<Self, ConfigError> {
+    /// Loads configuration from environment variables.
+    ///
+    /// # Errors
+    /// Returns `ConfigError` if required variables are missing or invalid.
+    pub fn from_env() -> ConfigResult<Self> {
+        let is_dev_mode = cfg!(debug_assertions);
+
+        // Optional API keys
         let gemini_api_key = env::var("GEMINI_API_KEY").ok().filter(|s| !s.is_empty());
         let pdfrest_api_key = env::var("PDFREST_API_KEY").ok().filter(|s| !s.is_empty());
         let webhook_url = env::var("WEBHOOK_URL").ok().filter(|s| !s.is_empty());
 
-        // Document AI: the project/location/processor identify the processor.
-        // Auth can be (in priority order):
-        //  1. API key (Beta, preferred): DOCUMENT_AI_API_KEY
-        //  2. Application Default Credentials: auto-detected, or override via
-        //     CLOUDSDK_CONFIG / explicit ADC path
-        //  3. Service-account JSON: GOOGLE_APPLICATION_CREDENTIALS
-        // At least one of those must be present alongside the processor ids
-        // for Document AI to be considered configured.
+        // Document AI configuration
         let proj = env::var("DOCUMENT_AI_PROJECT_ID")
             .ok()
             .filter(|s| !s.is_empty());
@@ -99,21 +111,51 @@ impl AppConfig {
             _ => None,
         };
 
-        let pymupdf_pro_key =
-            env::var("PYMUPDF_PRO_KEY").unwrap_or_else(|_| "hFKt4hca03GCFLAFLEGz5Bd3".to_string());
+        // PyMuPDF Pro key - required in production
+        let pymupdf_pro_key = env::var("PYMUPDF_PRO_KEY").ok().filter(|s| !s.is_empty());
 
-        let passphrase = env::var("DUAL_CORE_PASSPHRASE")
-            .map_err(|_| ConfigError::MissingRequired("DUAL_CORE_PASSPHRASE".to_string()))?;
+        // Passphrase - required
+        let passphrase = env::var("DUAL_CORE_PASSPHRASE").map_err(|_| {
+            ConfigError::MissingRequired("DUAL_CORE_PASSPHRASE".to_string())
+        })?;
 
+        // Validate passphrase length
+        let min_length = if is_dev_mode {
+            DEV_PASSPHRASE_MIN_LENGTH
+        } else {
+            MIN_PASSPHRASE_LENGTH
+        };
+
+        if passphrase.len() < min_length {
+            return Err(ConfigError::invalid_value(
+                "DUAL_CORE_PASSPHRASE",
+                format!(
+                    "must be at least {} characters (got {})",
+                    min_length,
+                    passphrase.len()
+                ),
+            ));
+        }
+
+        // Optional OTEL configuration
         let otel_endpoint = env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
             .ok()
             .filter(|s| !s.is_empty());
         let otel_service_name =
             env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "dual-core-pdf-pipeline".to_string());
 
+        // Log directory - validate it can be created
         let log_dir = env::var("LOG_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("./logs"));
+
+        // Try to create the log directory to catch permission issues early
+        if let Err(e) = std::fs::create_dir_all(&log_dir) {
+            return Err(ConfigError::invalid_value(
+                "LOG_DIR",
+                format!("cannot create directory: {}", e),
+            ));
+        }
 
         Ok(Self {
             gemini_api_key,
@@ -125,7 +167,43 @@ impl AppConfig {
             otel_service_name,
             log_dir,
             webhook_url,
+            is_dev_mode,
         })
+    }
+
+    /// Validates the configuration and returns errors for any missing required items.
+    pub fn validate(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        if self.pymupdf_pro_key.is_none() && !self.is_dev_mode {
+            errors.push("PYMUPDF_PRO_KEY environment variable is not set".to_string());
+        }
+
+        if self.passphrase.len() < MIN_PASSPHRASE_LENGTH && !self.is_dev_mode {
+            errors.push(format!(
+                "DUAL_CORE_PASSPHRASE must be at least {} characters",
+                MIN_PASSPHRASE_LENGTH
+            ));
+        }
+
+        if let Some(path) = &self.log_dir.to_str() {
+            if path.is_empty() {
+                errors.push("LOG_DIR cannot be an empty path".to_string());
+            }
+        }
+
+        errors
+    }
+
+    /// Returns true if the application has valid AI configuration for balancing.
+    pub fn has_ai_for_balancing(&self) -> bool {
+        self.gemini_api_key.is_some()
+            && (self.document_ai.is_some() || self.pdfrest_api_key.is_some())
+    }
+
+    /// Returns true if the application has valid AI configuration for extraction.
+    pub fn has_ai_for_extraction(&self) -> bool {
+        self.document_ai.is_some()
     }
 }
 

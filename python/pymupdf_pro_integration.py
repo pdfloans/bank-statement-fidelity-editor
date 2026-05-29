@@ -495,6 +495,110 @@ def _embedded_font_xref_for_span(page, span: dict):
 
 
 # ===========================================================================
+# Stage A / Items #1-#4: embedded-font reuse.
+#
+# The single most important fidelity fix. The old emit path re-inserted the
+# new text with `page.insert_text(fontname=<original_basefont_name>)`. For any
+# subsetted or non-standard font (`ABCDEF+ArialMT`, `F1`, ...) PyMuPDF cannot
+# resolve that name, throws, and silently drops to Helvetica metrics — exactly
+# on the fonts where fidelity matters most.
+#
+# These helpers extract the original embedded glyph program (the actual TTF/
+# CFF bytes), register it into the page so `insert_text` can draw with the
+# *original outlines + hinting*, and build a `pymupdf.Font` over the same bytes
+# so every width / kerning measurement uses the real metrics instead of a
+# Helvetica stand-in.
+# ===========================================================================
+
+def _extract_font_buffer(page, font_xref):
+    """Return the raw embedded font-program bytes for `font_xref`, or None.
+
+    Mirrors the extraction logic in `_font_covers_text`/`analyze_fonts` but
+    returns only the bytes so callers can both probe coverage and re-embed.
+    """
+    if font_xref is None:
+        return None
+    try:
+        result = page.parent.extract_font(font_xref)
+    except Exception:
+        return None
+    content = None
+    if isinstance(result, dict):
+        content = result.get("content")
+    elif isinstance(result, (tuple, list)) and len(result) >= 4:
+        for item in reversed(result):
+            if isinstance(item, (bytes, bytearray)) and len(item) > 0:
+                content = bytes(item)
+                break
+    if content and len(content) > 0:
+        return bytes(content)
+    return None
+
+
+def _resolve_embedded_font(page, font_xref):
+    """Item #1/#2/#3: make the original embedded glyph program reusable.
+
+    Returns a dict ``{refname, font_obj, buffer}``:
+      * ``refname``  - a font name registered into THIS page via
+                       ``insert_font``, usable directly by
+                       ``page.insert_text(fontname=refname)``. ``None`` when
+                       the program could not be re-embedded.
+      * ``font_obj`` - a ``pymupdf.Font`` built from the same buffer, for
+                       exact width + kerning measurement. ``None`` on failure.
+      * ``buffer``   - the raw font-program bytes.
+
+    Returns ``None`` when no embedded program exists (e.g. a non-embedded
+    standard-14 base font); the caller then uses name-based handling.
+
+    Registration is idempotent: ``insert_font`` returns the existing xref
+    when the same name is already present on the page, so repeated calls
+    inside `apply_many_edits` are cheap.
+    """
+    buffer = _extract_font_buffer(page, font_xref)
+    if not buffer:
+        return None
+    try:
+        font_obj = pymupdf.Font(fontbuffer=buffer)
+    except Exception:
+        font_obj = None
+    refname = f"embf_{font_xref}"
+    try:
+        page.insert_font(fontname=refname, fontbuffer=buffer)
+    except Exception:
+        # Some CFF/OTF subsets cannot be re-embedded by name. Signal the
+        # caller to fall back, but still hand back the measuring font.
+        refname = None
+    return {"refname": refname, "font_obj": font_obj, "buffer": buffer}
+
+
+def _fallback_standard14(font_name: str) -> str:
+    """Item #4: when embedded reuse genuinely can't happen, pick the closest
+    standard-14 builtin by *weight and style* instead of always Helvetica.
+
+    Returns a PyMuPDF builtin font code (``helv``, ``hebo``, ``tiro``, ...).
+    The substitution is logged by the caller so the verifier / GUI can flag
+    the cell for review rather than passing a silent typeface change.
+    """
+    n = (font_name or "").lower()
+    if "+" in n:
+        n = n.split("+", 1)[1]
+    bold = any(k in n for k in ("bold", "black", "heavy", "semibold", "demibold", "-bd"))
+    italic = any(k in n for k in ("italic", "oblique", "-it"))
+    mono = any(k in n for k in ("mono", "courier", "consol", "typewriter"))
+    serif = (
+        any(k in n for k in ("times", "serif", "georgia", "roman", "minion", "garamond", "book"))
+        and not mono
+    )
+    if mono:
+        table = {(False, False): "cour", (True, False): "cobo", (False, True): "coit", (True, True): "cobi"}
+    elif serif:
+        table = {(False, False): "tiro", (True, False): "tibo", (False, True): "tiit", (True, True): "tibi"}
+    else:
+        table = {(False, False): "helv", (True, False): "hebo", (False, True): "heit", (True, True): "hebi"}
+    return table[(bold, italic)]
+
+
+# ===========================================================================
 # Stage 9: Background & color-space fidelity helpers (Items #5, #6).
 # ===========================================================================
 
@@ -522,6 +626,54 @@ def _sample_pixel(page, x: float, y: float):
     if n >= 3:
         return (samples[0] / 255.0, samples[1] / 255.0, samples[2] / 255.0)
     return None
+
+
+def _sample_patch(page, x: float, y: float, half: float = 1.5, dpi: float = 150.0):
+    """Stage E / Item #13: sample a small PATCH around (x,y) and return the
+    per-channel MEDIAN colour in [0,1], instead of a single pixel.
+
+    Single-pixel probes alias badly on fine zebra striping and halftoned
+    watermarks, which made the redaction fill seam-visible against the
+    surrounding row. A median over a few-pixel patch is robust to that
+    sub-pixel structure while still being local enough not to bleed in a
+    neighbouring stripe. Falls back to `_sample_pixel` when rendering fails.
+    """
+    page_w = float(page.rect.width)
+    page_h = float(page.rect.height)
+    if x < 0 or x >= page_w or y < 0 or y >= page_h:
+        return None
+    x0 = max(0.0, x - half)
+    y0 = max(0.0, y - half)
+    x1 = min(page_w, x + half)
+    y1 = min(page_h, y + half)
+    if x1 <= x0 or y1 <= y0:
+        return _sample_pixel(page, x, y)
+    try:
+        pix = page.get_pixmap(clip=pymupdf.Rect(x0, y0, x1, y1), dpi=dpi, alpha=False)
+    except Exception:
+        return _sample_pixel(page, x, y)
+    if pix.width == 0 or pix.height == 0:
+        return _sample_pixel(page, x, y)
+    samples = pix.samples
+    n = pix.n
+    rs, gs, bs = [], [], []
+    for i in range(0, len(samples), n):
+        if n == 1:
+            v = samples[i]
+            rs.append(v); gs.append(v); bs.append(v)
+        else:
+            rs.append(samples[i]); gs.append(samples[i + 1]); bs.append(samples[i + 2])
+    if not rs:
+        return _sample_pixel(page, x, y)
+
+    def _median(vals):
+        vals = sorted(vals)
+        m = len(vals) // 2
+        if len(vals) % 2:
+            return vals[m]
+        return (vals[m - 1] + vals[m]) / 2.0
+
+    return (_median(rs) / 255.0, _median(gs) / 255.0, _median(bs) / 255.0)
 
 
 def classify_background(page, rect_obj):
@@ -558,11 +710,11 @@ def classify_background(page, rect_obj):
     samples = []
     for x, y in sample_points:
         if 0 <= x < page_w and 0 <= y < page_h:
-            s = _sample_pixel(page, x, y)
+            s = _sample_patch(page, x, y)
             if s is not None:
                 samples.append(s)
 
-    centre_color = _sample_pixel(page, cx, cy) or (1.0, 1.0, 1.0)
+    centre_color = _sample_patch(page, cx, cy) or (1.0, 1.0, 1.0)
 
     if not samples:
         return ("solid", centre_color)
@@ -613,6 +765,57 @@ def detect_colorspace_from_span(span: dict, page=None) -> str:
     return "DeviceRGB"
 
 
+def _native_fill_color(span: dict, page=None):
+    """Stage D / Item #10: return the original glyph fill colour as a tuple
+    in its NATIVE colour space, ready to hand to `insert_text`:
+
+      * DeviceGray  -> (v,)              1-tuple
+      * DeviceRGB   -> (r, g, b)         3-tuple
+      * DeviceCMYK  -> (c, m, y, k)      4-tuple
+
+    PyMuPDF only exposes the span colour as an RGB-packed int, so for CMYK
+    we recover the K-heavy equivalent from the RGB value (rich/registration
+    black and process tints round-trip faithfully; this avoids the visible
+    tone shift of re-emitting a CMYK black as RGB black). For Gray and RGB
+    we return the exact value.
+    """
+    cs = detect_colorspace_from_span(span, page)
+    color_int = span.get("color", 0) or 0
+    r = ((color_int >> 16) & 0xFF) / 255.0
+    g = ((color_int >> 8) & 0xFF) / 255.0
+    b = (color_int & 0xFF) / 255.0
+    if cs == "DeviceGray":
+        # Use the luminance of the (equal) channels.
+        return (round(r, 4),)
+    if cs == "DeviceCMYK":
+        # Standard RGB->CMYK conversion. For pure/near blacks this yields
+        # (0,0,0,k) which is how statement text is normally set.
+        k = 1.0 - max(r, g, b)
+        if k >= 1.0 - 1e-6:
+            return (0.0, 0.0, 0.0, 1.0)
+        c = (1.0 - r - k) / (1.0 - k)
+        m = (1.0 - g - k) / (1.0 - k)
+        y = (1.0 - b - k) / (1.0 - k)
+        return (round(c, 4), round(m, 4), round(y, 4), round(k, 4))
+    return (round(r, 4), round(g, 4), round(b, 4))
+
+
+def _color_luminance(color):
+    """Approximate perceptual luminance [0,1] of a Gray/RGB/CMYK tuple."""
+    if not color:
+        return 0.0
+    if len(color) == 1:
+        return float(color[0])
+    if len(color) == 4:
+        c, m, y, k = color
+        r = (1.0 - c) * (1.0 - k)
+        g = (1.0 - m) * (1.0 - k)
+        b = (1.0 - y) * (1.0 - k)
+    else:
+        r, g, b = color[0], color[1], color[2]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
 def _scan_content_stream_for_cmyk(page, span_bbox) -> bool:
     """Scan a PDF page content stream looking for `K`, `k`, or
     `/DeviceCMYK cs|CS` operators near the text region. Returns True
@@ -645,8 +848,12 @@ def _scan_content_stream_for_cmyk(page, span_bbox) -> bool:
 
 def _vector_strokes_through(page, rect_obj):
     """Find vector strokes (lines / underlines) that pass through `rect_obj`.
-    Returns a list of (start_pt, end_pt, width, color) we should re-draw
-    after the redaction. Stage 9 / Item #5 (vector underline preservation).
+    Returns a list of dicts describing each stroke so we can re-draw it
+    faithfully after the redaction. Stage 9 / Item #5 + Stage E / Item #14.
+
+    Item #14: we now capture line cap, join, dash pattern and stroke opacity
+    in addition to endpoints/width/colour, so a restored underline keeps its
+    round caps / dashes instead of coming back square-capped and solid.
     """
     out = []
     try:
@@ -657,6 +864,17 @@ def _vector_strokes_through(page, rect_obj):
         if d.get("type") != "s":  # 's' = stroked path
             continue
         items = d.get("items", [])
+        # Path-level stroke styling (shared by all segments of the path).
+        lc = d.get("lineCap")
+        if isinstance(lc, (list, tuple)) and lc:
+            lc = lc[0]
+        lj = d.get("lineJoin")
+        dashes = d.get("dashes")
+        stroke_op = d.get("stroke_opacity")
+        if stroke_op is None:
+            stroke_op = 1.0
+        color = d.get("color") or (0.0, 0.0, 0.0)
+        width = float(d.get("width") or 0.5)
         for item in items:
             # ('l', start, end) means line from start to end.
             if not item or item[0] != "l":
@@ -674,23 +892,56 @@ def _vector_strokes_through(page, rect_obj):
             line_right = max(sx, ex)
             if line_right < rect_obj.x0 - 0.5 or line_left > rect_obj.x1 + 0.5:
                 continue
-            color = d.get("color") or (0.0, 0.0, 0.0)
-            width = float(d.get("width") or 0.5)
-            out.append(((sx, sy), (ex, ey), width, color))
+            out.append({
+                "start": (sx, sy),
+                "end": (ex, ey),
+                "width": width,
+                "color": color,
+                "line_cap": int(lc) if isinstance(lc, (int, float)) else 0,
+                "line_join": int(lj) if isinstance(lj, (int, float)) else 0,
+                "dashes": dashes if isinstance(dashes, str) else None,
+                "stroke_opacity": float(stroke_op),
+            })
     return out
 
 
 def _redraw_strokes(page, strokes):
     """Re-draw the supplied vector strokes onto the page after a redaction
-    has cleared them. Used by the editor when an underline passes through
-    the redacted bbox."""
+    has cleared them. Restores cap/join/dash/opacity (Item #14) so the
+    underline is visually identical to the original, not a square-capped
+    solid approximation."""
     if not strokes:
         return
     shape = page.new_shape()
-    for start, end, width, color in strokes:
+    for st in strokes:
         try:
-            shape.draw_line(pymupdf.Point(start[0], start[1]), pymupdf.Point(end[0], end[1]))
-            shape.finish(width=width, color=color, stroke_opacity=1.0)
+            shape.draw_line(
+                pymupdf.Point(st["start"][0], st["start"][1]),
+                pymupdf.Point(st["end"][0], st["end"][1]),
+            )
+            finish_kwargs = {
+                "width": st["width"],
+                "color": st["color"],
+                "stroke_opacity": st.get("stroke_opacity", 1.0),
+            }
+            # PyMuPDF's Shape.finish accepts lineCap/lineJoin/dashes; guard
+            # each so an older build that lacks one still draws the line.
+            for key, val, present in (
+                ("lineCap", st.get("line_cap"), st.get("line_cap") is not None),
+                ("lineJoin", st.get("line_join"), st.get("line_join") is not None),
+                ("dashes", st.get("dashes"), bool(st.get("dashes"))),
+            ):
+                if present:
+                    finish_kwargs[key] = val
+            try:
+                shape.finish(**finish_kwargs)
+            except (TypeError, ValueError):
+                # Drop the optional styling kwargs and retry with the basics.
+                shape.finish(
+                    width=st["width"],
+                    color=st["color"],
+                    stroke_opacity=st.get("stroke_opacity", 1.0),
+                )
         except Exception:
             pass
     try:
@@ -762,14 +1013,25 @@ def _is_image_only_page(page) -> bool:
     return bool(images)
 
 
-def _tight_glyph_bbox(page, rect_obj, fallback_pad: float = 0.5):
-    """Stage 14b / Item #7: tighten a span bbox to the actual ink extent.
+def _tight_glyph_bbox(page, rect_obj, fallback_pad: float = 0.5, fg_color=None):
+    """Stage 14b / Item #7 + Stage E / Item #12: tighten a span bbox to the
+    actual ink extent.
 
     PyMuPDF span bboxes are line-bounding-box-tight but include trailing
     whitespace and inter-glyph spacing. For a redaction we want to clear
     only the pixels the original glyphs actually covered. Sample the
     pixmap of the bbox region at 200 DPI and find the leftmost and
-    rightmost columns containing non-white pixels.
+    rightmost columns containing ink.
+
+    Item #12: ink detection is now COLOUR-AWARE. A fixed luminance cutoff
+    mis-detects light-grey subtotals and coloured (e.g. red) negatives —
+    either missing them (under-clear, leaving original glyphs) or grabbing
+    background. Instead we estimate the local paper colour from the row's
+    border pixels and flag any pixel that deviates from it by more than a
+    perceptual margin. When `fg_color` (the known original glyph colour, in
+    0..1 channels) is supplied we also accept pixels close to it, which
+    catches anti-aliased coloured edges the paper-distance test alone might
+    treat as background.
 
     Returns a new pymupdf.Rect; falls back to `rect_obj` (with a
     `fallback_pad`-pt outset) when sampling fails.
@@ -789,19 +1051,51 @@ def _tight_glyph_bbox(page, rect_obj, fallback_pad: float = 0.5):
     samples = pix.samples
     n = pix.n
     w, h = pix.width, pix.height
-    # Find non-white columns (anything with luminance < 0.85).
+
+    def _rgb_at(x, y):
+        idx = (y * w + x) * n
+        if n == 1:
+            v = samples[idx]
+            return (v, v, v)
+        return (samples[idx], samples[idx + 1], samples[idx + 2])
+
+    # Estimate paper colour from the four corners + edge midpoints (these are
+    # almost always background, not glyph ink).
+    border_pts = [
+        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+        (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2),
+    ]
+    br = sum(_rgb_at(x, y)[0] for x, y in border_pts) / len(border_pts)
+    bg = sum(_rgb_at(x, y)[1] for x, y in border_pts) / len(border_pts)
+    bb = sum(_rgb_at(x, y)[2] for x, y in border_pts) / len(border_pts)
+
+    fg255 = None
+    if fg_color is not None and len(fg_color) >= 3:
+        fg255 = (fg_color[0] * 255.0, fg_color[1] * 255.0, fg_color[2] * 255.0)
+
+    # Ink = deviation from paper of more than ~14% of full range on any
+    # channel-summed distance. Tuned so faint grey (≈0.75 luminance on white)
+    # still registers while JPEG/AA noise on a flat background does not.
+    paper_margin = 0.14 * (255.0 * 3)
+    fg_margin = 0.20 * (255.0 * 3)
+
+    def _is_ink(x, y):
+        r, g, b = _rgb_at(x, y)
+        d_paper = abs(r - br) + abs(g - bg) + abs(b - bb)
+        if d_paper > paper_margin:
+            return True
+        if fg255 is not None:
+            d_fg = abs(r - fg255[0]) + abs(g - fg255[1]) + abs(b - fg255[2])
+            if d_fg < fg_margin:
+                return True
+        return False
+
     leftmost = None
     rightmost = None
-    threshold = int(0.85 * 255)
     for x in range(w):
         col_has_ink = False
         for y in range(h):
-            idx = (y * w + x) * n
-            if n == 1:
-                v = samples[idx]
-            else:
-                v = (samples[idx] + samples[idx + 1] + samples[idx + 2]) // 3
-            if v < threshold:
+            if _is_ink(x, y):
                 col_has_ink = True
                 break
         if col_has_ink:
@@ -916,62 +1210,6 @@ def _detect_column_alignment(page, rect_obj, fontsize: float = 10.0):
     if x0_count > x1_count + 1:
         return "left"
     return "left"
-
-
-
-    """Stage 14b / Item #7: tighten a span bbox to the actual ink extent.
-
-    PyMuPDF span bboxes are line-bounding-box-tight but include trailing
-    whitespace and inter-glyph spacing. For a redaction we want to clear
-    only the pixels the original glyphs actually covered. Sample the
-    pixmap of the bbox region at 200 DPI and find the leftmost and
-    rightmost columns containing non-white pixels.
-
-    Returns a new pymupdf.Rect; falls back to `rect_obj` (with a
-    `fallback_pad`-pt outset) when sampling fails.
-    """
-    try:
-        pix = page.get_pixmap(clip=rect_obj, dpi=200, alpha=False)
-    except Exception:
-        return pymupdf.Rect(
-            rect_obj.x0 - fallback_pad,
-            rect_obj.y0 - fallback_pad,
-            rect_obj.x1 + fallback_pad,
-            rect_obj.y1 + fallback_pad,
-        )
-    if pix.width == 0 or pix.height == 0:
-        return pymupdf.Rect(rect_obj)
-
-    samples = pix.samples
-    n = pix.n
-    w, h = pix.width, pix.height
-    # Find non-white columns (anything with luminance < 0.85).
-    leftmost = None
-    rightmost = None
-    threshold = int(0.85 * 255)
-    for x in range(w):
-        col_has_ink = False
-        for y in range(h):
-            idx = (y * w + x) * n
-            if n == 1:
-                v = samples[idx]
-            else:
-                v = (samples[idx] + samples[idx + 1] + samples[idx + 2]) // 3
-            if v < threshold:
-                col_has_ink = True
-                break
-        if col_has_ink:
-            if leftmost is None:
-                leftmost = x
-            rightmost = x
-
-    if leftmost is None or rightmost is None:
-        return pymupdf.Rect(rect_obj)
-
-    pt_per_px = 72.0 / 200.0
-    new_x0 = rect_obj.x0 + leftmost * pt_per_px - 0.5
-    new_x1 = rect_obj.x0 + (rightmost + 1) * pt_per_px + 0.5
-    return pymupdf.Rect(new_x0, rect_obj.y0, new_x1, rect_obj.y1)
 
 
 def _looks_numeric(text: str) -> bool:
@@ -1181,6 +1419,55 @@ def _neighbour_left_edge(page, rect_obj, exclude_span_id: str = "") -> float:
     return max(rect_obj.x1, right_edge - 1.0)
 
 
+# ===========================================================================
+# Stage C / Items #8, #9: baseline-direction + device-pixel phase snapping.
+# ===========================================================================
+
+# Render DPIs we snap origin phase to. The verifier renders at 300 and 600;
+# matching the original glyph's sub-pixel phase at these grids removes the
+# half-pixel shimmer that otherwise appears when the new origin lands on a
+# slightly different fractional pixel than the original.
+_SNAP_DPI = 600.0
+
+
+def _span_writing_dir(page, span: dict):
+    """Item #8: return the unit writing-direction vector (dx, dy) for the
+    span's text from the dict `dir` field (cos, sin of the text angle).
+    Returns (1.0, 0.0) for normal horizontal text. Used so rotated /
+    skewed lines re-emit along the original baseline rather than upright.
+    """
+    d = span.get("dir")
+    if isinstance(d, (list, tuple)) and len(d) == 2:
+        try:
+            dx, dy = float(d[0]), float(d[1])
+            n = (dx * dx + dy * dy) ** 0.5
+            if n > 1e-6:
+                return (dx / n, dy / n)
+        except Exception:
+            pass
+    # Fall back to the line's `dir` if present on the parent line.
+    return (1.0, 0.0)
+
+
+def _snap_origin_phase(new_x: float, ref_x: float, dpi: float = _SNAP_DPI) -> float:
+    """Item #9: nudge `new_x` so its fractional position on the `dpi` pixel
+    grid matches the reference origin `ref_x`'s fractional position. The
+    integer pixel placement is preserved (we move by < 1 px), so the number
+    stays where the layout put it, but glyph edges land on the same
+    sub-pixel phase as the original — eliminating AA shimmer at the
+    rasteriser.
+    """
+    px = dpi / 72.0
+    ref_phase = (ref_x * px) - round(ref_x * px - 0.5)  # in [0,1)
+    cur = new_x * px
+    cur_int = round(cur - 0.5)
+    snapped = (cur_int + ref_phase) / px
+    # Never move more than one pixel away from the requested position.
+    if abs(snapped - new_x) > 1.0 / px:
+        return new_x
+    return snapped
+
+
 def _placement_for_edit(
     page,
     rect_obj,
@@ -1243,6 +1530,7 @@ def _placement_for_edit(
             available = old_w
         # Apply Tc (character spacing) to condense if still overflowing.
         char_spacing = 0.0
+        h_scale = 1.0
         if new_w > available and len(new_text) > 1:
             # Distribute the overshoot across (n-1) gaps. Negative spacing
             # squeezes glyphs together. Cap the squeeze at -0.5pt per gap
@@ -1250,7 +1538,19 @@ def _placement_for_edit(
             overshoot = new_w - available
             char_spacing = -min(0.5, overshoot / max(len(new_text) - 1, 1))
             new_w = new_w + char_spacing * (len(new_text) - 1)
+            # Stage B / Item #6: if negative tracking alone can't close the
+            # gap (we hit the -0.5pt/gap cap), condense with horizontal
+            # scaling instead of letting the number overflow its cell.
+            # Tabular bank figures are typically set with a horizontal
+            # scale, so this matches the original renderer more closely
+            # than tighter tracking. Floor at 0.80 so digits stay legible.
+            if new_w > available:
+                h_scale = max(available / new_w, 0.80)
+                new_w = new_w * h_scale
         new_origin_x = max(target_x1 - new_w, 0.0)
+        # Item #9: snap the right-aligned origin to the original glyph's
+        # sub-pixel phase so glyph edges rasterise identically.
+        new_origin_x = _snap_origin_phase(new_origin_x, float(origin_x))
         # Redaction rect: from new_origin_x to target_x1, plus the original
         # vertical extent. Don’t shrink below the original cell -- we always
         # want to clear the original glyphs first.
@@ -1280,6 +1580,8 @@ def _placement_for_edit(
             "is_right_aligned": True,
             "kern_map": kern_map,
             "per_glyph_origins": per_glyph_origins,
+            "h_scale": h_scale,
+            "writing_dir": _span_writing_dir(page, span),
         }
     else:
         # Non-numeric: keep left-aligned, allow growth into right neighbour.
@@ -1290,8 +1592,11 @@ def _placement_for_edit(
         else:
             # Stage 14b / Item #7: tighten the redact rect to the actual
             # ink extent so trailing whitespace inside the span doesn't
-            # eat into adjacent cells.
-            redact_rect = _tight_glyph_bbox(page, rect_obj)
+            # eat into adjacent cells. Item #12: pass the original glyph
+            # colour so coloured / light-grey text is tightened correctly.
+            redact_rect = _tight_glyph_bbox(
+                page, rect_obj, fg_color=_color_int_to_rgb(span.get("color"))
+            )
         kern_map = _extract_kern_map(page, span, supplied_font)
         per_glyph_origins = _per_glyph_origins(page, span.get("bbox"))
         return {
@@ -1303,6 +1608,8 @@ def _placement_for_edit(
             "is_right_aligned": False,
             "kern_map": kern_map,
             "per_glyph_origins": per_glyph_origins,
+            "h_scale": 1.0,
+            "writing_dir": _span_writing_dir(page, span),
         }
 
 
@@ -1439,6 +1746,9 @@ def _insert_kerned_text(
     kern_map: dict,
     extra_spacing: float,
     per_glyph_origins: list = None,
+    measure_font=None,
+    h_scale: float = 1.0,
+    writing_dir: tuple = (1.0, 0.0),
 ):
     """Place each glyph individually so per-pair kerning matches the
     original. Falls back to plain `insert_text` if measurement fails.
@@ -1446,56 +1756,50 @@ def _insert_kerned_text(
     `extra_spacing` is the (negative) Tc-style condensing applied uniformly
     on top of any per-pair adjustment, used by Item #2's width-fit path.
 
-    Stage 14d / Item #1: when `per_glyph_origins` is supplied (a list of
-    (char, origin_x, origin_y) tuples from the original span), and the
-    new text length matches the original 1:1, place each new glyph at
-    the original character's exact origin so superscript / vertical-
-    shift markers don't drift on edit.
+    `measure_font` (Stage A / Item #2): the `pymupdf.Font` built from the
+    ORIGINAL embedded subset. Using it for advance measurement is what makes
+    kerning correct — measuring against a Helvetica stand-in injects spacing
+    error instead of removing it. When None we fall back to a name-built
+    Font, then to Helvetica metrics.
+
+    `h_scale` (Stage B / Item #6): horizontal-scale factor (<1.0 condenses).
+    Applied to every advance so tabular figures squeeze the way the original
+    renderer fit them, instead of relying solely on negative tracking.
+
+    Stage 14d / Item #1: when `per_glyph_origins` is supplied and the new
+    text length matches the original 1:1, place each new glyph at the
+    original character's exact origin so superscript / vertical-shift
+    markers don't drift on edit. Stage B / Item #7 extends this to the
+    matching prefix+suffix run when lengths differ.
     """
-    try:
-        f = pymupdf.Font(fontname=fontname)
-    except Exception:
+    f = measure_font
+    if f is None:
         try:
-            f = pymupdf.Font(fontname="helv")
+            f = pymupdf.Font(fontname=fontname)
         except Exception:
-            page.insert_text(
-                point=pymupdf.Point(origin[0], origin[1]),
-                text=new_text,
-                fontname=fontname,
-                fontsize=fontsize,
-                color=color,
-                render_mode=0,
-                overlay=True,
-            )
-            return
+            try:
+                f = pymupdf.Font(fontname="helv")
+            except Exception:
+                f = None
+    if f is None:
+        page.insert_text(
+            point=pymupdf.Point(origin[0], origin[1]),
+            text=new_text,
+            fontname=fontname,
+            fontsize=fontsize,
+            color=color,
+            render_mode=0,
+            overlay=True,
+        )
+        return
 
     ox, oy = origin
     chars = list(new_text)
 
-    # Stage 14d / Item #1: when the new text and the original have the
-    # same number of glyphs, re-use each character's original origin so
-    # baseline shifts (superscripts, etc.) are preserved exactly.
-    if per_glyph_origins and len(per_glyph_origins) == len(chars):
-        for ch, (_, gox, goy) in zip(chars, per_glyph_origins):
-            try:
-                page.insert_text(
-                    point=pymupdf.Point(gox, goy),
-                    text=ch,
-                    fontname=fontname,
-                    fontsize=fontsize,
-                    color=color,
-                    render_mode=0,
-                    overlay=True,
-                )
-            except Exception:
-                return
-        return
-
-    cursor = float(ox)
-    for i, ch in enumerate(chars):
+    def _emit(ch, x, y):
         try:
             page.insert_text(
-                point=pymupdf.Point(cursor, oy),
+                point=pymupdf.Point(x, y),
                 text=ch,
                 fontname=fontname,
                 fontsize=fontsize,
@@ -1503,18 +1807,103 @@ def _insert_kerned_text(
                 render_mode=0,
                 overlay=True,
             )
+            return True
         except Exception:
-            # Best-effort: draw what we can, bail otherwise.
+            return False
+
+    # Stage 14d / Item #1: exact 1:1 origin reuse.
+    if per_glyph_origins and len(per_glyph_origins) == len(chars):
+        for ch, (_, gox, goy) in zip(chars, per_glyph_origins):
+            if not _emit(ch, gox, goy):
+                return
+        return
+
+    # Stage B / Item #7: when lengths differ, pin the matching leading and
+    # trailing glyphs to their original origins (the decimal part and
+    # trailing glyphs of amounts almost always line up) and only
+    # cursor-advance the changed middle run.
+    if per_glyph_origins and len(per_glyph_origins) >= 1 and len(chars) >= 1:
+        orig_chars = [t[0] for t in per_glyph_origins]
+        # Leading common run.
+        lead = 0
+        while (
+            lead < len(chars)
+            and lead < len(orig_chars)
+            and chars[lead] == orig_chars[lead]
+        ):
+            lead += 1
+        # Trailing common run (not overlapping the lead).
+        tail = 0
+        while (
+            tail < (len(chars) - lead)
+            and tail < (len(orig_chars) - lead)
+            and chars[len(chars) - 1 - tail] == orig_chars[len(orig_chars) - 1 - tail]
+        ):
+            tail += 1
+        # Only worth it when something actually anchors on both ends or one
+        # substantial end matches; otherwise fall through to pure cursor.
+        if lead + tail >= 1 and (lead > 0 or tail > 0) and lead + tail < len(chars) + 1:
+            placed = [False] * len(chars)
+            # Place leading anchored glyphs.
+            for i in range(lead):
+                _, gox, goy = per_glyph_origins[i]
+                _emit(chars[i], gox, goy)
+                placed[i] = True
+            # Place trailing anchored glyphs.
+            for j in range(tail):
+                ci = len(chars) - 1 - j
+                oi = len(orig_chars) - 1 - j
+                _, gox, goy = per_glyph_origins[oi]
+                _emit(chars[ci], gox, goy)
+                placed[ci] = True
+            # Cursor-fill the middle run between the lead anchor and the
+            # first trailing anchor, starting at the advance past the last
+            # leading glyph.
+            mid_start = lead
+            mid_end = len(chars) - tail
+            if mid_end > mid_start:
+                dx, dy = writing_dir
+                if lead > 0:
+                    _, lgox, lgoy = per_glyph_origins[lead - 1]
+                    try:
+                        adv0 = float(f.text_length(orig_chars[lead - 1], fontsize=fontsize)) * h_scale
+                    except Exception:
+                        adv0 = fontsize * 0.5
+                    step0 = adv0 + extra_spacing
+                    cx = lgox + dx * step0
+                    cy = lgoy + dy * step0
+                else:
+                    cx = float(ox)
+                    cy = per_glyph_origins[0][2] if per_glyph_origins else oy
+                for k in range(mid_start, mid_end):
+                    _emit(chars[k], cx, cy)
+                    try:
+                        adv = float(f.text_length(chars[k], fontsize=fontsize)) * h_scale
+                    except Exception:
+                        adv = fontsize * 0.5
+                    nxt = chars[k + 1] if k + 1 < len(chars) else ""
+                    delta = kern_map.get((chars[k], nxt), 0.0)
+                    step = adv + delta + extra_spacing
+                    cx += dx * step
+                    cy += dy * step
+            return
+
+    # Plain cursor walk with real metrics, per-pair kerning and h_scale.
+    dx, dy = writing_dir
+    cx, cy = float(ox), float(oy)
+    for i, ch in enumerate(chars):
+        if not _emit(ch, cx, cy):
             return
         if i + 1 >= len(chars):
             break
-        # Advance: default width plus per-pair kern delta plus uniform Tc.
         try:
-            adv = float(f.text_length(ch, fontsize=fontsize))
+            adv = float(f.text_length(ch, fontsize=fontsize)) * h_scale
         except Exception:
             adv = fontsize * 0.5
         delta = kern_map.get((ch, chars[i + 1]), 0.0)
-        cursor += adv + delta + extra_spacing
+        step = adv + delta + extra_spacing
+        cx += dx * step
+        cy += dy * step
 
 
 def _insert_text_with_placement(
@@ -1524,25 +1913,45 @@ def _insert_text_with_placement(
     fontname: str,
     fontsize: float,
     color: tuple,
+    measure_font=None,
 ):
     """Insert text using `placement.origin` and `placement.char_spacing`.
-    PyMuPDF does not expose Tc on `insert_text`, so when char_spacing != 0
-    we drop into a content-stream-level shaper. For the common case
-    (char_spacing == 0) we use the simple `insert_text` path.
+
+    `fontname` MUST be a name the page can already resolve — either a
+    standard-14 builtin code or a name registered via `insert_font`
+    (e.g. the ``embf_<xref>`` refname from `_resolve_embedded_font`).
+    `measure_font` is the matching `pymupdf.Font` used for advance/width
+    measurement; passing it avoids re-deriving metrics from the name,
+    which is impossible for re-embedded subset fonts.
 
     Stage 10 / Item #3: when `placement` includes a `kern_map` (built
     from the original span via `_extract_kern_map`), each glyph is
-    placed individually so per-pair kerning matches the original. This
-    matters for text-heavy edits where pairs like `AV`, `Wo`, `T.` show
-    visible spacing differences from a default-advance render.
+    placed individually so per-pair kerning matches the original.
+
+    Stage B / Items #5, #6: ALL condensing now flows through the
+    glyph-by-glyph emitter (no more silent-overflow `Tc` stub). When the
+    placement carries a horizontal scale (`h_scale` < 1.0) the emitter
+    squeezes via PDF horizontal-scaling (Tz-equivalent advance scaling),
+    which reproduces condensed tabular figures more faithfully than hard
+    negative tracking.
     """
     ox, oy = placement["origin"]
     char_spacing = placement.get("char_spacing", 0.0)
     kern_map = placement.get("kern_map")
     per_glyph_origins = placement.get("per_glyph_origins") or []
+    h_scale = placement.get("h_scale", 1.0)
+    writing_dir = placement.get("writing_dir", (1.0, 0.0))
 
-    # If we have a kern map OR per-glyph origins, place glyph-by-glyph.
-    if (kern_map or per_glyph_origins) and len(new_text) > 1:
+    rotated = abs(writing_dir[1]) > 1e-3
+
+    needs_glyph_path = (
+        bool(kern_map)
+        or bool(per_glyph_origins)
+        or abs(char_spacing) >= 1e-3
+        or abs(h_scale - 1.0) >= 1e-3
+    )
+
+    if needs_glyph_path and len(new_text) > 1:
         _insert_kerned_text(
             page,
             (ox, oy),
@@ -1553,42 +1962,44 @@ def _insert_text_with_placement(
             kern_map or {},
             char_spacing,
             per_glyph_origins=per_glyph_origins,
+            measure_font=measure_font,
+            h_scale=h_scale,
+            writing_dir=writing_dir,
         )
         return
 
-    if abs(char_spacing) < 1e-3:
-        page.insert_text(
-            point=pymupdf.Point(ox, oy),
-            text=new_text,
-            fontname=fontname,
-            fontsize=fontsize,
-            color=color,
-            render_mode=0,
-            overlay=True,
-        )
-        return
+    # Item #8: rotated/skewed baseline. `insert_text` supports `morph` to
+    # rotate text about a pivot; derive the angle from the writing dir.
+    if rotated:
+        import math
+        angle = math.degrees(math.atan2(writing_dir[1], writing_dir[0]))
+        try:
+            page.insert_text(
+                point=pymupdf.Point(ox, oy),
+                text=new_text,
+                fontname=fontname,
+                fontsize=fontsize,
+                color=color,
+                render_mode=0,
+                rotate=int(round(angle / 90.0)) * 90 if abs(angle % 90) < 1e-3 else 0,
+                morph=(pymupdf.Point(ox, oy), pymupdf.Matrix(math.cos(math.radians(angle)),
+                       math.sin(math.radians(angle)), -math.sin(math.radians(angle)),
+                       math.cos(math.radians(angle)), 0, 0)),
+                overlay=True,
+            )
+            return
+        except Exception:
+            pass  # fall through to plain placement
 
-    # Tc path: emit raw content stream with `<spacing> Tc`.
-    # PyMuPDF `Shape` API gives us the lowest-friction way to do this.
-    shape = page.new_shape()
-    shape.insert_text(
-        pymupdf.Point(ox, oy),
-        new_text,
+    page.insert_text(
+        point=pymupdf.Point(ox, oy),
+        text=new_text,
         fontname=fontname,
         fontsize=fontsize,
         color=color,
         render_mode=0,
+        overlay=True,
     )
-    # Rebuild stream with Tc applied.
-    # (PyMuPDF Shape does not expose Tc directly; emit the literal PDF
-    # operator alongside.)
-    shape.commit(overlay=True)
-    # Inject `Tc` immediately by appending a content stream snippet that
-    # affects only the glyphs above. Practical fallback: use
-    # `insert_text` with no spacing and accept that the text may slightly
-    # overflow rather than condense -- the Rust caller can detect this via
-    # `would_overflow` in the return payload and choose a different
-    # strategy.
     return
 
 
@@ -1677,8 +2088,21 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
     if font_xref is not None:
         coverage_ok, missing_chars = _font_covers_text(page, font_xref, original_font_name, new_text)
 
+    # Stage A / Items #1-#3: resolve the ORIGINAL embedded glyph program so
+    # we can re-embed it by buffer (not by an unresolvable subset name) and
+    # measure with its true metrics. We only do this for genuine non-standard
+    # fonts: a base-14 face (Helvetica/Times/Courier/...) renders most
+    # faithfully through the reader's builtin — that's how the original was
+    # displayed — and reusing an embedded base-14 subset only adds a
+    # re-rasterization quirk. `embedded` holds {refname, font_obj, buffer}.
+    is_std14 = _is_standard_14(original_font_name)
+    embedded = None
+    if coverage_ok and not is_std14:
+        embedded = _resolve_embedded_font(page, font_xref)
+
     # 3. If coverage is bad and a font_path was supplied, fall back to it.
     insert_font_name = None
+    supplied_measure_font = None
     if coverage_ok:
         method = "embedded"
     elif font_path and os.path.exists(font_path):
@@ -1692,6 +2116,7 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
                 method = "supplied"
                 coverage_ok = True
                 missing_chars = []
+                supplied_measure_font = f
             else:
                 missing_chars = still_missing
         except Exception as e:
@@ -1710,17 +2135,47 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
         }
         raise ValueError(json.dumps(err))
 
+    # Decide the name `insert_text` will draw with and the Font we measure
+    # with. For the embedded path, prefer the re-embedded buffer refname;
+    # only when that registration failed do we drop to a weight/style-matched
+    # standard-14 (Item #4) — never a blind Helvetica.
+    if method == "supplied":
+        emit_fontname = insert_font_name
+        measure_font = supplied_measure_font
+    elif is_std14:
+        # Standard-14 face: draw with the matching builtin code (this is the
+        # most faithful reproduction of how the reader displayed it) and
+        # measure with a name-built Font. Not a fallback — no review flag.
+        emit_fontname = _fallback_standard14(original_font_name)
+        try:
+            measure_font = pymupdf.Font(fontname=emit_fontname)
+        except Exception:
+            measure_font = None
+    else:  # embedded, non-standard
+        if embedded and embedded.get("refname"):
+            emit_fontname = embedded["refname"]
+            measure_font = embedded.get("font_obj")
+        else:
+            emit_fontname = _fallback_standard14(original_font_name)
+            measure_font = embedded.get("font_obj") if embedded else None
+            method = "embedded-fallback"
+            print(
+                f"[replace] embedded reuse unavailable for {original_font_name!r}; "
+                f"weight/style-matched builtin {emit_fontname!r} (cell flagged for review)",
+                file=sys.stderr,
+            )
+
     # 5. Compute fidelity-correct placement: right-align numerics, fit
-    #    width to the cell, preserve sub-pixel baseline, condense via Tc
-    #    if needed. Stage 8 / Items #1, #2, #4.
-    insert_fontname = insert_font_name if method == "supplied" else original_font_name
+    #    width to the cell, preserve sub-pixel baseline, condense via Tc /
+    #    horizontal-scale if needed. Stage 8 / Items #1, #2, #4; Stage B #6.
     placement = _placement_for_edit(
         page,
         rect_obj,
         span,
         new_text,
-        insert_fontname,
+        emit_fontname,
         original_size,
+        supplied_font=measure_font,
     )
 
     # Stage 9 / Item #5: classify the background and use the local color
@@ -1729,60 +2184,56 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
     bg_class, bg_color = classify_background(page, placement["redact_rect"])
     redact_fill = bg_color if bg_class != "patterned" else fill_color
 
-    # Stage 14a / Item #18: contrast guard. If the original text color is
-    # close to the background we're about to redact with (e.g. a span
-    # used to be white-on-dark and the redact replaced the dark
-    # background with white), the new text would be invisible. Detect
-    # near-equality and pick a safe contrasting color instead.
-    def _luminance(rgb):
-        r, g, b = rgb
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    # Stage D / Item #10: emit the replacement in the ORIGINAL glyph's native
+    # colour space (Gray / RGB / CMYK). Re-emitting a CMYK rich black as RGB
+    # black is a visible tone shift under magnification; this preserves it.
+    original_color = _native_fill_color(span, page)
+
+    # Stage D / Item #11: NO "accessible" colour substitution. The original
+    # colour is preserved verbatim — including red negatives that were
+    # already red, and black negatives that were already black. We never
+    # invent a colour the statement didn't use.
+    #
+    # The only adjustment is a genuine last-resort contrast guard: if the
+    # text colour is so close to the redaction fill that the glyphs would be
+    # physically invisible (e.g. the redact replaced a dark band with white
+    # under formerly-white text), nudge lightness while preserving hue so the
+    # value remains readable. This fires only on true invisibility.
     if redact_fill is not None:
-        bg_lum = _luminance(redact_fill)
-        fg_lum = _luminance(original_color)
-        if abs(bg_lum - fg_lum) < 0.18:
-            # Pick black or white — whichever has higher contrast.
-            original_color = (0.0, 0.0, 0.0) if bg_lum > 0.5 else (1.0, 1.0, 1.0)
+        bg_lum = _color_luminance(redact_fill)
+        fg_lum = _color_luminance(original_color)
+        if abs(bg_lum - fg_lum) < 0.12:
+            # Preserve the channel ratios (hue) but flip lightness toward the
+            # opposite end so the glyphs are visible. For gray/black text this
+            # yields black-on-light or white-on-dark, matching the original
+            # intent without inventing a new hue.
+            target_dark = bg_lum > 0.5
+            if len(original_color) == 1:
+                original_color = (0.0,) if target_dark else (1.0,)
+            elif len(original_color) == 4:
+                # Keep CMY ratios, drive K.
+                c, m, y, _k = original_color
+                original_color = (c, m, y, 1.0) if target_dark else (0.0, 0.0, 0.0, 0.0)
+            else:
+                original_color = (0.0, 0.0, 0.0) if target_dark else (1.0, 1.0, 1.0)
             print(
-                f"[replace] contrast guard: foreground {fg_lum:.2f} vs background {bg_lum:.2f}; using {original_color}",
+                f"[replace] contrast guard (last-resort): fg {fg_lum:.2f} vs bg "
+                f"{bg_lum:.2f}; preserved-hue adjust -> {original_color}",
                 file=sys.stderr,
             )
 
-    # Stage 14c / Item #12: negative-color preservation. When the new text
-    # is a negative number AND the original color hints "red-ish" (red
-    # channel dominates), preserve a red tint on the replacement. This
-    # covers statements that color negatives red — without this, a red
-    # negative becomes a black negative on edit.
-    new_text_stripped = new_text.strip()
-    is_negative = (
-        new_text_stripped.startswith("-")
-        or (new_text_stripped.startswith("(") and new_text_stripped.endswith(")"))
-        or new_text_stripped.endswith("-")
-    )
-    if is_negative:
-        r, g, b = original_color
-        # If the original was already reddish, keep its color (it was
-        # already a negative). Otherwise apply a default warning red.
-        if r > 0.5 and r > g + 0.2 and r > b + 0.2:
-            pass  # already red
-        else:
-            original_color = (0.78, 0.16, 0.18)  # accessible red
-
-    # Stage 9 / Item #5: capture vector strokes (column underlines) that
-    # pass through the redaction so we can re-draw them after.
-    strokes_to_restore = _vector_strokes_through(page, placement["redact_rect"])
-
     # 6. Apply the redaction. We use the *computed* redact_rect (which may
     #    be wider than the original cell when text grew) so the original
-    #    glyphs are guaranteed to be cleared.
+    #    glyphs are guaranteed to be cleared. We do NOT let the redaction
+    #    annotation draw the replacement text itself (no `text=`): the
+    #    precise, font-faithful re-emit happens below via
+    #    `_insert_text_with_placement` using the re-embedded original glyph
+    #    program. Letting the annot also draw would double-render in a
+    #    Helvetica fallback and fight our placement.
+    strokes_to_restore = _vector_strokes_through(page, placement["redact_rect"])
     annot = page.add_redact_annot(
         placement["redact_rect"],
-        text=new_text,
         fill=redact_fill,
-        text_color=original_color,
-        fontname=insert_font_name if method == "supplied" else None,
-        fontsize=original_size,
-        align=pymupdf.TEXT_ALIGN_RIGHT if placement["is_right_aligned"] else pymupdf.TEXT_ALIGN_LEFT,
     )
 
     # `apply_redactions(images=PDF_REDACT_IMAGE_NONE)` keeps imagery untouched
@@ -1807,34 +2258,38 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
     # that the redaction cleared.
     _redraw_strokes(page, strokes_to_restore)
 
-    # Re-place the text at the *exact* original baseline. The redact text helper
-    # auto-positions; this insert_text overrides it for pixel-equivalent placement.
-    if method == "embedded":
-        try:
-            _insert_text_with_placement(
-                page,
-                placement,
-                new_text,
-                original_font_name,
-                original_size,
-                original_color,
-            )
-        except Exception as e:
-            # If the basefont name is not recognised by insert_text (some
-            # subsetted fonts have weird names), let the redact annotation’s
-            # auto-text stand. Visual fidelity is still very high but font may
-            # default to Helvetica metrics inside the rect.
-            print(f"[replace] insert_text fallback for embedded path: {e}", file=sys.stderr)
-            method = "embedded-fallback"
-    elif method == "supplied":
+    # Re-place the text at the *exact* original baseline using the
+    # re-embedded original glyph program (Stage A). This is the only text
+    # draw now — the redaction annotation no longer auto-draws — so it must
+    # run for every method (embedded / embedded-fallback / supplied).
+    try:
         _insert_text_with_placement(
             page,
             placement,
             new_text,
-            insert_font_name,
+            emit_fontname,
             original_size,
             original_color,
+            measure_font=measure_font,
         )
+    except Exception as e:
+        # Last-resort: draw with a weight/style-matched builtin so the cell
+        # is never left blank. Flag it so the verifier treats it as review.
+        print(f"[replace] primary emit failed ({e}); builtin fallback", file=sys.stderr)
+        fb = _fallback_standard14(original_font_name)
+        try:
+            page.insert_text(
+                point=pymupdf.Point(*placement["origin"]),
+                text=new_text,
+                fontname=fb,
+                fontsize=original_size,
+                color=original_color,
+                render_mode=0,
+                overlay=True,
+            )
+        except Exception:
+            pass
+        method = "embedded-fallback"
 
     doc.save(output_path, garbage=4, deflate=True, clean=True)
     doc.close()
@@ -1923,7 +2378,16 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
                 page, font_xref, original_font_name, new_text
             )
 
+        # Stage A: resolve the original embedded glyph program for re-embed,
+        # but only for genuine non-standard fonts (base-14 renders most
+        # faithfully through the reader's builtin).
+        is_std14 = _is_standard_14(original_font_name)
+        embedded = None
+        if coverage_ok and not is_std14:
+            embedded = _resolve_embedded_font(page, font_xref)
+
         method = None
+        supplied_measure_font = None
         if coverage_ok:
             method = "embedded"
         elif insert_font_name is not None:
@@ -1937,6 +2401,7 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
                     method = "supplied"
                     coverage_ok = True
                     missing_chars = []
+                    supplied_measure_font = f
                 else:
                     missing_chars = still_missing
             except Exception as e:
@@ -1953,30 +2418,66 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
             }
             raise ValueError(json.dumps(err))
 
-        insert_fontname = insert_font_name if method == "supplied" else original_font_name
+        # Pick emit font name + measuring font (Stage A / Item #1-#4).
+        if method == "supplied":
+            emit_fontname = insert_font_name
+            measure_font = supplied_measure_font
+        elif is_std14:
+            emit_fontname = _fallback_standard14(original_font_name)
+            try:
+                measure_font = pymupdf.Font(fontname=emit_fontname)
+            except Exception:
+                measure_font = None
+        else:  # embedded, non-standard
+            if embedded and embedded.get("refname"):
+                emit_fontname = embedded["refname"]
+                measure_font = embedded.get("font_obj")
+            else:
+                emit_fontname = _fallback_standard14(original_font_name)
+                measure_font = embedded.get("font_obj") if embedded else None
+                method = "embedded-fallback"
+                warnings.append(
+                    f"edit {idx}: embedded reuse unavailable for "
+                    f"{original_font_name!r}; builtin {emit_fontname!r} (review)"
+                )
+
         placement = _placement_for_edit(
             page,
             rect_obj,
             span,
             new_text,
-            insert_fontname,
+            emit_fontname,
             original_size,
+            supplied_font=measure_font,
         )
 
         # Stage 9 / Item #5: per-edit background classification + stroke
-        # restoration, same as in replace_text_in_rect.
+        # restoration, same as in replace_text_in_rect. The redaction does
+        # NOT auto-draw text; the font-faithful re-emit happens below.
         bg_class, bg_color = classify_background(page, placement["redact_rect"])
         redact_fill = bg_color if bg_class != "patterned" else fill_color
         strokes_to_restore = _vector_strokes_through(page, placement["redact_rect"])
 
+        # Stage D / Items #10, #11: native-colorspace emission + exact colour
+        # preservation (no invented "accessible" colours). Last-resort
+        # contrast guard only on true invisibility.
+        original_color = _native_fill_color(span, page)
+        if redact_fill is not None:
+            bg_lum = _color_luminance(redact_fill)
+            fg_lum = _color_luminance(original_color)
+            if abs(bg_lum - fg_lum) < 0.12:
+                target_dark = bg_lum > 0.5
+                if len(original_color) == 1:
+                    original_color = (0.0,) if target_dark else (1.0,)
+                elif len(original_color) == 4:
+                    c, m, y, _k = original_color
+                    original_color = (c, m, y, 1.0) if target_dark else (0.0, 0.0, 0.0, 0.0)
+                else:
+                    original_color = (0.0, 0.0, 0.0) if target_dark else (1.0, 1.0, 1.0)
+
         page.add_redact_annot(
             placement["redact_rect"],
-            text=new_text,
             fill=redact_fill,
-            text_color=original_color,
-            fontname=insert_font_name if method == "supplied" else None,
-            fontsize=original_size,
-            align=pymupdf.TEXT_ALIGN_RIGHT if placement["is_right_aligned"] else pymupdf.TEXT_ALIGN_LEFT,
         )
         try:
             page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
@@ -1985,29 +2486,33 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
 
         _redraw_strokes(page, strokes_to_restore)
 
-        if method == "embedded":
-            try:
-                _insert_text_with_placement(
-                    page,
-                    placement,
-                    new_text,
-                    original_font_name,
-                    original_size,
-                    original_color,
-                )
-            except Exception as e:
-                print(f"[apply_many] insert_text fallback for edit {idx}: {e}", file=sys.stderr)
-                warnings.append(f"edit {idx}: embedded font reuse fell back to redact-only")
-                method = "embedded-fallback"
-        elif method == "supplied":
+        try:
             _insert_text_with_placement(
                 page,
                 placement,
                 new_text,
-                insert_font_name,
+                emit_fontname,
                 original_size,
                 original_color,
+                measure_font=measure_font,
             )
+        except Exception as e:
+            print(f"[apply_many] emit failed for edit {idx}: {e}", file=sys.stderr)
+            warnings.append(f"edit {idx}: primary emit failed, builtin fallback")
+            fb = _fallback_standard14(original_font_name)
+            try:
+                page.insert_text(
+                    point=pymupdf.Point(*placement["origin"]),
+                    text=new_text,
+                    fontname=fb,
+                    fontsize=original_size,
+                    color=original_color,
+                    render_mode=0,
+                    overlay=True,
+                )
+            except Exception:
+                pass
+            method = "embedded-fallback"
 
         methods.append(method)
 

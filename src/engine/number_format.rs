@@ -27,7 +27,7 @@ pub enum NegativeStyle {
     TrailingMinus,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CurrencyPosition {
     /// `$1,234.56` (default).
     Leading,
