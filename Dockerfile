@@ -59,9 +59,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# PyMuPDF (imported by python/pymupdf_pro_integration.py via the PyO3 bridge).
+# PyMuPDF + PyMuPDF Pro (imported by python/pymupdf_pro_integration.py via the
+# PyO3 bridge). The integration module calls `pymupdf.pro.unlock(KEY)`, which
+# lives in the separate `pymupdfpro` commercial package — plain `pymupdf` does
+# NOT ship the `pymupdf.pro` module, so installing only `pymupdf` causes
+# `ModuleNotFoundError: No module named 'pymupdf.pro'` at runtime.
+#
+# PyMuPDF Pro is published as a Linux x86_64 (glibc) wheel, which matches this
+# Debian bookworm image. `pymupdfpro` depends on a matching `pymupdf`, so a
+# single install line pulls both in compatible versions.
 # --break-system-packages is required on Debian bookworm (PEP 668).
-RUN pip3 install --no-cache-dir --break-system-packages pymupdf
+RUN pip3 install --no-cache-dir --break-system-packages pymupdfpro
 
 # libpdfium.so — pdfium-render's Pdfium::default() binds to the system lib.
 # Pulled from the bblanchon/pdfium-binaries "latest" release. NOTE: this is a
@@ -88,6 +96,11 @@ RUN mkdir -p audit output logs cache/fonts
 # The PyO3 bridge resolves python/ from cwd or this env var; set both clearly.
 ENV PYO3_PYTHON_DIR=/app/python
 ENV RUST_LOG=info
+# PyMuPDF Pro's pro.unlock() scans system font directories by default, which
+# is slow/noisy on a slim image. Point it at the app font cache and disable
+# the broad auto-scan for deterministic, fast unlocks.
+ENV PYMUPDFPRO_FONT_PATH=/app/cache/fonts
+ENV PYMUPDFPRO_FONT_PATH_AUTO=0
 # Railway injects $PORT; default for local `docker run` parity.
 ENV PORT=8080
 

@@ -6,17 +6,55 @@ PyMuPDF Pro Smart Targeted Editor v2.1
 - Robust targeted replacement inside a specific rectangle using redaction
 """
 
-import pymupdf.pro
 import pymupdf
 import json
 import os
 import sys
 
-PYMUPDF_PRO_KEY = "hFKt4hca03GCFLAFLEGz5Bd3"
+# PyMuPDF Pro lives in the separate `pymupdfpro` package and exposes the
+# `pymupdf.pro` submodule. Import it defensively: if the Pro package is not
+# installed (or fails to load), we must NOT crash the whole module — doing so
+# would take down the entire Python actor and disable even non-Pro helpers.
+# Instead we record availability and fail loudly only when a Pro-gated call is
+# actually made. This keeps the headless health server and any non-Pro paths
+# working, and turns an opaque "PyEngine init failed" into an actionable error
+# at the exact call site.
+try:
+    import pymupdf.pro  # noqa: F401  (registers the pymupdf.pro submodule)
+    _PYMUPDF_PRO_AVAILABLE = True
+    _PYMUPDF_PRO_IMPORT_ERROR = None
+except Exception as _e:  # ImportError or any loader-level failure
+    _PYMUPDF_PRO_AVAILABLE = False
+    _PYMUPDF_PRO_IMPORT_ERROR = _e
+    print(
+        "[pymupdf_pro_integration] WARNING: PyMuPDF Pro (pymupdf.pro) is not "
+        f"available: {_e}. Pro-gated operations will fail until the "
+        "`pymupdfpro` package is installed; non-Pro paths still work.",
+        file=sys.stderr,
+    )
+
+PYMUPDF_PRO_KEY = os.environ.get("PYMUPDF_PRO_KEY", "hFKt4hca03GCFLAFLEGz5Bd3")
+
+
+def _ensure_pro_unlocked():
+    """Unlock PyMuPDF Pro with the configured key.
+
+    Centralizes the `pymupdf.pro.unlock(PYMUPDF_PRO_KEY)` call that was
+    previously copy-pasted at the top of every function. If the Pro package
+    is missing, raise a single, clear error naming the fix rather than an
+    opaque AttributeError/ModuleNotFoundError deep in a call.
+    """
+    if not _PYMUPDF_PRO_AVAILABLE:
+        raise RuntimeError(
+            "PyMuPDF Pro is not installed (pip install pymupdfpro). "
+            f"Original import error: {_PYMUPDF_PRO_IMPORT_ERROR}"
+        )
+    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+
 
 def get_text_blocks(pdf_path: str, page_num: int = 0):
     """Return list of text spans with precise bounding boxes and font info"""
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     page = doc[page_num]
 
@@ -171,7 +209,7 @@ def analyze_fonts(pdf_path: str) -> dict:
         }
       }
     """
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
 
     # 1. Collect per-font usage data, keyed by basename so subsets of the
@@ -2023,7 +2061,7 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
     Returns a dict on success: {"success": True, "method": <"embedded"|"supplied"|"helv-fallback">, ...}
     Raises ValueError with a JSON-serializable detail on coverage failure.
     """
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     # Stage 14a / Item #16: hard-stop on encrypted / permission-restricted PDFs.
     ok, reason = _check_doc_editable(doc)
@@ -2327,7 +2365,7 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
     Raises ValueError(json) on FONT_COVERAGE_INSUFFICIENT for any edit; the
     error payload includes the index of the failing edit.
     """
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     # Stage 14a / Item #16: hard-stop on encrypted / permission-restricted PDFs.
     ok, reason = _check_doc_editable(doc)
@@ -2532,7 +2570,7 @@ def analyze_background(pdf_path: str, page_num: int, rect: list) -> tuple[bool, 
     Analyze the background of a specific area in the PDF.
     Returns (is_simple, (avg_r, avg_g, avg_b))
     """
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     page = doc[page_num]
     
@@ -2588,7 +2626,7 @@ import re
 
 def get_all_transactions(pdf_path: str):
     """Extract ALL transactions using geometry clustering and header regex detection."""
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     
     all_transactions = []
@@ -2717,7 +2755,7 @@ def chunk_pdf_for_docai(pdf_path: str, output_dir: str, max_pages_per_chunk: int
     Returns a list of dicts:
         [{"path": "...", "page_offset": int, "page_count": int}, ...]
     """
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
@@ -2744,7 +2782,7 @@ def chunk_pdf_for_docai(pdf_path: str, output_dir: str, max_pages_per_chunk: int
 
 def analyze_document_layout(pdf_path: str):
     """Document layout analysis strategy"""
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     result = []
 
@@ -2798,7 +2836,7 @@ def find_text_block_at_click(pdf_path: str, page_num: int, click_x: float, click
     GUI shows the real font name instead of '(unknown)'.
     """
     _ = dpi  # unused; kept for API stability
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     page = doc[page_num]
     try:
@@ -2867,7 +2905,7 @@ def adapt_font_fallback(pdf_path: str, font_name: str, sample_text: str = "The q
     - Applies appropriate style modifiers
     - Returns a professional adapted font + explanation
     """
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     
     font_lower = font_name.lower()
@@ -2974,7 +3012,7 @@ def dry_run_edit_preview(
     Returns a dict with the output path and the bbox-with-pad coordinates
     so the GUI can size the preview thumbnail.
     """
-    pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     try:
         ok, reason = _check_doc_editable(doc)
