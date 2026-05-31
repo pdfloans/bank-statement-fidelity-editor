@@ -36,6 +36,12 @@ pub enum Commands {
     /// Launch the GUI (recommended)
     Gui,
 
+    /// Run headless and expose an HTTP health surface (for containers /
+    /// cloud platforms like Railway). Binds 0.0.0.0:$PORT (default 8080)
+    /// and keeps the worker runtime alive. Reuses the same Job/JobResult
+    /// runtime as the GUI and CLI — no separate code path.
+    Serve,
+
     /// Modify text with high visual fidelity
     Text {
         #[arg(short, long)]
@@ -480,6 +486,13 @@ pub fn run(
         Commands::Gui => {
             if let Err(e) = crate::app::gui::run_gui(job_tx, job_rx, config.clone()) {
                 tracing::error!("Failed to launch GUI: {}", e);
+                return exit_code::GENERAL;
+            }
+            exit_code::SUCCESS
+        }
+        Commands::Serve => {
+            if let Err(e) = crate::app::server::run_server(job_tx, job_rx, config.clone()) {
+                tracing::error!("Headless server exited with error: {}", e);
                 return exit_code::GENERAL;
             }
             exit_code::SUCCESS

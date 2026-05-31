@@ -6,4 +6,5 @@ pub mod fontcache;
 pub mod gui;
 pub mod notify;
 pub mod runtime;
+pub mod server;
 pub mod telemetry;
