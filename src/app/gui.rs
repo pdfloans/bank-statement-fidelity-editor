@@ -192,6 +192,10 @@ pub struct AppSettings {
     /// and a missing/absent stored value is also treated as true.
     #[serde(default = "default_true")]
     pub three_page_mode: bool,
+    #[serde(default)]
+    pub advanced_mode: bool,
+    #[serde(default)]
+    pub remote_engine_url: String,
 }
 
 /// serde default for `three_page_mode`. NOTE: a bare `#[serde(default)]`
@@ -216,6 +220,8 @@ impl Default for AppSettings {
             webhook_url: String::new(),
             openai_api_key: String::new(),
             three_page_mode: true,
+            advanced_mode: false,
+            remote_engine_url: String::new(),
         }
     }
 }
@@ -258,6 +264,12 @@ pub struct TextBlock {
 // App state
 // ---------------------------------------------------------------------------
 
+#[derive(PartialEq)]
+pub enum AppView {
+    SingleDocument,
+    BatchProcessing,
+}
+
 pub struct MyApp {
     // Files
     input_path: String,
@@ -271,7 +283,12 @@ pub struct MyApp {
     total_pages: usize,
     history_state: ChangeHistory,
 
+    // Batch Processing
+    batch_folder_path: Option<PathBuf>,
+    batch_files: Vec<PathBuf>,
+
     // View
+    current_view: AppView,
     zoom_factor: f32,
     pan_offset: egui::Vec2,
     show_curtain: bool,
@@ -397,6 +414,9 @@ impl MyApp {
             current_page: 0,
             total_pages: 0,
             history_state: ChangeHistory::new(),
+            batch_folder_path: None,
+            batch_files: Vec::new(),
+            current_view: AppView::SingleDocument,
             zoom_factor: 1.0,
             pan_offset: egui::Vec2::ZERO,
             show_curtain: false,
@@ -811,6 +831,32 @@ impl eframe::App for MyApp {
             }
         }
 
+        // ---- 1.5 Handle drag & drop ----------------------------------------
+        ctx.input(|i| {
+            if !i.raw.dropped_files.is_empty() {
+                if let Some(file) = i.raw.dropped_files.first() {
+                    if let Some(path) = &file.path {
+                        if path.is_dir() {
+                            self.current_view = AppView::BatchProcessing;
+                            self.batch_folder_path = Some(path.clone());
+                            self.batch_files.clear();
+                            if let Ok(entries) = std::fs::read_dir(path) {
+                                for entry in entries.filter_map(|e| e.ok()) {
+                                    let p = entry.path();
+                                    if p.is_file() && p.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()) == Some("pdf".to_string()) {
+                                        self.batch_files.push(p);
+                                    }
+                                }
+                            }
+                        } else if path.is_file() && path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()) == Some("pdf".to_string()) {
+                            self.current_view = AppView::SingleDocument;
+                            self.open_pdf(path.clone());
+                        }
+                    }
+                }
+            }
+        });
+
         // Stage 5 / Item #9: autosave the workflow draft if anything has
         // changed since the last save (debounced to 1.5s inside the helper).
         self.autosave_workflow_draft();
@@ -849,10 +895,17 @@ impl eframe::App for MyApp {
         // ---- 4. Bottom status bar -----------------------------------------
         self.draw_status_bar(ctx);
 
-        // ---- 5. Left, right, central --------------------------------------
-        self.draw_left_panel(ctx);
-        self.draw_right_panel(ctx);
-        self.draw_central_panel(ctx);
+        // ---- 5. Left, right, central (or Batch) ---------------------------
+        match self.current_view {
+            AppView::SingleDocument => {
+                self.draw_left_panel(ctx);
+                self.draw_right_panel(ctx);
+                self.draw_central_panel(ctx);
+            }
+            AppView::BatchProcessing => {
+                self.draw_batch_panel(ctx);
+            }
+        }
 
         // ---- 6. Toasts ----------------------------------------------------
         self.draw_toasts(ctx);
@@ -1276,8 +1329,30 @@ impl MyApp {
 
                 ui.separator();
                 ui.heading("Bank Statement Fidelity Editor");
+                ui.separator();
+
+                ui.selectable_value(&mut self.current_view, AppView::SingleDocument, "Single Statement");
+                ui.selectable_value(&mut self.current_view, AppView::BatchProcessing, "Batch Processing");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if self.settings.advanced_mode {
+                        if ui.button("🌐 Remote Engine").clicked() {
+                            // Stub for remote engine connect
+                            if self.settings.remote_engine_url.is_empty() {
+                                self.settings.remote_engine_url = "https://engine.example.com".to_string();
+                                self.toast(ToastKind::Info, "Configured remote engine (stub)");
+                            } else {
+                                self.settings.remote_engine_url.clear();
+                                self.toast(ToastKind::Info, "Disconnected from remote engine");
+                            }
+                        }
+                    }
+                    if ui.checkbox(&mut self.settings.advanced_mode, "Advanced Mode").changed() {
+                        if let Err(e) = confy::store("bank-statement-modifier", None, &self.settings) {
+                            tracing::warn!("[gui] failed to persist advanced_mode: {}", e);
+                        }
+                    }
+                    ui.separator();
                     egui::ComboBox::from_id_source("theme_picker")
                         .selected_text(self.settings.theme.label())
                         .width(100.0)
@@ -1327,6 +1402,12 @@ impl MyApp {
                 ui.add_space(2.0);
             }
             ui.horizontal(|ui| {
+                if self.settings.remote_engine_url.is_empty() {
+                    ui.colored_label(egui::Color32::LIGHT_GREEN, "🟢 Local");
+                } else {
+                    ui.colored_label(egui::Color32::LIGHT_BLUE, format!("🔵 Remote ({})", self.settings.remote_engine_url));
+                }
+                ui.separator();
                 ui.small(&self.status);
                 ui.separator();
                 if self.total_pages > 0 {
@@ -1382,7 +1463,9 @@ impl MyApp {
                     ui.small(format!("Size: {:.1}", block.size));
                     ui.add_enabled(false, egui::TextEdit::multiline(&mut block.text.clone()).desired_rows(2));
                     ui.text_edit_multiline(&mut self.new_text);
-                    ui.checkbox(&mut self.settings.deep_font_replication, "Deep Font Replication (AI)");
+                    if self.settings.advanced_mode {
+                        ui.checkbox(&mut self.settings.deep_font_replication, "Deep Font Replication (AI)");
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("🎯 Apply Edit")
                             .on_hover_text("Replace the selected text directly (single-step path)")
@@ -1598,7 +1681,9 @@ impl MyApp {
                     });
 
                     ui.collapsing("🔍 Verification", |ui| {
-                        ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
+                        if self.settings.advanced_mode {
+                            ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
+                        }
                         if ui.button("Run Full Audit")
                             .on_hover_text("Render original vs edited at high DPI, perceptual + math diff")
                             .clicked()
@@ -2609,6 +2694,76 @@ impl MyApp {
                         );
                     }
                 }
+            }
+        });
+    }
+
+    fn draw_batch_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Batch Processing Dashboard");
+            ui.add_space(10.0);
+            
+            ui.horizontal(|ui| {
+                if ui.button("📂 Select Directory").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        self.batch_folder_path = Some(path.clone());
+                        self.batch_files.clear();
+                        if let Ok(entries) = std::fs::read_dir(&path) {
+                            for entry in entries.filter_map(|e| e.ok()) {
+                                let p = entry.path();
+                                if p.is_file() && p.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()) == Some("pdf".to_string()) {
+                                    self.batch_files.push(p);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(path) = &self.batch_folder_path {
+                    ui.label(format!("Selected: {}", path.display()));
+                } else {
+                    ui.label("Drag and drop a folder of statements here, or click to select a directory.");
+                }
+            });
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(10.0);
+            
+            ui.horizontal(|ui| {
+                let has_files = !self.batch_files.is_empty();
+                if ui.add_enabled(has_files, egui::Button::new("Extract All to JSON")).clicked() {
+                    for file in &self.batch_files {
+                        let _ = self.job_tx.send(Job::ExtractTransactions { path: file.clone() });
+                        self.in_flight += 1;
+                    }
+                    self.toast(ToastKind::Info, format!("Queued {} extraction jobs", self.batch_files.len()));
+                }
+                if ui.add_enabled(has_files, egui::Button::new("Auto-Balance All")).clicked() {
+                    for file in &self.batch_files {
+                        let output = file.with_file_name(format!("{}_balanced.pdf", file.file_stem().unwrap_or_default().to_string_lossy()));
+                        let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+                            input: file.clone(),
+                            output,
+                            auto_apply: true,
+                        });
+                        self.in_flight += 1;
+                    }
+                    self.toast(ToastKind::Info, format!("Queued {} balancing jobs", self.batch_files.len()));
+                }
+                if ui.add_enabled(has_files, egui::Button::new("Verify All against Originals")).clicked() {
+                    self.toast(ToastKind::Info, "Batch Verify requires paired _original and _edited files, not yet implemented.");
+                }
+            });
+
+            ui.add_space(10.0);
+            
+            if !self.batch_files.is_empty() {
+                ui.heading(format!("{} PDF(s) found", self.batch_files.len()));
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for file in &self.batch_files {
+                        ui.label(file.file_name().unwrap_or_default().to_string_lossy());
+                    }
+                });
             }
         });
     }

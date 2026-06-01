@@ -62,6 +62,13 @@ Start the graphical interface:
 3. **Edit & Apply:** Modify the text in the "Modified" box and click "🎯 Apply Change". The editor ensures 100% visual fidelity.
 4. **Smart Balancing:** Click "⚖️ Balance Statement" to run the document-wide imbalance analysis. Review and apply the AI-proposed cascading adjustments.
 5. **Verify:** Check the "🔍 Verify Edits" tool to confirm the integrity of the math and visual layout against the original document.
+6. **Advanced Mode:** If you need access to deeper forensic tools (e.g. Deep Font Replication or pdfRest validation), toggle "Advanced Mode" in the top menu bar to reveal these settings.
+
+## 7. Batch Processing
+
+1. Switch to the **Batch Processing** tab in the top menu bar.
+2. Drag and drop a folder containing multiple PDFs onto the dashboard.
+3. Click **Extract All to JSON** or **Auto-Balance All** to process all statements concurrently in the background.
 
 ### Using the CLI
 

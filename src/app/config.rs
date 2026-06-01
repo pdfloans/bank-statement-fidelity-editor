@@ -98,6 +98,19 @@ impl DocumentAiConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionMode {
+    Local,
+    Remote { url: String },
+}
+
+impl Default for ConnectionMode {
+    fn default() -> Self {
+        Self::Local
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gemini_api_key: Option<String>,
@@ -115,6 +128,8 @@ pub struct AppConfig {
     pub gemini_auth_mode: GeminiAuthMode,
     /// Whether we're in development mode (relaxed security requirements)
     pub is_dev_mode: bool,
+    /// The connection mode (Local vs Remote Engine)
+    pub connection_mode: ConnectionMode,
 }
 
 impl Default for AppConfig {
@@ -131,6 +146,7 @@ impl Default for AppConfig {
             webhook_url: None,
             gemini_auth_mode: GeminiAuthMode::ApiKey,
             is_dev_mode: cfg!(debug_assertions),
+            connection_mode: ConnectionMode::Local,
         }
     }
 }
@@ -251,6 +267,7 @@ impl AppConfig {
             webhook_url,
             gemini_auth_mode,
             is_dev_mode,
+            connection_mode: ConnectionMode::Local,
         })
     }
 

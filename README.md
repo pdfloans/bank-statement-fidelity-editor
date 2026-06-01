@@ -6,6 +6,8 @@ A high-fidelity PDF text editor focused on bank statements: replace text and num
 
 - **Targeted edits.** Click any text on a rendered page to select the exact bounding box; type a new value; the engine performs a redaction-based replacement that re-uses the original glyph metrics.
 - **Multi-stage workflow.** Parse → Edit → Balance Preview → Confirm & Render → Visual Validate → Final Math Check, with autosaved drafts so you can pause and resume mid-edit. See [Workflow](#workflow) below.
+- **Batch Processing Dashboard.** Drag and drop a folder of PDFs to queue up asynchronous extraction or smart auto-balancing across dozens of statements at once.
+- **Progressive Disclosure.** Complex verification settings and forensic modes are tucked behind an "Advanced Mode" toggle, keeping the default UI clean and focused.
 - **Smart Balance Engine.** Runs Document AI over the full PDF, detects mathematical imbalance, and asks Gemini for the minimum cascading adjustment plan. Only the *last* running balance is auto-corrected by default; everything else stays untouched.
 - **Hybrid extraction.** Document AI for semantics, plus geometry providers (per-bank YAML templates, PyMuPDF heuristics, optional Tesseract). Sources are merged with deterministic tiebreak rules.
 - **Verification.** Renders original vs. edited at 300 DPI, computes per-pixel delta + perceptual hash; falls back from pdfRest (Adobe-tier) to local pdfium-render automatically if no key is configured.
@@ -81,6 +83,9 @@ dual-core-pdf-pipeline export-history --from-log audit/2026.log -o history.json
 
 ## Workflow
 
+The application supports two primary flows: **Single Statement** and **Batch Processing**.
+
+### Single Statement Flow
 The right-hand "Workflow" panel walks the user through six stages. Each
 stage is gated by an explicit button click — the app never silently
 moves to the next step.
@@ -107,6 +112,12 @@ moves to the next step.
 6. **Final math check.** Re-parses the rendered PDF through Document AI
    and verifies all running balances are still consistent.
 
+### Batch Processing Flow
+The **Batch Processing** tab allows for bulk operations across multiple PDFs:
+1. **Load Folder:** Drag and drop a folder containing multiple bank statements.
+2. **Bulk Extraction:** Click "Extract All to JSON" to concurrently extract transactional data from all files.
+3. **Bulk Auto-Balance:** Click "Auto-Balance All" to invoke the Smart Balance Engine on all files. This will automatically approve the AI's proposed cascade and output `_balanced.pdf` files next to the originals.
+
 ### Drafts
 
 The whole session (parse, queued edits, stage) autosaves to
@@ -128,6 +139,9 @@ security/     Software root-of-trust
 ```
 
 All long-running work goes through the `Runtime` job loop. The GUI never blocks. Python work is funnelled into a single dedicated actor thread to avoid PyO3 cross-thread issues. Panics inside the actor are caught and surfaced as structured errors instead of crashing the process.
+
+### Remote Engine Mode
+The GUI can be configured to offload processing to a remote engine via the `ConnectionMode`. When toggled in Advanced Mode, the GUI acts as a thin client (🟢 Local vs 🔵 Remote status indicator), dispatching `Runtime` jobs to a hosted version of the backend (e.g. on Railway) over HTTP.
 
 ## Forensics & watermarking caveats
 
