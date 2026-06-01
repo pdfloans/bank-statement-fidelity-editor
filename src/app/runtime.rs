@@ -231,6 +231,9 @@ pub enum Job {
     /// application restart.
     ReloadConfig,
 
+    /// Trigger an active validation check on the AI credentials
+    ValidateCredentials,
+
     /// Run the Smart Balance Engine and, when `auto_apply` is true, apply every
     /// proposed adjustment to the PDF in one shot (the "Adjust entire bank
     /// statement accordingly and apply all edits" button). When `auto_apply`
@@ -270,6 +273,10 @@ pub enum Job {
 #[derive(Debug)]
 pub enum JobResult {
     Pong,
+    ValidationStatus {
+        gemini_ok: Result<(), String>,
+        docai_ok: Result<(), String>,
+    },
     DocumentLoaded {
         layout_json: String,
         total_pages: usize,
@@ -1308,6 +1315,37 @@ impl Runtime {
                                 });
                             }
                         }
+                    }
+                    Job::ValidateCredentials => {
+                        let res_tx = result_tx_clone.clone();
+                        let cfg = {
+                            if let Ok(g) = config_holder.lock() {
+                                g.clone()
+                            } else {
+                                Arc::new(crate::app::config::AppConfig::default())
+                            }
+                        };
+                        
+                        tokio::spawn(async move {
+                            let _ = res_tx.send(JobResult::Progress { label: "Validating AI Credentials...".into(), fraction: 0.1 });
+                            
+                            let gemini_res = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                Ok(client) => client.ping().await.map_err(|e| e.to_string()),
+                                Err(e) => Err(e.to_string()),
+                            };
+                            
+                            let docai_res = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(client) => client.ping().await.map_err(|e| e.to_string()),
+                                Err(e) => Err(e.to_string()),
+                            };
+                            
+                            let _ = res_tx.send(JobResult::ValidationStatus {
+                                gemini_ok: gemini_res,
+                                docai_ok: docai_res,
+                            });
+                            
+                            let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
+                        });
                     }
                     Job::BalanceAndApplyAll { input, output, auto_apply } => {
                         let res_tx = result_tx_clone.clone();

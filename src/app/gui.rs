@@ -386,6 +386,8 @@ pub struct MyApp {
     /// `Job::ReloadConfig` (document_ai_configured, gemini_configured,
     /// pro_editing_available). `None` until the first reload this session.
     config_status: Option<(bool, bool, bool)>,
+    /// Result of the last `Job::ValidateCredentials` run. (Gemini, DocAI).
+    credential_validation_status: Option<(Result<(), String>, Result<(), String>)>,
     /// True once the buffers have been seeded from the environment.
     #[allow(dead_code)]
     api_keys_seeded: bool,
@@ -478,6 +480,7 @@ impl MyApp {
                 "vertex" | "vertex_ai" | "vertexai"
             ),
             config_status: None,
+            credential_validation_status: None,
             api_keys_seeded: true,
         }
     }
@@ -930,6 +933,9 @@ impl eframe::App for MyApp {
 impl MyApp {
     fn handle_job_result(&mut self, ctx: &egui::Context, res: JobResult) {
         match res {
+            JobResult::ValidationStatus { gemini_ok, docai_ok } => {
+                self.credential_validation_status = Some((gemini_ok, docai_ok));
+            }
             JobResult::DocumentLoaded { total_pages, .. } => {
                 self.total_pages = total_pages;
                 self.current_page = 0;
@@ -1915,6 +1921,16 @@ impl MyApp {
                     );
                     self.toast(ToastKind::Info, "Reloaded keys from environment");
                 }
+                if ui
+                    .button("🧪 Test Connections")
+                    .on_hover_text("Pings the Gemini and Document AI APIs to ensure your credentials are valid and authorized")
+                    .clicked()
+                {
+                    // Eagerly save any unsaved edits to the environment first, then run validation
+                    self.save_credentials();
+                    self.credential_validation_status = None;
+                    let _ = self.job_tx.send(Job::ValidateCredentials);
+                }
             });
 
             // Live credential status reported by the runtime after the last
@@ -1930,6 +1946,21 @@ impl MyApp {
                     ui.separator();
                     ui.small(format!("Pro editing {}", mark(pro)));
                 });
+            }
+            
+            // Render the results of the active `Test Connections` job
+            if let Some((gemini_res, docai_res)) = &self.credential_validation_status {
+                ui.add_space(4.0);
+                ui.separator();
+                ui.label("Validation Results:");
+                match docai_res {
+                    Ok(_) => ui.label(egui::RichText::new("✓ Document AI: OK").color(egui::Color32::LIGHT_GREEN)),
+                    Err(e) => ui.label(egui::RichText::new(format!("✗ Document AI: {}", e)).color(egui::Color32::LIGHT_RED)),
+                };
+                match gemini_res {
+                    Ok(_) => ui.label(egui::RichText::new("✓ Gemini: OK").color(egui::Color32::LIGHT_GREEN)),
+                    Err(e) => ui.label(egui::RichText::new(format!("✗ Gemini: {}", e)).color(egui::Color32::LIGHT_RED)),
+                };
             }
             if self.edit_gemini_use_vertex {
                 ui.small(
