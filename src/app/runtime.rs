@@ -1,8 +1,11 @@
 use crate::ai::pyo3_bridge::PyEngine;
 use crate::app::audit::AuditLog;
 use crate::engine::history::{ChangeHistory, ChangeRecord};
+use crate::engine::segments::{SegmentMap, SegmentManager, GlobalEdit};
+use crate::pdf::ReplaceOutcome;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use uuid::Uuid;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -159,6 +162,7 @@ pub enum Job {
     Python(PythonJob, oneshot::Sender<PythonJobResult>),
     LoadDocument {
         path: PathBuf,
+        three_page_mode: bool,
     },
     /// Stage 8.5: standalone font analysis trigger. Useful from a "Re-analyze"
     /// menu in the GUI; LoadDocument also fires this automatically.
@@ -499,6 +503,9 @@ impl Runtime {
         let config_for_tokio = config.clone();
 
         tokio_rt.spawn(async move {
+            let mut segment_map: Option<SegmentMap> = None;
+            let mut segment_manager: Option<SegmentManager> = None;
+
             while let Some(job) = tokio_job_rx.recv().await {
                 match job {
                     Job::Ping => {
@@ -532,32 +539,57 @@ impl Runtime {
                             }
                         }
                     }
-                    Job::LoadDocument { path } => {
+                    Job::LoadDocument { path, three_page_mode } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Analyzing layout".to_string(), fraction: 0.1 });
-                        let eng = engine_for_tokio.clone();
-                        let res_tx = result_tx_clone.clone();
-                        let py_tx_for_fonts = python_tx_clone.clone();
-                        let path_for_fonts = path.clone();
-                        tokio::task::spawn_blocking(move || {
-                            match eng.analyze_layout(&path) {
-                                Ok(layout) => {
-                                    let json = serde_json::to_string(&layout.pages).unwrap_or_default();
-                                    let _ = res_tx.send(JobResult::DocumentLoaded { layout_json: json, total_pages: layout.total_pages });
-                                    let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
+                        
+                        // Cleanup previous segments if any
+                        if let Some(mgr) = segment_manager.take() {
+                            mgr.cleanup();
+                        }
+                        segment_map = None;
+
+                        if three_page_mode {
+                            match SegmentManager::new() {
+                                Ok(mgr) => {
+                                    match mgr.prepare(&path, 3) {
+                                        Ok(map) => {
+                                            segment_map = Some(map.clone());
+                                            let total_pages = map.total_pages;
+                                            segment_manager = Some(mgr);
+                                            let _ = result_tx_clone.send(JobResult::DocumentLoaded { layout_json: "[]".into(), total_pages });
+                                            let _ = result_tx_clone.send(JobResult::Progress { label: "Done (3-page mode)".into(), fraction: 1.0 });
+                                        }
+                                        Err(e) => {
+                                            let _ = result_tx_clone.send(JobResult::Error { job_label: "load_document_split".into(), message: e.to_string() });
+                                        }
+                                    }
                                 }
                                 Err(e) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "load_document".into(), message: e.to_string() });
+                                    let _ = result_tx_clone.send(JobResult::Error { job_label: "load_document_tempdir".into(), message: e.to_string() });
                                 }
                             }
-                        });
+                        } else {
+                            let eng = engine_for_tokio.clone();
+                            let res_tx = result_tx_clone.clone();
+                            let path_for_blocking = path.clone();
+                            tokio::task::spawn_blocking(move || {
+                                match eng.analyze_layout(&path_for_blocking) {
+                                    Ok(layout) => {
+                                        let json = serde_json::to_string(&layout.pages).unwrap_or_default();
+                                        let _ = res_tx.send(JobResult::DocumentLoaded { layout_json: json, total_pages: layout.total_pages });
+                                        let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "load_document".into(), message: e.to_string() });
+                                    }
+                                }
+                            });
+                        }
+                        
                         // Stage 8.5: kick off the font analysis in parallel.
-                        // The result lands in JobResult::FontAnalysisReady when ready.
-                        // Stage 13 / Item #7: cache by SHA-256 of the PDF
-                        // contents under `audit/font_analysis_cache/`. The
-                        // cache is invalidated when the file changes; if a
-                        // hit is found, we surface it immediately and skip
-                        // the (expensive) PyMuPDF traversal.
-                        let res_tx2 = result_tx_clone.clone();
+                        let res_tx_fonts = result_tx_clone.clone();
+                        let py_tx_for_fonts = python_tx_clone.clone();
+                        let path_for_fonts = path.clone();
                         tokio::spawn(async move {
                             // Compute the hash on a blocking task so we
                             // don't stall the tokio runtime.
@@ -577,7 +609,7 @@ impl Runtime {
                                 if let Ok(raw) = std::fs::read_to_string(&cache_path) {
                                     if let Ok(analysis) = crate::engine::font_analysis::FontAnalysis::from_json(&raw) {
                                         tracing::info!("[font-analysis] cache hit for {}", hash);
-                                        let _ = res_tx2.send(JobResult::FontAnalysisReady(analysis));
+                                        let _ = res_tx_fonts.send(JobResult::FontAnalysisReady(analysis));
                                         return;
                                     }
                                 }
@@ -604,7 +636,7 @@ impl Runtime {
                                                 let cache_path = cache_dir.join(format!("{hash}.json"));
                                                 let _ = std::fs::write(&cache_path, &json);
                                             }
-                                            let _ = res_tx2.send(JobResult::FontAnalysisReady(analysis));
+                                            let _ = res_tx_fonts.send(JobResult::FontAnalysisReady(analysis));
                                         }
                                         Err(e) => {
                                             tracing::warn!("[font-analysis] decode failed: {e}");
@@ -664,8 +696,15 @@ impl Runtime {
                     Job::RenderPage { path, page, dpi, tag } => {
                         let res_tx = result_tx_clone.clone();
                         let eng = engine_for_tokio.clone();
+                        
+                        let (actual_path, actual_page) = if let Some(map) = &segment_map {
+                            map.resolve(page).map(|(idx, p)| (map.segments[idx].path.clone(), p)).unwrap_or((path, page))
+                        } else {
+                            (path, page)
+                        };
+
                         tokio::task::spawn_blocking(move || {
-                            match eng.render_page(&path, page, dpi) {
+                            match eng.render_page(&actual_path, actual_page, dpi) {
                                 Ok(rendered) => {
                                     let _ = res_tx.send(JobResult::PageRendered { 
                                         png_bytes: rendered.png_bytes, page, dpi, tag, width_pts: rendered.width_pts, height_pts: rendered.height_pts 
@@ -675,7 +714,7 @@ impl Runtime {
                                     let _ = res_tx.send(JobResult::Error { job_label: "render_page".into(), message: e.to_string() });
                                 }
                             }
-                        }).await.unwrap();
+                        });
                     }
                     Job::ApplyChange { input, output, page, bbox, new_text, old_text, description, deep_font_replication } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Applying change".to_string(), fraction: 0.1 });
@@ -686,6 +725,9 @@ impl Runtime {
                         let py_tx = python_tx_clone.clone();
                         let res_tx = result_tx_clone.clone();
                         let cfg_clone = config_for_tokio.clone();
+                        
+                        let map_opt = segment_map.clone();
+                        let mgr_opt = segment_manager.as_ref().map(|m| m.temp_path().to_path_buf());
 
                         tokio::task::spawn(async move {
                             // Optional: deep font replication via Python actor.
@@ -693,8 +735,16 @@ impl Runtime {
                             if deep_font_replication {
                                 let _ = res_tx.send(JobResult::Progress { label: "Deep Replicating Font...".to_string(), fraction: 0.2 });
                                 let (tx, rx) = oneshot::channel();
+                                
+                                // In three-page mode, we use the segment path for font replication analysis
+                                let analysis_path = if let Some(ref map) = map_opt {
+                                    map.resolve(page).map(|(idx, _)| map.segments[idx].path.clone()).unwrap_or(input.clone())
+                                } else {
+                                    input.clone()
+                                };
+
                                 let _ = py_tx.send((PythonJob::DeepFontReplication {
-                                    pdf_path: input.to_string_lossy().to_string(),
+                                    pdf_path: analysis_path.to_string_lossy().to_string(),
                                     font_name: "Helvetica".to_string(),
                                     output_dir: "output/temp_fonts".to_string(),
                                 }, tx));
@@ -712,15 +762,45 @@ impl Runtime {
                             let input_for_blocking = input.clone();
                             let output_for_blocking = output.clone();
                             let new_text_for_blocking = new_text.clone();
+                            
                             let outcome = tokio::task::spawn_blocking(move || {
-                                eng.apply_change(
-                                    &input_for_blocking,
-                                    &output_for_blocking,
-                                    page,
-                                    bbox,
-                                    &new_text_for_blocking,
-                                    font_path.as_deref(),
-                                )
+                                if let (Some(map), Some(temp_dir)) = (map_opt, mgr_opt) {
+                                    let (seg_idx, local_page) = map.resolve(page)
+                                        .ok_or_else(|| crate::pdf::EngineError::ApplyFailed(format!("Global page {} not found in segment map", page)))?;
+                                    
+                                    let seg_path = &map.segments[seg_idx].path;
+                                    let temp_seg_out = temp_dir.join(format!("seg_{}_edited_{}.pdf", seg_idx, Uuid::new_v4()));
+                                    
+                                    // 1. Apply to segment
+                                    eng.apply_change(
+                                        seg_path,
+                                        &temp_seg_out,
+                                        local_page,
+                                        bbox,
+                                        &new_text_for_blocking,
+                                        font_path.as_deref(),
+                                    )?;
+                                    
+                                    // 2. Overwrite segment file
+                                    std::fs::rename(&temp_seg_out, seg_path)
+                                        .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to update segment file: {}", e)))?;
+                                    
+                                    // 3. Merge all segments to final output
+                                    let ordered_paths = map.ordered_merge_paths();
+                                    crate::engine::pdf_split_merge::merge_pdfs(&ordered_paths, &output_for_blocking)
+                                        .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to merge segments: {}", e)))?;
+                                    
+                                    Ok(ReplaceOutcome { success: true, font_used: "Helvetica".into(), overflow: false })
+                                } else {
+                                    eng.apply_change(
+                                        &input_for_blocking,
+                                        &output_for_blocking,
+                                        page,
+                                        bbox,
+                                        &new_text_for_blocking,
+                                        font_path.as_deref(),
+                                    )
+                                }
                             })
                             .await
                             .unwrap_or_else(|e| Err(crate::pdf::EngineError::ApplyFailed(format!("blocking task panicked: {}", e))));
@@ -1339,6 +1419,9 @@ impl Runtime {
                         let py_tx = python_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
                         let audit_log_clone = audit_log.clone();
+                        let map_opt = segment_map.clone();
+                        let mgr_opt = segment_manager.as_ref().map(|m| m.temp_path().to_path_buf());
+                        
                         tokio::spawn(async move {
                             let mut attempt: u32 = 1;
                             let mut visual_attempts: u32 = 0;
@@ -1389,22 +1472,28 @@ impl Runtime {
                                     }
                                 }
 
-                                // Pre-flight: row-drift guard for every edit. We do
-                                // it serially against the *original* input since
-                                // none of the edits have landed yet.
+                                // Row-drift guard (pre-flight)
                                 {
                                     let eng_for_guard = eng.clone();
                                     let input_for_guard = input.clone();
                                     let edits_for_guard = edits.clone();
+                                    let map_for_guard = map_opt.clone();
+                                    
                                     let drift_check = tokio::task::spawn_blocking(move || -> Result<(), crate::pdf::EngineError> {
                                         for e in &edits_for_guard {
+                                            let (check_path, check_page) = if let Some(ref map) = map_for_guard {
+                                                map.resolve(e.page).map(|(idx, p)| (map.segments[idx].path.clone(), p)).unwrap_or((input_for_guard.clone(), e.page))
+                                            } else {
+                                                (input_for_guard.clone(), e.page)
+                                            };
+
                                             let blocks = eng_for_guard
-                                                .get_text_blocks(&input_for_guard, e.page)
+                                                .get_text_blocks(&check_path, check_page)
                                                 .unwrap_or_default();
                                             if blocks.is_empty() {
                                                 continue;
                                             }
-                                            let best = crate::pdf::dominant_span_overlap(&blocks, e.page, e.bbox)
+                                            let best = crate::pdf::dominant_span_overlap(&blocks, check_page, e.bbox)
                                                 .map(|(_, f)| f)
                                                 .unwrap_or(0.0);
                                             if best < 0.5 {
@@ -1514,8 +1603,108 @@ impl Runtime {
                                 let cached_output = std::path::PathBuf::from("audit")
                                     .join("apply_cache")
                                     .join(format!("{edit_hash}.pdf"));
+                                
                                 let mut apply_result: Result<PythonJobResult, tokio::sync::oneshot::error::RecvError>;
-                                if cached_output.exists() {
+
+                                if let Some(ref map) = map_opt {
+                                    // 3-page mode: segmented batch apply. 
+                                    // Caching is bypassed in this mode for simplicity.
+                                    let mut final_paths = Vec::new();
+                                    let mut ok = true;
+                                    let mut error_msg = String::new();
+
+                                    let global_edits: Vec<GlobalEdit> = edits.iter().map(|e| GlobalEdit {
+                                        page: e.page,
+                                        bbox: e.bbox,
+                                        old_text: e.old_text.clone(),
+                                        new_text: e.new_text.clone(),
+                                        description: format!("Workflow Edit ({:?})", e.field),
+                                        deep_font_replication: false,
+                                    }).collect();
+
+                                    // Out-of-range edits abort the apply (Req 8.5) and leave
+                                    // all segment files unchanged.
+                                    let grouped = match map.group_edits_by_segment(&global_edits) {
+                                        Ok(g) => g,
+                                        Err(e) => {
+                                            ok = false;
+                                            error_msg = e.to_string();
+                                            std::collections::BTreeMap::new()
+                                        }
+                                    };
+
+                                    for (i, seg) in map.segments.iter().enumerate() {
+                                        if !ok {
+                                            break;
+                                        }
+                                        let segment_edits = grouped.get(&i).cloned().unwrap_or_default();
+                                        if !segment_edits.is_empty() {
+                                            let temp_seg_out = mgr_opt.as_ref().unwrap().join(format!("seg_{}_batch_{}_{}.pdf", i, workflow_stamp, Uuid::new_v4()));
+                                            
+                                            use crate::engine::number_format::format_like;
+                                            use rust_decimal::Decimal;
+                                            use std::str::FromStr;
+                                            
+                                            let edits_json = serde_json::to_string(&segment_edits.iter().map(|e| {
+                                                let formatted = if e.old_text.chars().any(|c| c == '$' || c == ',' || c == '.') {
+                                                    let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                                                    Decimal::from_str(&cleaned).map(|v| format_like(v, &e.old_text)).unwrap_or_else(|_| e.new_text.clone())
+                                                } else {
+                                                    e.new_text.clone()
+                                                };
+                                                serde_json::json!({
+                                                    "page": e.local_page,
+                                                    "rect": e.bbox,
+                                                    "new_text": formatted,
+                                                })
+                                            }).collect::<Vec<_>>()).unwrap_or_default();
+
+                                            let (tx, rx) = oneshot::channel();
+                                            let _ = py_tx.send((PythonJob::ApplyManyEdits {
+                                                pdf_path: seg.path.to_string_lossy().to_string(),
+                                                output_path: temp_seg_out.to_string_lossy().to_string(),
+                                                edits_json,
+                                                font_path: font_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+                                            }, tx));
+
+                                            match rx.await {
+                                                Ok(PythonJobResult::Json(json)) => {
+                                                    let res: serde_json::Value = serde_json::from_str(&json).unwrap_or_default();
+                                                    if res["success"].as_bool().unwrap_or(false) {
+                                                        let _ = std::fs::rename(&temp_seg_out, &seg.path);
+                                                        final_paths.push(seg.path.clone());
+                                                    } else {
+                                                        ok = false;
+                                                        error_msg = res["error"].as_str().unwrap_or("Segment apply failed").to_string();
+                                                        break;
+                                                    }
+                                                }
+                                                Ok(PythonJobResult::Error(e)) => {
+                                                    ok = false;
+                                                    error_msg = e;
+                                                    break;
+                                                }
+                                                _ => {
+                                                    ok = false;
+                                                    error_msg = "Python actor returned unexpected result".into();
+                                                    break;
+                                                }
+                                            }
+                                        } else {
+                                            final_paths.push(seg.path.clone());
+                                        }
+                                    }
+
+                                    if ok {
+                                        if let Err(e) = crate::engine::pdf_split_merge::merge_pdfs(&final_paths, &scratch) {
+                                            apply_result = Ok(PythonJobResult::Error(format!("Merge failed: {}", e)));
+                                        } else {
+                                            apply_result = Ok(PythonJobResult::Json("{\"success\":true}".into()));
+                                        }
+                                    } else {
+                                        apply_result = Ok(PythonJobResult::Error(error_msg));
+                                    }
+                                } else if cached_output.exists() {
                                     tracing::info!(
                                         "[workflow] idempotent re-apply: reusing cached output {}",
                                         cached_output.display()
@@ -1523,24 +1712,23 @@ impl Runtime {
                                     let _ = std::fs::create_dir_all(scratch.parent().unwrap_or_else(|| std::path::Path::new(".")));
                                     let _ = std::fs::copy(&cached_output, &scratch);
                                     apply_result = Ok(PythonJobResult::Json("{\"success\":true,\"cached\":true}".into()));
-                                    // Skip the apply call entirely.
                                 } else {
-                                let (tx, rx) = oneshot::channel();
-                                let _ = py_tx.send((PythonJob::ApplyManyEdits {
-                                    pdf_path: input.to_string_lossy().to_string(),
-                                    output_path: scratch.to_string_lossy().to_string(),
-                                    edits_json: edits_json.clone(),
-                                    font_path: font_path.as_ref().map(|p| p.to_string_lossy().to_string()),
-                                }, tx));
+                                    let (tx, rx) = oneshot::channel();
+                                    let _ = py_tx.send((PythonJob::ApplyManyEdits {
+                                        pdf_path: input.to_string_lossy().to_string(),
+                                        output_path: scratch.to_string_lossy().to_string(),
+                                        edits_json: edits_json.clone(),
+                                        font_path: font_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+                                    }, tx));
 
-                                apply_result = rx.await;
-                                // Cache the successful output for next time.
-                                if let Ok(PythonJobResult::Json(_)) = &apply_result {
-                                    if let Some(parent) = cached_output.parent() {
-                                        let _ = std::fs::create_dir_all(parent);
+                                    apply_result = rx.await;
+                                    // Cache the successful output for next time.
+                                    if let Ok(PythonJobResult::Json(_)) = &apply_result {
+                                        if let Some(parent) = cached_output.parent() {
+                                            let _ = std::fs::create_dir_all(parent);
+                                        }
+                                        let _ = std::fs::copy(&scratch, &cached_output);
                                     }
-                                    let _ = std::fs::copy(&scratch, &cached_output);
-                                }
                                 }
 
                                 // Stage 11: if the apply hit FONT_COVERAGE_INSUFFICIENT,

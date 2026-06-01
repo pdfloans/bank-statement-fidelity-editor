@@ -28,6 +28,7 @@ base64 = "0.22"
 pdfium-render = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
+uuid = { version = "1.0", features = ["v4"] }
 pyo3 = { version = "0.22", features = ["auto-initialize"] }
 image = "0.25"
 image_hasher = "3"
@@ -43,6 +44,7 @@ serde_yaml = "0.9.0"
 regex = "1.12.3"
 sha2 = "0.10"
 rfd = "0.14"
+tempfile = "3.27.0"
 egui_extras = { version = "0.28", features = ["svg", "image", "all_loaders"] }
 egui_plot = "0.28"
 confy = "0.6"
@@ -57,6 +59,7 @@ tempfile = "3.27.0"
 rsa = "0.9.10"
 rand_core = "0.6"
 rand = "0.8"
+proptest = "1.0"
 
 # PyMuPDF Pro is called via reliable Python subprocess (trial key embedded)
 

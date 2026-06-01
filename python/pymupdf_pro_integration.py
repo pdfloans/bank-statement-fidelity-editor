@@ -35,15 +35,107 @@ except Exception as _e:  # ImportError or any loader-level failure
 
 PYMUPDF_PRO_KEY = os.environ.get("PYMUPDF_PRO_KEY", "hFKt4hca03GCFLAFLEGz5Bd3")
 
+# ---------------------------------------------------------------------------
+# PyMuPDF Pro 3-page licensing limit (Requirement 5).
+#
+# A single PyMuPDF Pro unlock+operation may only legally touch a document of
+# <=3 pages. Subsystem A (the pure-Rust `lopdf` split engine) guarantees that
+# only <=3-page segments are ever fed to the Pro editor, so this guard is a
+# defensive safety net: it verifies the page count BEFORE the unlock and
+# refuses to unlock Pro for an over-limit document.
+#
+# `PRO_PAGE_LIMIT_TOKEN` is the STABLE prefix of the RuntimeError message
+# raised when the limit is exceeded. The Rust PyO3 bridge (and the runtime
+# above it) matches on this exact token to surface a structured error, so it
+# must not be changed without updating `src/ai/pyo3_bridge.rs`.
+# ---------------------------------------------------------------------------
+PRO_PAGE_LIMIT = 3
+PRO_PAGE_LIMIT_TOKEN = "PRO_PAGE_LIMIT_EXCEEDED"
 
-def _ensure_pro_unlocked():
+
+def _count_pages_without_pro_unlock(pdf_path):
+    """Return the page count of `pdf_path` WITHOUT unlocking PyMuPDF Pro.
+
+    Opening a document just to read its page count does not require a Pro
+    unlock for ordinary PDF inputs -- which is all the 3 Page Mode pipeline
+    ever feeds here: <=3-page PDF segments produced by Subsystem A (`lopdf`).
+    The document is opened, its `page_count` is read, and it is closed again,
+    so the file on disk is left completely unchanged (it is never saved).
+
+    Returns an int page count, or ``None`` when the count cannot be determined
+    cheaply without an unlock (for example a Pro-only container format that
+    will not open until Pro is unlocked, or an unreadable file). Callers treat
+    a ``None`` result as "cannot positively prove the limit is exceeded" and
+    fall through to the normal post-unlock path, which surfaces its own error
+    for a genuinely unreadable file. This keeps the guard from ever unlocking
+    Pro on a document we have positively determined to be >3 pages, while not
+    blocking legitimate <=3-page edits when the count is merely unknown.
+    """
+    doc = None
+    try:
+        doc = pymupdf.open(pdf_path)
+        return int(doc.page_count)
+    except Exception:
+        # Could not open/count without an unlock. We deliberately do NOT raise
+        # here: a None result means "limit not provable", and the caller lets
+        # the normal flow report any real failure. We never unlock as a result
+        # of this branch on a doc we KNOW is over-limit.
+        return None
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+
+def _assert_within_pro_page_limit(pdf_path):
+    """Verify `pdf_path` has <=3 pages BEFORE any Pro unlock is performed.
+
+    Enforces the PyMuPDF Pro 3-page licensing limit (Requirement 5.2/5.3):
+      * counts pages WITHOUT unlocking Pro (see
+        `_count_pages_without_pro_unlock`),
+      * raises ``RuntimeError("PRO_PAGE_LIMIT_EXCEEDED: ...")`` when the
+        document has more than ``PRO_PAGE_LIMIT`` pages -- and does so BEFORE
+        ``pymupdf.pro.unlock`` is ever called, so the unlock never happens for
+        an over-limit document, and
+      * leaves the document unchanged (it is only opened read-only to count).
+
+    A ``None`` page count (the count could not be determined without an
+    unlock) does NOT raise; the caller proceeds and the normal path surfaces
+    any genuine error. ``pdf_path`` may be ``None`` (callers that have no path
+    to check), in which case the guard is a no-op.
+    """
+    if not pdf_path:
+        return
+    page_count = _count_pages_without_pro_unlock(pdf_path)
+    if page_count is not None and page_count > PRO_PAGE_LIMIT:
+        raise RuntimeError(
+            f"{PRO_PAGE_LIMIT_TOKEN}: document at '{pdf_path}' has {page_count} "
+            f"pages, which exceeds the PyMuPDF Pro {PRO_PAGE_LIMIT}-page limit. "
+            f"The Pro unlock was not performed and the document was left "
+            f"unchanged."
+        )
+
+
+def _ensure_pro_unlocked(pdf_path=None):
     """Unlock PyMuPDF Pro with the configured key.
 
     Centralizes the `pymupdf.pro.unlock(PYMUPDF_PRO_KEY)` call that was
     previously copy-pasted at the top of every function. If the Pro package
     is missing, raise a single, clear error naming the fix rather than an
     opaque AttributeError/ModuleNotFoundError deep in a call.
+
+    When `pdf_path` is supplied, the PyMuPDF Pro 3-page limit is enforced
+    FIRST via `_assert_within_pro_page_limit`: a document of more than 3 pages
+    raises a structured ``PRO_PAGE_LIMIT_EXCEEDED`` error before the unlock, so
+    Pro is never unlocked for an over-limit document (Requirement 5). Callers
+    that have no document path (or operate on the full original document
+    outside the per-segment Pro path) omit `pdf_path` and the guard is a no-op.
     """
+    # 3-page Pro limit guard runs BEFORE the availability check and BEFORE the
+    # unlock, so an over-limit document is rejected without ever unlocking Pro.
+    _assert_within_pro_page_limit(pdf_path)
     if not _PYMUPDF_PRO_AVAILABLE:
         raise RuntimeError(
             "PyMuPDF Pro is not installed (pip install pymupdfpro). "
@@ -54,7 +146,8 @@ def _ensure_pro_unlocked():
 
 def get_text_blocks(pdf_path: str, page_num: int = 0):
     """Return list of text spans with precise bounding boxes and font info"""
-    _ensure_pro_unlocked()
+    # Pro 3-page guard (Req 5): verify <=3 pages BEFORE unlocking Pro.
+    _ensure_pro_unlocked(pdf_path)
     doc = pymupdf.open(pdf_path)
     page = doc[page_num]
 
@@ -2061,7 +2154,8 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
     Returns a dict on success: {"success": True, "method": <"embedded"|"supplied"|"helv-fallback">, ...}
     Raises ValueError with a JSON-serializable detail on coverage failure.
     """
-    _ensure_pro_unlocked()
+    # Pro 3-page guard (Req 5): verify <=3 pages BEFORE unlocking Pro.
+    _ensure_pro_unlocked(pdf_path)
     doc = pymupdf.open(pdf_path)
     # Stage 14a / Item #16: hard-stop on encrypted / permission-restricted PDFs.
     ok, reason = _check_doc_editable(doc)
@@ -2361,11 +2455,20 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
             "fill_color": [r, g, b]   (optional, defaults to white)
         }
 
-    Returns: {"success": True, "applied": N, "warnings": [...], "method_per_edit": [...]}
+    Returns: {"success": True, "applied": N, "warnings": [...],
+              "method_per_edit": [...], "review_flags": [local_page, ...]}
+    `review_flags` is a sorted list of unique segment-local page numbers whose
+    edit could not be reproduced at full fidelity because embedded font
+    coverage was insufficient and the edit was completed via the standard-14
+    font-cascade fallback instead (Req 18.6). It is the recoverable case and is
+    distinct from the hard FONT_COVERAGE_INSUFFICIENT failure below.
     Raises ValueError(json) on FONT_COVERAGE_INSUFFICIENT for any edit; the
     error payload includes the index of the failing edit.
     """
-    _ensure_pro_unlocked()
+    # Pro 3-page guard (Req 5): verify the target segment has <=3 pages BEFORE
+    # unlocking Pro. An over-limit document raises PRO_PAGE_LIMIT_EXCEEDED and
+    # is left unchanged (no unlock, no save).
+    _ensure_pro_unlocked(pdf_path)
     doc = pymupdf.open(pdf_path)
     # Stage 14a / Item #16: hard-stop on encrypted / permission-restricted PDFs.
     ok, reason = _check_doc_editable(doc)
@@ -2380,6 +2483,10 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
 
     methods = []
     warnings = []
+    # Req 18.6: segment-local pages whose edit fell back to a standard-14
+    # builtin because embedded font coverage was insufficient. Deduped here
+    # and emitted as a sorted list so the bridge can map locals to globals.
+    review_flag_pages = set()
 
     # Process edits in order. For each edit we run the same coverage check as
     # `replace_text_in_rect` but against the (potentially) already-modified
@@ -2474,6 +2581,10 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
                 emit_fontname = _fallback_standard14(original_font_name)
                 measure_font = embedded.get("font_obj") if embedded else None
                 method = "embedded-fallback"
+                # Req 18.6: insufficient embedded coverage -> standard-14
+                # fallback completes the edit; flag this segment-local page
+                # for review.
+                review_flag_pages.add(page_num)
                 warnings.append(
                     f"edit {idx}: embedded reuse unavailable for "
                     f"{original_font_name!r}; builtin {emit_fontname!r} (review)"
@@ -2538,6 +2649,10 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
             print(f"[apply_many] emit failed for edit {idx}: {e}", file=sys.stderr)
             warnings.append(f"edit {idx}: primary emit failed, builtin fallback")
             fb = _fallback_standard14(original_font_name)
+            # Req 18.6: primary emit failed; the edit is completed via the
+            # standard-14 font-cascade fallback, so flag this segment-local
+            # page for review.
+            review_flag_pages.add(page_num)
             try:
                 page.insert_text(
                     point=pymupdf.Point(*placement["origin"]),
@@ -2562,6 +2677,7 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
         "applied": len(edits),
         "warnings": warnings,
         "method_per_edit": methods,
+        "review_flags": sorted(review_flag_pages),
     }
 
 
@@ -3012,7 +3128,8 @@ def dry_run_edit_preview(
     Returns a dict with the output path and the bbox-with-pad coordinates
     so the GUI can size the preview thumbnail.
     """
-    _ensure_pro_unlocked()
+    # Pro 3-page guard (Req 5): verify <=3 pages BEFORE unlocking Pro.
+    _ensure_pro_unlocked(pdf_path)
     doc = pymupdf.open(pdf_path)
     try:
         ok, reason = _check_doc_editable(doc)

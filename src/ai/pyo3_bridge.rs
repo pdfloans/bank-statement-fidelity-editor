@@ -75,6 +75,11 @@ impl PyEngine {
     }
 
     pub fn get_text_blocks(&self, pdf_path: &str, page_num: usize) -> Result<String, String> {
+        // The Python `get_text_blocks` enforces the PyMuPDF Pro <=3-page limit
+        // before unlocking Pro; if the segment is over-limit it raises
+        // RuntimeError("PRO_PAGE_LIMIT_EXCEEDED: ..."). `call_json` propagates
+        // that Python exception message verbatim as Err(String), so the stable
+        // PRO_PAGE_LIMIT_EXCEEDED token reaches the runtime unchanged.
         Python::with_gil(|py| self.call_json(py, "get_text_blocks", (pdf_path, page_num)))
     }
 
@@ -164,8 +169,10 @@ impl PyEngine {
                     let msg = e.to_string();
                     Err(if msg.contains("FONT_COVERAGE_INSUFFICIENT")
                         || msg.contains("PDF_NOT_EDITABLE")
+                        || msg.contains("PRO_PAGE_LIMIT_EXCEEDED")
                     {
-                        // Already structured; pass through unchanged.
+                        // Already structured (incl. the PyMuPDF Pro 3-page
+                        // limit token); pass through unchanged.
                         msg
                     } else {
                         format!("PyMuPDF replace failed: {msg}")
@@ -282,7 +289,12 @@ impl PyEngine {
                     let msg = e.to_string();
                     Err(if msg.contains("FONT_COVERAGE_INSUFFICIENT")
                         || msg.contains("PDF_NOT_EDITABLE")
+                        || msg.contains("PRO_PAGE_LIMIT_EXCEEDED")
                     {
+                        // Already structured (incl. the PyMuPDF Pro 3-page
+                        // limit token from `_assert_within_pro_page_limit`);
+                        // pass the message through unchanged so the runtime
+                        // can match on the stable error token.
                         msg
                     } else {
                         format!("PyMuPDF apply_many_edits failed: {msg}")

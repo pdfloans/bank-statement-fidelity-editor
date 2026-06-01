@@ -630,6 +630,7 @@ pub fn run(
         Commands::Extract { input, output } => {
             let _ = job_tx.send(Job::LoadDocument {
                 path: input.clone(),
+                three_page_mode: false,
             });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::DocumentLoaded { .. }) => {

@@ -1,6 +1,9 @@
 use std::env;
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
+use crate::app::env_spec::is_well_formed_pro_key;
 use crate::error::{ConfigError, ConfigResult};
 
 /// Minimum passphrase length for security (16 characters)
@@ -8,6 +11,52 @@ const MIN_PASSPHRASE_LENGTH: usize = 16;
 
 /// Minimum passphrase length for development mode
 const DEV_PASSPHRASE_MIN_LENGTH: usize = 8;
+
+/// Availability of PyMuPDF Pro per-segment editing/rendering (Subsystem B),
+/// derived solely from the `PYMUPDF_PRO_KEY` value the application read.
+///
+/// This status governs **only** the high-fidelity per-segment edit/render
+/// path. It deliberately has **no bearing** on `lopdf` split/merge
+/// (Subsystem A), which runs in every runtime environment regardless of key
+/// state (see [`AppConfig::pro_editing_available`]).
+///
+/// # Offline expiry caveat
+/// A Pro key's expiry can only be confirmed by PyMuPDF at unlock time. There
+/// is no offline expiry check, so a present, well-formed key is reported as
+/// [`ProKeyStatus::Available`]; absence or a malformed value is reported as
+/// [`ProKeyStatus::Unavailable`]. A well-formed-but-expired key cannot be
+/// distinguished here and will surface its failure later, at unlock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProKeyStatus {
+    /// A present, well-formed `PYMUPDF_PRO_KEY` was found; per-segment editing
+    /// is expected to work (subject to unlock-time expiry verification).
+    Available,
+    /// No key, or a malformed key, was found; per-segment editing is
+    /// unavailable. Splitting and merging remain available regardless.
+    Unavailable,
+}
+
+impl ProKeyStatus {
+    /// Returns `true` only when per-segment editing is available.
+    pub fn is_available(&self) -> bool {
+        matches!(self, ProKeyStatus::Available)
+    }
+
+    /// A human-readable, GUI/`serve`-friendly explanation of the status.
+    pub fn reason(&self) -> &'static str {
+        match self {
+            ProKeyStatus::Available => {
+                "Per-segment editing is available: a well-formed PYMUPDF_PRO_KEY was found \
+                 (expiry is verified by PyMuPDF at unlock time)."
+            }
+            ProKeyStatus::Unavailable => {
+                "Per-segment editing is unavailable: PYMUPDF_PRO_KEY is absent or malformed. \
+                 Splitting and merging remain available."
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct DocumentAiConfig {
@@ -195,6 +244,46 @@ impl AppConfig {
         errors
     }
 
+    /// Reports whether PyMuPDF Pro per-segment editing/rendering (Subsystem B)
+    /// is available, based on the `PYMUPDF_PRO_KEY` this config holds.
+    ///
+    /// A key is considered available when it is present and well-formed — a
+    /// 24-character value with the `hFKt` trial-key prefix (Requirement 21.4).
+    /// Because expiry cannot be verified offline, a well-formed key is treated
+    /// as available and any expiry failure surfaces later at PyMuPDF unlock
+    /// time. Absence or a malformed value yields [`ProKeyStatus::Unavailable`]
+    /// (Requirements 11.1, 11.3, 21.1, 21.2, 21.3, 21.6).
+    ///
+    /// # Subsystem isolation
+    /// This status governs **only** per-segment editing/rendering. The
+    /// `lopdf` split/merge engine (Subsystem A) does **not** consult this and
+    /// runs regardless of key state in every runtime environment — local GUI,
+    /// local `serve`, and the Railway `pdfsitch` deployment (Requirements
+    /// 11.2, 21.5). Nothing in this method or its callers should be used to
+    /// gate splitting or merging.
+    pub fn pro_key_status(&self) -> ProKeyStatus {
+        match self.pymupdf_pro_key.as_deref() {
+            Some(key) if is_well_formed_pro_key(key) => ProKeyStatus::Available,
+            _ => ProKeyStatus::Unavailable,
+        }
+    }
+
+    /// Convenience boolean form of [`AppConfig::pro_key_status`]: `true` when
+    /// per-segment editing is available.
+    ///
+    /// This MUST NOT be used to gate splitting or merging — those run
+    /// regardless of Pro-key state (Requirements 11.2, 21.5).
+    pub fn pro_editing_available(&self) -> bool {
+        self.pro_key_status().is_available()
+    }
+
+    /// A human-readable reason describing the current Pro-key availability,
+    /// suitable for GUI status display or a headless `serve` return value
+    /// (Requirements 11.3, 21.6).
+    pub fn pro_editing_status_reason(&self) -> &'static str {
+        self.pro_key_status().reason()
+    }
+
     /// Returns true if the application has valid AI configuration for balancing.
     pub fn has_ai_for_balancing(&self) -> bool {
         self.gemini_api_key.is_some()
@@ -257,5 +346,61 @@ mod tests {
     fn detect_adc_path_returns_string_or_none_without_panicking() {
         // Whatever the platform, this must not crash.
         let _ = detect_adc_path();
+    }
+
+    #[test]
+    fn pro_editing_unavailable_when_key_absent() {
+        let cfg = AppConfig {
+            pymupdf_pro_key: None,
+            ..AppConfig::default()
+        };
+        assert_eq!(cfg.pro_key_status(), ProKeyStatus::Unavailable);
+        assert!(!cfg.pro_editing_available());
+        assert!(cfg.pro_editing_status_reason().contains("unavailable"));
+    }
+
+    #[test]
+    fn pro_editing_available_with_well_formed_trial_key() {
+        let cfg = AppConfig {
+            pymupdf_pro_key: Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string()),
+            ..AppConfig::default()
+        };
+        assert_eq!(cfg.pro_key_status(), ProKeyStatus::Available);
+        assert!(cfg.pro_editing_available());
+    }
+
+    #[test]
+    fn pro_editing_unavailable_with_malformed_key() {
+        let cfg = AppConfig {
+            pymupdf_pro_key: Some("not-a-valid-key".to_string()),
+            ..AppConfig::default()
+        };
+        assert_eq!(cfg.pro_key_status(), ProKeyStatus::Unavailable);
+        assert!(!cfg.pro_editing_available());
+    }
+
+    #[test]
+    fn pro_key_status_does_not_affect_validate_for_split_merge() {
+        // A missing Pro key must never cause additional validation beyond the
+        // existing dev-mode-gated PYMUPDF_PRO_KEY check; split/merge are not
+        // gated by Pro-key state.
+        let cfg = AppConfig {
+            pymupdf_pro_key: None,
+            is_dev_mode: true,
+            ..AppConfig::default()
+        };
+        // In dev mode the missing key is not reported as an error.
+        assert!(!cfg
+            .validate()
+            .iter()
+            .any(|e| e.contains("PYMUPDF_PRO_KEY")));
+        // And availability is independent of validate().
+        assert!(!cfg.pro_editing_available());
+    }
+
+    #[test]
+    fn pro_key_status_serializes_to_json() {
+        let json = serde_json::to_string(&ProKeyStatus::Available).unwrap();
+        assert!(json.contains("available"));
     }
 }

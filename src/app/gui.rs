@@ -186,6 +186,20 @@ pub struct AppSettings {
     pub webhook_url: String,
     #[serde(default)]
     pub openai_api_key: String,
+    /// Master toggle for "3 Page Mode" — the DEFAULT operating mode.
+    /// When true, opened PDFs are transparently split into <=3-page
+    /// segments for Pro editing and re-merged on save. Defaults to TRUE,
+    /// and a missing/absent stored value is also treated as true.
+    #[serde(default = "default_true")]
+    pub three_page_mode: bool,
+}
+
+/// serde default for `three_page_mode`. NOTE: a bare `#[serde(default)]`
+/// resolves `bool` to `false`; the default for this feature must be `true`,
+/// so we supply an explicit default function that returns `true` when no
+/// stored value is present.
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -201,6 +215,7 @@ impl Default for AppSettings {
             show_welcome: true,
             webhook_url: String::new(),
             openai_api_key: String::new(),
+            three_page_mode: true,
         }
     }
 }
@@ -1420,6 +1435,32 @@ impl MyApp {
                         });
                         ui.checkbox(&mut self.settings.auto_save, "Auto-save history")
                             .on_hover_text("Persist audit/history.json after every successful edit");
+                        if ui
+                            .checkbox(&mut self.settings.three_page_mode, "3 Page Mode (default)")
+                            .on_hover_text(
+                                "Default operating mode. Split long PDFs into <=3-page segments for editing and re-merge on save. Turn off to use standard handling.",
+                            )
+                            .changed()
+                        {
+                            // Req 1.3: persist the new toggle value immediately so the
+                            // change survives an application restart. Req 1.6: on a
+                            // persistence failure confy::store leaves the in-memory
+                            // `self.settings` untouched, so we retain the current value,
+                            // surface an error indication, and continue operating.
+                            match confy::store("bank-statement-modifier", None, &self.settings) {
+                                Ok(()) => {}
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "[gui] failed to persist three_page_mode: {}",
+                                        e
+                                    );
+                                    self.toast(
+                                        ToastKind::Error,
+                                        format!("Could not save 3 Page Mode setting: {e}"),
+                                    );
+                                }
+                            }
+                        }
                         ui.add_space(8.0);
                         ui.label("Webhook (optional):");
                         ui.text_edit_singleline(&mut self.settings.webhook_url)
@@ -1428,8 +1469,19 @@ impl MyApp {
                         ui.add(egui::TextEdit::singleline(&mut self.settings.openai_api_key).password(true))
                             .on_hover_text("Used only if Gemini fails");
                         if ui.button("Save settings").on_hover_text("Persist these settings on disk").clicked() {
-                            let _ = confy::store("bank-statement-modifier", None, &self.settings);
-                            self.toast(ToastKind::Success, "Settings saved");
+                            // On persistence failure, the in-memory `self.settings`
+                            // is left untouched by confy::store, so we retain the
+                            // current values, surface an error, and keep operating.
+                            match confy::store("bank-statement-modifier", None, &self.settings) {
+                                Ok(()) => self.toast(ToastKind::Success, "Settings saved"),
+                                Err(e) => {
+                                    tracing::warn!("[gui] failed to persist settings: {}", e);
+                                    self.toast(
+                                        ToastKind::Error,
+                                        format!("Could not save settings: {e}"),
+                                    );
+                                }
+                            }
                         }
                     });
                 });
@@ -2683,6 +2735,7 @@ impl MyApp {
         self.font_analysis = None;
         let _ = self.job_tx.send(Job::LoadDocument {
             path: self.current_pdf_path.clone(),
+            three_page_mode: self.settings.three_page_mode,
         });
         self.in_flight += 1;
     }
@@ -2839,6 +2892,7 @@ impl MyApp {
         // Trigger a render of the PDF.
         let _ = self.job_tx.send(Job::LoadDocument {
             path: pdf_path.clone(),
+            three_page_mode: self.settings.three_page_mode,
         });
         self.in_flight += 1;
 
