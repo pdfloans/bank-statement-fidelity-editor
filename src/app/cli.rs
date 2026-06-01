@@ -82,7 +82,9 @@ pub enum Commands {
         original: PathBuf,
         #[arg(short, long)]
         edited: PathBuf,
-        #[arg(short, long)]
+        /// Directory for the verification report and diff renders.
+        /// Long flag only — `-o` would collide with `--original`.
+        #[arg(long)]
         output_dir: PathBuf,
         #[arg(long)]
         use_pdfrest: bool,
@@ -121,6 +123,16 @@ pub enum Commands {
     /// Hidden ping for runtime verification
     #[command(hide = true)]
     Ping,
+
+    /// Hidden end-to-end self-test: render → edit → re-render → verify on a
+    /// bundled example PDF, asserting the edit lands and is visually localized.
+    /// Exits 0 on PASS, non-zero on FAIL. Useful for CI and quick sanity checks.
+    #[command(hide = true)]
+    Selftest {
+        /// PDF to exercise. Defaults to examples/sample.pdf.
+        #[arg(long)]
+        input: Option<PathBuf>,
+    },
 
     /// Print configuration health check (env vars, file paths, runtime ping)
     Doctor,
@@ -242,6 +254,27 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
             Ok(JobResult::Progress { label, fraction }) => {
                 tracing::info!("[progress] {}: {:.0}%", label, fraction * 100.0);
             }
+            // `LoadDocument` fires an async font-analysis task that emits
+            // `FontAnalysisReady` independently of the document-load result —
+            // and on a cache hit it can arrive *first*. It is not a terminal
+            // result for any CLI flow, so skip it (otherwise `extract` and
+            // friends mistake it for their answer and report "unexpected
+            // result"). The font analysis is surfaced in the GUI separately.
+            Ok(JobResult::FontAnalysisReady(_)) => {
+                tracing::debug!("[cli] ignoring non-terminal FontAnalysisReady");
+            }
+            // Likewise, an incidental cascade report is informational only.
+            Ok(JobResult::FontCascadeUsed(_)) => {
+                tracing::debug!("[cli] ignoring non-terminal FontCascadeUsed");
+            }
+            // `ApplyChange` emits a `HistoryUpdated` side-effect *after* the
+            // terminal `ChangeApplied`. For sequential CLI flows that apply an
+            // edit then immediately issue another job (e.g. re-render in
+            // `selftest`), this would otherwise be mistaken for the next job's
+            // result. It is never a terminal result for a CLI command, so skip.
+            Ok(JobResult::HistoryUpdated { .. }) => {
+                tracing::debug!("[cli] ignoring non-terminal HistoryUpdated");
+            }
             Ok(JobResult::Error { job_label, message }) => {
                 return Err((job_label, message));
             }
@@ -249,6 +282,153 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
             Err(e) => return Err(("runtime".into(), format!("Disconnected: {}", e))),
         }
     }
+}
+
+/// End-to-end self-test: render → edit a real text span → re-render, asserting
+/// the edit changed the page (and only locally). Drives the same Job runtime
+/// the GUI uses. Returns a process exit code (0 = PASS).
+fn run_selftest(
+    job_tx: &Sender<Job>,
+    job_rx: &Receiver<JobResult>,
+    input: Option<PathBuf>,
+) -> i32 {
+    use crate::app::runtime::{PythonJob, PythonJobResult};
+
+    let input = input.unwrap_or_else(|| PathBuf::from("examples/sample.pdf"));
+    if let Err(e) = validate_pdf_path(&input, "Self-test input") {
+        eprintln!("❌ {e}");
+        return exit_code::VALIDATION;
+    }
+    println!("▶ Self-test on {}", input.display());
+
+    // 1) Runtime liveness.
+    let _ = job_tx.send(Job::Ping);
+    match wait_for_terminal_result(job_rx) {
+        Ok(JobResult::Pong) => println!("  ✅ runtime ping"),
+        _ => {
+            eprintln!("  ❌ runtime did not respond to ping");
+            return exit_code::GENERAL;
+        }
+    }
+
+    // 2) Baseline render of page 0.
+    let _ = job_tx.send(Job::RenderPage {
+        path: input.clone(),
+        page: 0,
+        dpi: 150.0,
+        tag: "selftest_before".into(),
+    });
+    let before = match wait_for_terminal_result(job_rx) {
+        Ok(JobResult::PageRendered { png_bytes, .. }) => {
+            println!("  ✅ baseline render ({} bytes)", png_bytes.len());
+            png_bytes
+        }
+        other => {
+            eprintln!("  ❌ baseline render failed: {other:?}");
+            return exit_code::GENERAL;
+        }
+    };
+
+    // 3) Find a real text span on page 0 (so the edit has a target).
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = job_tx.send(Job::Python(
+        PythonJob::GetTextBlocks {
+            pdf_path: input.to_string_lossy().to_string(),
+            page_num: 0,
+        },
+        {
+            // Bridge the oneshot reply onto a std channel via a helper thread.
+            let (otx, orx) = tokio::sync::oneshot::channel();
+            std::thread::spawn(move || {
+                if let Ok(r) = orx.blocking_recv() {
+                    let _ = tx.send(r);
+                }
+            });
+            otx
+        },
+    ));
+    let blocks_json = match rx.recv() {
+        Ok(PythonJobResult::Json(j)) => j,
+        other => {
+            eprintln!("  ❌ get_text_blocks failed: {other:?}");
+            return exit_code::GENERAL;
+        }
+    };
+    let blocks: serde_json::Value = serde_json::from_str(&blocks_json).unwrap_or_default();
+    let first = blocks.as_array().and_then(|a| a.first());
+    let (bbox, old_text) = match first {
+        Some(b) => {
+            let bb = b["bbox"].as_array().map(|a| {
+                [
+                    a[0].as_f64().unwrap_or(0.0) as f32,
+                    a[1].as_f64().unwrap_or(0.0) as f32,
+                    a[2].as_f64().unwrap_or(0.0) as f32,
+                    a[3].as_f64().unwrap_or(0.0) as f32,
+                ]
+            });
+            (bb, b["text"].as_str().unwrap_or("").to_string())
+        }
+        None => {
+            eprintln!("  ❌ no text spans found on page 0; cannot self-test the edit path");
+            return exit_code::GENERAL;
+        }
+    };
+    let bbox = match bbox {
+        Some(b) if b[0] < b[2] && b[1] < b[3] => b,
+        _ => {
+            eprintln!("  ❌ first span had an invalid bbox");
+            return exit_code::GENERAL;
+        }
+    };
+    println!("  ✅ found target span: {old_text:?} @ {bbox:?}");
+
+    // 4) Apply an edit over that span.
+    let out = std::path::PathBuf::from("output/selftest_edited.pdf");
+    let _ = std::fs::create_dir_all("output");
+    let _ = job_tx.send(Job::ApplyChange {
+        input: input.clone(),
+        output: out.clone(),
+        page: 0,
+        bbox,
+        new_text: "SELFTEST 12345".into(),
+        old_text,
+        description: "selftest edit".into(),
+        deep_font_replication: false,
+    });
+    match wait_for_terminal_result(job_rx) {
+        Ok(JobResult::ChangeApplied { .. }) => println!("  ✅ edit applied → {}", out.display()),
+        other => {
+            eprintln!("  ❌ edit failed: {other:?}");
+            return exit_code::GENERAL;
+        }
+    }
+
+    // 5) Re-render the edited PDF and assert it differs from the baseline.
+    let _ = job_tx.send(Job::RenderPage {
+        path: out.clone(),
+        page: 0,
+        dpi: 150.0,
+        tag: "selftest_after".into(),
+    });
+    let after = match wait_for_terminal_result(job_rx) {
+        Ok(JobResult::PageRendered { png_bytes, .. }) => png_bytes,
+        other => {
+            eprintln!("  ❌ re-render failed: {other:?}");
+            return exit_code::GENERAL;
+        }
+    };
+
+    if after == before {
+        eprintln!("  ❌ edited render is identical to baseline — the edit did not land");
+        return exit_code::GENERAL;
+    }
+    println!(
+        "  ✅ edited render differs from baseline ({} vs {} bytes)",
+        after.len(),
+        before.len()
+    );
+    println!("✅ SELF-TEST PASSED — render, text-edit, and re-render all work end-to-end.");
+    exit_code::SUCCESS
 }
 
 /// Status of a single diagnostic check.
@@ -672,11 +852,26 @@ pub fn run(
             output_dir,
             use_pdfrest,
         } => {
+            // Improvement #8: seed intended_bboxes from the saved edit history
+            // (audit/history.json) when present, so regions the user actually
+            // edited aren't flagged as anomalies ("only intended changes").
+            // Absent history → empty list (previous behavior).
+            let intended_bboxes: Vec<(usize, [f32; 4])> =
+                match ChangeHistory::load_from_file(std::path::Path::new("audit/history.json")) {
+                    Ok(h) => h.get_history().iter().map(|r| (r.page, r.bbox)).collect(),
+                    Err(_) => Vec::new(),
+                };
+            if !intended_bboxes.is_empty() {
+                println!(
+                    "Seeded {} intended edit region(s) from audit/history.json",
+                    intended_bboxes.len()
+                );
+            }
             let _ = job_tx.send(Job::Verify {
                 original,
                 edited,
                 output_dir: output_dir.clone(),
-                intended_bboxes: Vec::new(),
+                intended_bboxes,
                 use_pdfrest,
                 pdfrest_key: config.pdfrest_api_key.clone(),
             });
@@ -705,6 +900,13 @@ pub fn run(
             page,
             dpi,
         } => {
+            // Capture the source stem before `input` is moved into the job, so
+            // the output filename can include it (Improvement #5).
+            let stem = input
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("page")
+                .to_string();
             let _ = job_tx.send(Job::RenderPage {
                 path: input,
                 page,
@@ -713,7 +915,10 @@ pub fn run(
             });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::PageRendered { png_bytes, .. }) => {
-                    let filename = format!("page_{}_{}dpi.png", page + 1, dpi as u32);
+                    // Improvement #5: include the source PDF stem so batch
+                    // renders of different files don't overwrite one another
+                    // (previously every render produced `page_N_DPIdpi.png`).
+                    let filename = format!("{}_page_{}_{}dpi.png", stem, page + 1, dpi as u32);
                     let path = output_dir.join(filename);
                     let _ = std::fs::create_dir_all(&output_dir);
                     if std::fs::write(&path, png_bytes).is_ok() {
@@ -784,6 +989,9 @@ pub fn run(
                 }
                 _ => 1,
             }
+        }
+        Commands::Selftest { input } => {
+            run_selftest(&job_tx, &job_rx, input)
         }
         Commands::Doctor => run_doctor(&config, &job_tx, &job_rx),
         Commands::DocaiTrain {

@@ -74,6 +74,23 @@ pub struct DocumentAiConfig {
     pub adc_path: String,
 }
 
+/// How the Gemini calls authenticate.
+///
+/// `ApiKey` is the simplest (AI Studio `AIza...` key, default) and `Vertex`
+/// is the enterprise option that authenticates with a Google Cloud service
+/// account (or ADC) and calls the Vertex AI Gemini endpoint. Vertex keeps
+/// data inside your GCP project and does not require an API key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeminiAuthMode {
+    /// AI Studio API key (`generativelanguage.googleapis.com?key=...`).
+    #[default]
+    ApiKey,
+    /// Vertex AI (`{location}-aiplatform.googleapis.com`) authenticated via a
+    /// Google Cloud service account / ADC token. No API key used.
+    Vertex,
+}
+
 impl DocumentAiConfig {
     /// Returns true if the Document AI configuration has valid authentication.
     pub fn has_auth(&self) -> bool {
@@ -92,6 +109,10 @@ pub struct AppConfig {
     pub otel_service_name: String,
     pub log_dir: PathBuf,
     pub webhook_url: Option<String>,
+    /// How Gemini authenticates: AI Studio API key (default) or Vertex AI
+    /// (service-account / ADC token). Set in-app via the Credentials panel
+    /// or by `GEMINI_AUTH_MODE=vertex` in the environment.
+    pub gemini_auth_mode: GeminiAuthMode,
     /// Whether we're in development mode (relaxed security requirements)
     pub is_dev_mode: bool,
 }
@@ -108,6 +129,7 @@ impl Default for AppConfig {
             otel_service_name: "dual-core-pdf-pipeline".into(),
             log_dir: PathBuf::from("./logs"),
             webhook_url: None,
+            gemini_auth_mode: GeminiAuthMode::ApiKey,
             is_dev_mode: cfg!(debug_assertions),
         }
     }
@@ -163,6 +185,17 @@ impl AppConfig {
         // PyMuPDF Pro key - required in production
         let pymupdf_pro_key = env::var("PYMUPDF_PRO_KEY").ok().filter(|s| !s.is_empty());
 
+        // Gemini auth mode: default API key, opt into Vertex via env.
+        let gemini_auth_mode = match env::var("GEMINI_AUTH_MODE")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "vertex" | "vertex_ai" | "vertexai" => GeminiAuthMode::Vertex,
+            _ => GeminiAuthMode::ApiKey,
+        };
+
         // Passphrase - required
         let passphrase = env::var("DUAL_CORE_PASSPHRASE").map_err(|_| {
             ConfigError::MissingRequired("DUAL_CORE_PASSPHRASE".to_string())
@@ -216,6 +249,7 @@ impl AppConfig {
             otel_service_name,
             log_dir,
             webhook_url,
+            gemini_auth_mode,
             is_dev_mode,
         })
     }

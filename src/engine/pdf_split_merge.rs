@@ -35,11 +35,15 @@ pub fn split_pdf(
 
     let mut doc = Document::load(src_path)
         .map_err(|e| SplitMergeError::Load { path: src_path.to_path_buf(), source: e })?;
-    
+
     doc.decompress();
 
     let page_map = doc.get_pages();
     let total_pages = page_map.len();
+    // Ordered (1-based page number -> object id) so we can window contiguously.
+    let mut ordered_pages: Vec<(u32, ObjectId)> = page_map.into_iter().collect();
+    ordered_pages.sort_by_key(|(num, _)| *num);
+
     let mut segments = Vec::new();
 
     if !out_dir.exists() {
@@ -50,28 +54,32 @@ pub fn split_pdf(
     for start in (0..total_pages).step_by(max_pages) {
         let end = (start + max_pages).min(total_pages);
         let count = end - start;
-        
-        let mut segment_doc = doc.clone();
-        
-        let all_pages: Vec<u32> = (1..=total_pages as u32).collect();
-        let to_keep: Vec<u32> = (start as u32 + 1 ..= end as u32).collect();
-        let to_delete: Vec<u32> = all_pages.into_iter()
-            .filter(|p| !to_keep.contains(p))
+
+        // Build each segment as a FRESH document, importing only this window's
+        // pages and the objects they transitively reference. This avoids the
+        // clone -> delete_pages -> prune_objects -> save approach, which on
+        // real-world PDFs (xref-stream / PDF 1.6+) can emit a file lopdf then
+        // refuses to re-load ("Invalid file trailer"). Building fresh and
+        // remapping object ids is the same proven path `merge_pdfs` uses.
+        let window: Vec<ObjectId> = ordered_pages[start..end]
+            .iter()
+            .map(|(_, id)| *id)
             .collect();
-        
-        segment_doc.delete_pages(&to_delete);
-        segment_doc.prune_objects();
+
+        let segment_doc = build_segment_document(&doc, &window)?;
+        let mut segment_doc = segment_doc;
 
         // Resolve inherited page-tree attributes onto each retained leaf and
-        // confirm its referenced resources/content survived the prune. This
-        // runs after the prune so the confirmation reflects the saved object
-        // set; the surviving ancestor `/Pages` nodes still carry any inherited
-        // attributes we read here.
+        // confirm its referenced resources/content survived the import.
         normalize_pages(&mut segment_doc)?;
 
         let out_path = out_dir.join(format!("segment_{:03}.pdf", idx));
-        segment_doc.save(&out_path)
-            .map_err(|e| SplitMergeError::Save { path: out_path.clone(), source: lopdf::Error::IO(e) })?;
+        segment_doc
+            .save(&out_path)
+            .map_err(|e| SplitMergeError::Save {
+                path: out_path.clone(),
+                source: lopdf::Error::IO(e),
+            })?;
 
         segments.push(SplitSegment {
             path: out_path,
@@ -82,6 +90,162 @@ pub fn split_pdf(
     }
 
     Ok(segments)
+}
+
+/// Build a fresh, self-contained `lopdf::Document` containing exactly the pages
+/// in `window` (object ids in the source `doc`), in order, with a fresh
+/// `Catalog` + flat `Pages` tree. All objects each page transitively
+/// references are deep-copied and their ids remapped, so the result is a
+/// standalone PDF that round-trips through `lopdf` cleanly.
+fn build_segment_document(
+    doc: &Document,
+    window: &[ObjectId],
+) -> Result<Document, SplitMergeError> {
+    use std::collections::BTreeSet;
+
+    let mut out = Document::with_version("1.7");
+
+    let pages_id = out.new_object_id();
+    let catalog_id = out.new_object_id();
+
+    // Collect the transitive closure of objects reachable from each page in the
+    // window (the page dict, its /Resources, /Contents, fonts, xobjects, …).
+    let mut needed: BTreeSet<ObjectId> = BTreeSet::new();
+    for &page_id in window {
+        collect_referenced(doc, page_id, &mut needed);
+    }
+
+    // Assign a fresh id in `out` for every needed source object.
+    let mut id_map: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
+    for &src_id in &needed {
+        id_map.insert(src_id, out.new_object_id());
+    }
+
+    // Deep-copy each needed object with references remapped into `out`.
+    for &src_id in &needed {
+        if let Ok(obj) = doc.get_object(src_id) {
+            let mut cloned = obj.clone();
+            remap_references(&mut cloned, &id_map);
+            let new_id = id_map[&src_id];
+            out.objects.insert(new_id, cloned);
+        }
+    }
+
+    // Build the flat Kids list and fix each page's /Parent.
+    let mut kids: Vec<Object> = Vec::with_capacity(window.len());
+    for &page_id in window {
+        if let Some(&new_page_id) = id_map.get(&page_id) {
+            if let Ok(page_dict) = out
+                .get_object_mut(new_page_id)
+                .and_then(|o| o.as_dict_mut())
+            {
+                page_dict.set("Parent", pages_id);
+            }
+            kids.push(Object::Reference(new_page_id));
+        }
+    }
+
+    let kids_len = kids.len() as i64;
+    out.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary!(
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => kids_len,
+        )),
+    );
+    out.objects.insert(
+        catalog_id,
+        Object::Dictionary(dictionary!(
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        )),
+    );
+
+    out.trailer.set("Root", catalog_id);
+    out.max_id = out.objects.keys().map(|(n, _)| *n).max().unwrap_or(0);
+
+    Ok(out)
+}
+
+/// Transitively collect every object id reachable from `start` (excluding
+/// `/Parent` back-references, which would drag in the whole original tree).
+fn collect_referenced(
+    doc: &Document,
+    start: ObjectId,
+    acc: &mut std::collections::BTreeSet<ObjectId>,
+) {
+    if !acc.insert(start) {
+        return; // already visited
+    }
+    if let Ok(obj) = doc.get_object(start) {
+        collect_from_object(doc, obj, acc);
+    }
+}
+
+fn collect_from_object(
+    doc: &Document,
+    obj: &Object,
+    acc: &mut std::collections::BTreeSet<ObjectId>,
+) {
+    match obj {
+        Object::Reference(id) => collect_referenced(doc, *id, acc),
+        Object::Array(arr) => {
+            for v in arr {
+                collect_from_object(doc, v, acc);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (key, v) in dict.iter() {
+                // Skip /Parent so we don't pull in ancestor /Pages nodes and
+                // the rest of the document tree.
+                if key == b"Parent" {
+                    continue;
+                }
+                collect_from_object(doc, v, acc);
+            }
+        }
+        Object::Stream(stream) => {
+            for (key, v) in stream.dict.iter() {
+                if key == b"Parent" {
+                    continue;
+                }
+                collect_from_object(doc, v, acc);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Remap every `Reference` inside `obj` according to `id_map`. References to
+/// objects not in the map (e.g. a skipped /Parent) are dropped to null so the
+/// output never dangles.
+fn remap_references(obj: &mut Object, id_map: &BTreeMap<ObjectId, ObjectId>) {
+    match obj {
+        Object::Reference(id) => {
+            if let Some(&new_id) = id_map.get(id) {
+                *id = new_id;
+            } else {
+                *obj = Object::Null;
+            }
+        }
+        Object::Array(arr) => {
+            for v in arr.iter_mut() {
+                remap_references(v, id_map);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (_k, v) in dict.iter_mut() {
+                remap_references(v, id_map);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_k, v) in stream.dict.iter_mut() {
+                remap_references(v, id_map);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Page-tree attributes that a leaf `/Page` may inherit from an ancestor

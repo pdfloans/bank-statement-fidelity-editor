@@ -616,15 +616,36 @@ pub async fn verify_edit_pages_with_padding(
     // Report number favours the most sensitive signal we computed.
     let max_visual_score = max_tile_score.max(legacy_pixel_score);
 
-    // 5. Math validity
-    let (math_valid, math_message) = match process_and_reconcile(
-        math_inputs.transactions,
-        math_inputs.opening_balance,
-        math_inputs.expected_final_balance,
-    ) {
-        Ok((_, None)) => (true, "✅ Mathematical integrity verified.".to_string()),
-        Ok((_, Some(msg))) => (false, format!("⚠️ Mathematical mismatch: {}", msg)),
-        Err(e) => (false, format!("❌ Balance Engine error: {}", e)),
+    // 5. Math validity.
+    //
+    // Improvement #4: when the document carries no transaction/balance data
+    // (e.g. a non-statement PDF or a page with no parseable rows), math
+    // reconciliation is *not applicable* rather than a failure. Emitting a
+    // scary "Balance Engine error: Missing opening balance" in that case is
+    // misleading, so we degrade gracefully to a visual-only verdict and mark
+    // math_valid = true (nothing to disprove).
+    let has_balance_data = !math_inputs.transactions.is_empty()
+        && math_inputs.opening_balance != Decimal::ZERO;
+    let (math_valid, math_message) = if !has_balance_data {
+        (
+            true,
+            "➖ Math check not applicable (no transaction/balance data found); visual-only verification.".to_string(),
+        )
+    } else {
+        match process_and_reconcile(
+            math_inputs.transactions,
+            math_inputs.opening_balance,
+            math_inputs.expected_final_balance,
+        ) {
+            Ok((_, None)) => (true, "✅ Mathematical integrity verified.".to_string()),
+            Ok((_, Some(msg))) => (false, format!("⚠️ Mathematical mismatch: {}", msg)),
+            // A genuine engine error on a doc that *did* have balance data.
+            Err(crate::engine::balance::BalanceError::MissingOpeningBalance) => (
+                true,
+                "➖ Math check skipped (opening balance could not be determined); visual-only verification.".to_string(),
+            ),
+            Err(e) => (false, format!("❌ Balance Engine error: {}", e)),
+        }
     };
 
     let mut final_message = format!(

@@ -166,17 +166,39 @@ impl SmartDocumentEngine {
         // 6. Map adjustments to ProposedChange. Format with two-decimal
         // precision via Decimal so the user-visible diff text isn't subject
         // to f64 representation noise.
+        //
+        // CRITICAL: resolve a redaction bbox for every adjustment by matching
+        // it back to its source transaction (by page + line_on_page). The
+        // apply path skips any change with `bbox: None`, so without this the
+        // "Adjust & apply all" pipeline would propose changes but write none.
+        // Prefer the per-field running-balance bbox; fall back to the whole
+        // row bbox so an edit still lands even when per-cell geometry is absent.
         let changes: Vec<ProposedChange> = plan
             .adjustments
             .into_iter()
-            .map(|adj| ProposedChange {
-                page: adj.page,
-                old_text: format!("{}", f64_to_dec(adj.old_running_balance)),
-                new_text: format!("{}", f64_to_dec(adj.new_running_balance)),
-                reason: adj.reason,
-                confidence: adj.confidence,
-                affects_subsequent_balances: true,
-                bbox: None,
+            .map(|adj| {
+                let resolved_bbox = self
+                    .all_transactions
+                    .iter()
+                    .find(|t| t.page == adj.page && t.line_on_page == adj.line_on_page)
+                    .and_then(|t| t.field_bboxes.running_balance.or(t.bbox));
+                if resolved_bbox.is_none() {
+                    tracing::warn!(
+                        "[DOCUMENT ENGINE] no bbox for adjustment on page {} line {}; \
+                         it will be reported but cannot be auto-applied",
+                        adj.page,
+                        adj.line_on_page
+                    );
+                }
+                ProposedChange {
+                    page: adj.page,
+                    old_text: format!("{}", f64_to_dec(adj.old_running_balance)),
+                    new_text: format!("{}", f64_to_dec(adj.new_running_balance)),
+                    reason: adj.reason,
+                    confidence: adj.confidence,
+                    affects_subsequent_balances: true,
+                    bbox: resolved_bbox,
+                }
             })
             .collect();
 

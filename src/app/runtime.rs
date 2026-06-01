@@ -224,6 +224,23 @@ pub enum Job {
         id: JobId,
     },
 
+    /// Hot-reload the runtime's `AppConfig` from the current process
+    /// environment. The GUI sends this after the user updates API keys /
+    /// credentials in-app (which write `.env` and `std::env::set_var`), so
+    /// subsequent Document AI / Gemini jobs pick up the new values without an
+    /// application restart.
+    ReloadConfig,
+
+    /// Run the Smart Balance Engine and, when `auto_apply` is true, apply every
+    /// proposed adjustment to the PDF in one shot (the "Adjust entire bank
+    /// statement accordingly and apply all edits" button). When `auto_apply`
+    /// is false this behaves like [`Job::BalanceStatement`].
+    BalanceAndApplyAll {
+        input: PathBuf,
+        output: PathBuf,
+        auto_apply: bool,
+    },
+
     // ----- Multi-stage workflow -------------------------------------------
     /// Stage 1: parse with Document AI then validate completeness with Gemini.
     WorkflowParseAndValidate {
@@ -292,6 +309,13 @@ pub enum JobResult {
     ProposedChangesApplied {
         changes_applied: usize,
         failures: Vec<String>,
+    },
+    /// Emitted after a [`Job::ReloadConfig`]: reports whether the reloaded
+    /// config has working AI credentials so the GUI can update its status line.
+    ConfigReloaded {
+        document_ai_configured: bool,
+        gemini_configured: bool,
+        pro_editing_available: bool,
     },
     Error {
         job_label: String,
@@ -500,13 +524,22 @@ impl Runtime {
         let mut tokio_job_rx = tokio_job_rx;
         let engine_for_tokio = engine.clone();
         let tokio_job_tx_clone = tokio_job_tx.clone();
-        let config_for_tokio = config.clone();
+        // Hot-swappable config: jobs read the *current* config via a per-iteration
+        // snapshot, so an in-app API-key/credentials update (Job::ReloadConfig)
+        // takes effect on subsequent jobs without an application restart.
+        let config_holder: Arc<Mutex<Arc<crate::app::config::AppConfig>>> =
+            Arc::new(Mutex::new(config.clone()));
 
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
             let mut segment_manager: Option<SegmentManager> = None;
 
             while let Some(job) = tokio_job_rx.recv().await {
+                // Re-snapshot the (possibly hot-reloaded) config for this job.
+                let config_for_tokio: Arc<crate::app::config::AppConfig> = config_holder
+                    .lock()
+                    .map(|g| g.clone())
+                    .unwrap_or_else(|p| p.into_inner().clone());
                 match job {
                     Job::Ping => {
                         let (reply_tx, reply_rx) = oneshot::channel();
@@ -1018,30 +1051,166 @@ impl Runtime {
                     Job::ApplyProposedChanges { input, output, changes } => {
                         let res_tx = result_tx_clone.clone();
                         let job_tx_ref = tokio_job_tx_clone.clone();
-                        
+                        let py_tx = python_tx_clone.clone();
+
                         tokio::spawn(async move {
-                            let mut applied = 0;
-                            let mut failures = Vec::new();
-                            
-                            for (i, change) in changes.iter().enumerate() {
-                                let _ = res_tx.send(JobResult::Progress { 
-                                    label: format!("Applying change {} of {}", i + 1, changes.len()), 
-                                    fraction: (i as f32) / (changes.len() as f32) 
-                                });
-                                
-                                let bbox = match change.bbox {
-                                    Some(b) => b,
-                                    None => {
-                                        let msg = format!("Proposed change for page {} '{}' \u{2192} '{}' has no resolved bbox; cannot redact", 
-                                                change.page + 1, change.old_text, change.new_text);
-                                        failures.push(msg.clone());
-                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_proposed_changes".into(), message: msg });
-                                        continue;
+                            // Determine page count: cascaded balance changes
+                            // routinely land MANY pages from the edited row —
+                            // often >3 pages away. A direct full-document apply
+                            // would trip the PyMuPDF Pro 3-page guard, so for
+                            // long statements we route through 3-Page-Mode:
+                            // split -> per-segment apply (<=3 pages each) ->
+                            // merge. Short docs use the simple direct path.
+                            let input_for_count = input.clone();
+                            let page_count = tokio::task::spawn_blocking(move || {
+                                lopdf::Document::load(&input_for_count)
+                                    .map(|d| d.get_pages().len())
+                                    .unwrap_or(0)
+                            })
+                            .await
+                            .unwrap_or(0);
+
+                            // Drop changes with no resolved bbox up front (can't redact).
+                            let mut failures: Vec<String> = Vec::new();
+                            let usable: Vec<crate::engine::model::ProposedChange> = changes
+                                .iter()
+                                .filter(|c| {
+                                    if c.bbox.is_none() {
+                                        failures.push(format!(
+                                            "Proposed change for page {} '{}' \u{2192} '{}' has no resolved bbox; skipped",
+                                            c.page + 1, c.old_text, c.new_text
+                                        ));
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                })
+                                .cloned()
+                                .collect();
+
+                            if usable.is_empty() {
+                                let _ = res_tx.send(JobResult::ProposedChangesApplied { changes_applied: 0, failures });
+                                let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
+                                return;
+                            }
+
+                            if page_count > 3 {
+                                // ---- 3-Page-Mode segmented batch apply ----
+                                use crate::engine::pdf_split_merge::{split_pdf, merge_pdfs};
+                                let _ = res_tx.send(JobResult::Progress { label: "Splitting statement into <=3-page segments".into(), fraction: 0.1 });
+
+                                // 1) Split (pure-Rust lopdf) on a blocking task.
+                                let input_split = input.clone();
+                                let split_res = tokio::task::spawn_blocking(move || {
+                                    let tmp = tempfile::Builder::new()
+                                        .prefix("apply-cascade-")
+                                        .tempdir()
+                                        .map_err(|e| format!("tempdir: {e}"))?;
+                                    let segments = split_pdf(&input_split, tmp.path(), 3)
+                                        .map_err(|e| format!("split failed: {e}"))?;
+                                    Ok::<_, String>((tmp, segments))
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(format!("split task panicked: {e}")));
+
+                                let (tmp, segments) = match split_res {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_proposed_changes".into(), message: e });
+                                        return;
                                     }
                                 };
-                                
-                                // Note: The runtime bridge and tokio loop are sequential.
-                                // We send Job::ApplyChange to ensure consistent history and file state.
+
+                                // 2) Group usable changes by segment (global -> local page).
+                                use std::collections::BTreeMap;
+                                let mut by_seg: BTreeMap<usize, Vec<(usize, crate::engine::model::ProposedChange)>> = BTreeMap::new();
+                                for ch in &usable {
+                                    match segments.iter().position(|s| ch.page >= s.page_offset && ch.page < s.page_offset + s.page_count) {
+                                        Some(si) => {
+                                            let local = ch.page - segments[si].page_offset;
+                                            by_seg.entry(si).or_default().push((local, ch.clone()));
+                                        }
+                                        None => failures.push(format!(
+                                            "change on global page {} is out of range (doc has {} pages)",
+                                            ch.page + 1, page_count
+                                        )),
+                                    }
+                                }
+
+                                // 3) Per-segment apply via the Python actor (each <=3 pages, Pro-legal).
+                                let mut seg_paths: Vec<std::path::PathBuf> =
+                                    segments.iter().map(|s| s.path.clone()).collect();
+                                let mut applied = 0usize;
+                                let total_segs = by_seg.len().max(1);
+                                for (done, (si, edits)) in by_seg.into_iter().enumerate() {
+                                    let _ = res_tx.send(JobResult::Progress {
+                                        label: format!("Editing segment {} of {}", done + 1, total_segs),
+                                        fraction: 0.2 + 0.6 * (done as f32 / total_segs as f32),
+                                    });
+                                    let edits_json: Vec<serde_json::Value> = edits.iter().map(|(local, ch)| {
+                                        let b = ch.bbox.unwrap();
+                                        serde_json::json!({
+                                            "page": local,
+                                            "rect": [b[0], b[1], b[2], b[3]],
+                                            "new_text": ch.new_text,
+                                        })
+                                    }).collect();
+                                    let json_str = serde_json::to_string(&edits_json).unwrap_or_else(|_| "[]".into());
+                                    let edited_out = tmp.path().join(format!("segment_{:03}_edited.pdf", si));
+
+                                    let (rtx, rrx) = oneshot::channel();
+                                    let _ = py_tx.send((PythonJob::ApplyManyEdits {
+                                        pdf_path: seg_paths[si].to_string_lossy().to_string(),
+                                        output_path: edited_out.to_string_lossy().to_string(),
+                                        edits_json: json_str,
+                                        font_path: None,
+                                    }, rtx));
+                                    match rrx.await {
+                                        Ok(PythonJobResult::Json(_)) | Ok(PythonJobResult::Success) => {
+                                            seg_paths[si] = edited_out;
+                                            applied += edits.len();
+                                        }
+                                        Ok(PythonJobResult::Error(e)) => failures.push(format!("segment {si} edit failed: {e}")),
+                                        other => failures.push(format!("segment {si} edit: unexpected result {other:?}")),
+                                    }
+                                }
+
+                                // 4) Merge (pure-Rust lopdf) on a blocking task.
+                                let _ = res_tx.send(JobResult::Progress { label: "Merging segments".into(), fraction: 0.9 });
+                                let seg_paths_for_merge = seg_paths.clone();
+                                let output_merge = output.clone();
+                                let merge_res = tokio::task::spawn_blocking(move || {
+                                    merge_pdfs(&seg_paths_for_merge, &output_merge).map_err(|e| format!("merge failed: {e}"))
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(format!("merge task panicked: {e}")));
+
+                                // Keep tmp alive until after merge reads the segment files.
+                                drop(tmp);
+
+                                match merge_res {
+                                    Ok(merged) if merged == page_count => {
+                                        let _ = res_tx.send(JobResult::ProposedChangesApplied { changes_applied: applied, failures });
+                                        let _ = res_tx.send(JobResult::Progress { label: "Done (3-page mode)".to_string(), fraction: 1.0 });
+                                    }
+                                    Ok(merged) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_proposed_changes".into(), message: format!("merged page count {merged} != original {page_count}; output not trusted") });
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_proposed_changes".into(), message: e });
+                                    }
+                                }
+                                return;
+                            }
+
+                            // ---- Short document (<=3 pages): direct path ----
+                            let mut applied = 0;
+                            for (i, change) in usable.iter().enumerate() {
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!("Applying change {} of {}", i + 1, usable.len()),
+                                    fraction: (i as f32) / (usable.len() as f32),
+                                });
+                                let bbox = change.bbox.unwrap();
                                 let _ = job_tx_ref.send(Job::ApplyChange {
                                     input: input.clone(),
                                     output: output.clone(),
@@ -1052,13 +1221,9 @@ impl Runtime {
                                     description: change.reason.clone(),
                                     deep_font_replication: false,
                                 });
-                                
-                                // Note: In a production environment, we should wait for the JobResult::ChangeApplied 
-                                // for THIS specific change. For now, since the queue is sequential and we 
-                                // want parity, we'll keep it simple but acknowledge the limitation.
                                 applied += 1;
                             }
-                            
+
                             let _ = res_tx.send(JobResult::ProposedChangesApplied { changes_applied: applied, failures });
                             let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
                         });
@@ -1084,6 +1249,102 @@ impl Runtime {
                         } else {
                             tracing::debug!(job.id = id, "[runtime] cancel for unknown job");
                         }
+                    }
+                    Job::ReloadConfig => {
+                        let res_tx = result_tx_clone.clone();
+                        // Re-read AppConfig from the current process environment
+                        // (the GUI has just written .env and called set_var) and
+                        // swap it into the live holder so subsequent jobs use it.
+                        match crate::app::config::AppConfig::from_env() {
+                            Ok(new_cfg) => {
+                                let document_ai_configured = new_cfg.document_ai.is_some();
+                                let gemini_configured = new_cfg.gemini_api_key.is_some();
+                                let pro_editing_available = new_cfg.pro_editing_available();
+                                if let Ok(mut g) = config_holder.lock() {
+                                    *g = Arc::new(new_cfg);
+                                }
+                                let _ = res_tx.send(JobResult::ConfigReloaded {
+                                    document_ai_configured,
+                                    gemini_configured,
+                                    pro_editing_available,
+                                });
+                            }
+                            Err(e) => {
+                                let _ = res_tx.send(JobResult::Error {
+                                    job_label: "reload_config".into(),
+                                    message: format!("Could not reload configuration: {e}"),
+                                });
+                            }
+                        }
+                    }
+                    Job::BalanceAndApplyAll { input, output, auto_apply } => {
+                        let res_tx = result_tx_clone.clone();
+                        let eng = engine_for_tokio.clone();
+                        let cfg = config_for_tokio.clone();
+                        let job_tx_ref = tokio_job_tx_clone.clone();
+
+                        tokio::spawn(async move {
+                            let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statement…".to_string(), fraction: 0.1 });
+
+                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(c) => Arc::new(c),
+                                Err(_) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: "Adjust-and-apply requires GEMINI_API_KEY + Document AI configuration. Set them in Settings → API keys.".into() });
+                                    return;
+                                }
+                            };
+                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                Ok(c) => Arc::new(c),
+                                Err(_) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: "Adjust-and-apply requires GEMINI_API_KEY + Document AI configuration. Set them in Settings → API keys.".into() });
+                                    return;
+                                }
+                            };
+
+                            let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
+                            let pymupdf_provider = Arc::new(crate::extractors::PyMuPdfHeuristicProvider { engine: eng.clone() });
+                            let tess_provider = Arc::new(crate::extractors::TesseractProvider { engine: eng.clone() });
+                            let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
+                                template_provider as Arc<dyn crate::extractors::GeometryProvider>,
+                                pymupdf_provider as Arc<dyn crate::extractors::GeometryProvider>,
+                                tess_provider as Arc<dyn crate::extractors::GeometryProvider>,
+                            ]));
+
+                            let mut smart_engine = crate::engine::statement::SmartDocumentEngine::new(eng.clone(), doc_ai, gemini, merger);
+
+                            let _ = res_tx.send(JobResult::Progress { label: "Loading document".to_string(), fraction: 0.3 });
+                            let (dummy_tx, _) = std::sync::mpsc::channel();
+                            if let Err(e) = smart_engine.load_full_document(&dummy_tx, &input).await {
+                                let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Failed to load document: {}", e) });
+                                return;
+                            }
+
+                            let _ = res_tx.send(JobResult::Progress { label: "Computing balanced adjustments".to_string(), fraction: 0.6 });
+                            match smart_engine.balance_entire_statement(&input).await {
+                                Ok(changes) => {
+                                    let imbalance = smart_engine.calculate_global_imbalance();
+                                    // Always surface the proposal so the table updates.
+                                    let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes: changes.clone() });
+                                    if auto_apply && !changes.is_empty() {
+                                        // Chain straight into applying every proposed
+                                        // change to the PDF (reuses the tested path).
+                                        let _ = job_tx_ref.send(Job::ApplyProposedChanges {
+                                            input: input.clone(),
+                                            output: output.clone(),
+                                            changes,
+                                        });
+                                    } else if changes.is_empty() {
+                                        let _ = res_tx.send(JobResult::Progress { label: "Already balanced — nothing to apply".to_string(), fraction: 1.0 });
+                                    }
+                                }
+                                Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Gemini confidence {:.2} below 0.7 threshold; not enough certainty to auto-apply adjustments.", c) });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: e.to_string() });
+                                }
+                            }
+                        });
                     }
                     Job::LoadHistory { input } => {
                         let history_clone = history.clone();

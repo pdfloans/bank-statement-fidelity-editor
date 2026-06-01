@@ -1,0 +1,113 @@
+src\ai\docai_cache.rs:137:21: warning: variables can be used directly in the `format!` string
+src\ai\document_ai.rs:212:67: warning: variables can be used directly in the `format!` string
+src\ai\gemini_client.rs:204:55: warning: variables can be used directly in the `format!` string
+src\ai\gemini_client.rs:274:55: warning: variables can be used directly in the `format!` string
+src\ai\gemini_client.rs:385:55: warning: variables can be used directly in the `format!` string
+src\app\audit.rs:31:39: warning: variables can be used directly in the `format!` string
+src\app\audit.rs:125:33: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:249:53: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:267:5: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:358:10: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:429:18: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:510:17: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:518:21: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:595:33: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:603:33: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:641:33: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:688:21: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:719:25: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:743:21: warning: variables can be used directly in the `format!` string
+src\app\cli.rs:764:25: warning: variables can be used directly in the `format!` string
+src\app\config.rs:156:17: warning: variables can be used directly in the `format!` string
+src\app\config.rs:183:25: warning: variables can be used directly in the `format!` string
+src\app\env_spec.rs:174:17: warning: variables can be used directly in the `format!` string
+src\app\fontcache.rs:213:20: warning: variables can be used directly in the `format!` string
+src\app\gui.rs:34:1: warning: this `impl` can be derived
+src\app\gui.rs:1021:25: warning: variables can be used directly in the `format!` string
+src\app\gui.rs:1026:25: warning: variables can be used directly in the `format!` string
+src\app\gui.rs:1032:25: warning: variables can be used directly in the `format!` string
+src\app\gui.rs:1038:25: warning: variables can be used directly in the `format!` string
+src\app\gui.rs:1678:14: warning: very complex type used. Consider factoring parts into `type` definitions
+src\app\gui.rs:1667:5: warning: this function has too many arguments (8/7)
+src\app\gui.rs:2407:54: warning: variables can be used directly in the `format!` string
+src\app\gui.rs:2633:9: warning: this `if` statement can be collapsed
+src\app\gui.rs:2639:9: warning: this `if` statement can be collapsed
+src\app\runtime.rs:74:5: warning: struct `CancellationRegistry` has a public `len` method, but no `is_empty` method
+src\app\runtime.rs:472:56: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:478:70: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:726:90: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:734:127: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:741:127: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:753:123: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:759:123: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:851:127: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:917:120: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:930:124: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:993:57: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:1161:44: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:1915:53: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:1965:77: warning: this `.filter_map(..)` can be written more simply using `.map(..)`
+src\app\telemetry.rs:80:13: warning: variables can be used directly in the `format!` string
+src\app\telemetry.rs:108:17: warning: variables can be used directly in the `format!` string
+src\engine\balance.rs:163:30: warning: variables can be used directly in the `format!` string
+src\engine\history.rs:41:5: warning: you should consider adding a `Default` implementation for `ChangeHistory`
+src\engine\layout.rs:31:5: warning: you should consider adding a `Default` implementation for `DocumentLayout`
+src\engine\number_format.rs:172:15: warning: variables can be used directly in the `format!` string
+src\engine\number_format.rs:188:9: warning: returning the result of a `let` binding from a block
+src\engine\number_format.rs:220:33: warning: variables can be used directly in the `format!` string
+src\engine\number_format.rs:221:33: warning: variables can be used directly in the `format!` string
+src\engine\number_format.rs:222:41: warning: variables can be used directly in the `format!` string
+src\engine\statement.rs:89:52: warning: variables can be used directly in the `format!` string
+src\engine\statement.rs:120:52: warning: variables can be used directly in the `format!` string
+src\engine\statement.rs:162:47: warning: variables can be used directly in the `format!` string
+src\engine\verification.rs:320:1: warning: this function has too many arguments (8/7)
+src\engine\verification.rs:351:1: warning: this function has too many arguments (9/7)
+src\engine\verification.rs:388:44: warning: variables can be used directly in the `format!` string
+src\engine\verification.rs:626:39: warning: variables can be used directly in the `format!` string
+src\engine\verification.rs:627:27: warning: variables can be used directly in the `format!` string
+src\engine\verification.rs:637:29: warning: variables can be used directly in the `format!` string
+src\engine\verification.rs:641:29: warning: variables can be used directly in the `format!` string
+src\engine\verification.rs:644:33: warning: variables can be used directly in the `format!` string
+src\engine\workflow.rs:6:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:7:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:8:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:10:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:12:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:13:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:15:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:16:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:18:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:19:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:20:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:22:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:23:5: warning: doc list item overindented: help: try using `   ` (3 spaces)
+src\engine\workflow.rs:136:19: warning: variables can be used directly in the `format!` string
+src\engine\workflow.rs:348:21: warning: variables can be used directly in the `format!` string
+src\engine\workflow.rs:546:21: warning: variables can be used directly in the `format!` string
+src\error.rs:135:32: warning: variables can be used directly in the `format!` string
+src\error.rs:136:36: warning: variables can be used directly in the `format!` string
+src\error.rs:137:34: warning: variables can be used directly in the `format!` string
+src\error.rs:138:28: warning: variables can be used directly in the `format!` string
+src\error.rs:139:33: warning: variables can be used directly in the `format!` string
+src\error.rs:140:30: warning: variables can be used directly in the `format!` string
+src\pdf\engine.rs:161:5: warning: this function has too many arguments (8/7)
+src\pdf\mupdf_engine.rs:9:5: warning: you should consider adding a `Default` implementation for `MuPdfEngine`
+src\security\software_root.rs:27:20: warning: variables can be used directly in the `format!` string
+warning: `dual-core-pdf-pipeline` (lib) generated 95 warnings (run `cargo clippy --fix --lib -p dual-core-pdf-pipeline` to apply 75 suggestions)
+    Checking dual-core-pdf-pipeline v0.4.0 (C:\Users\home\Desktop\combined bank statement and metadata cloner\bank statement modifier)
+tests\ai_live.rs:56:21: warning: variables can be used directly in the `format!` string
+src\main.rs:14:9: warning: variables can be used directly in the `format!` string
+tests\ai_live.rs:58:26: warning: variables can be used directly in the `format!` string
+tests\ai_live.rs:99:19: warning: variables can be used directly in the `format!` string
+tests\workflow_e2e.rs:122:19: warning: variables can be used directly in the `format!` string
+tests\workflow_e2e.rs:123:19: warning: variables can be used directly in the `format!` string
+warning: `dual-core-pdf-pipeline` (test "ai_live") generated 3 warnings (run `cargo clippy --fix --test "ai_live"` to apply 3 suggestions)
+warning: `dual-core-pdf-pipeline` (bin "dual-core-pdf-pipeline") generated 1 warning (run `cargo clippy --fix --bin "dual-core-pdf-pipeline"` to apply 1 suggestion)
+warning: `dual-core-pdf-pipeline` (test "workflow_e2e") generated 2 warnings (run `cargo clippy --fix --test "workflow_e2e"` to apply 2 suggestions)
+warning: `dual-core-pdf-pipeline` (bin "dual-core-pdf-pipeline" test) generated 1 warning (1 duplicate)
+src\ai\pdfrest.rs:283:18: warning: variables can be used directly in the `format!` string
+src\app\fontcache.rs:258:18: warning: this expression always evaluates to false
+src\app\runtime.rs:2121:20: warning: variables can be used directly in the `format!` string
+src\app\runtime.rs:2155:17: warning: you seem to be trying to use `match` for destructuring a single pattern. Consider using `if let`
+warning: `dual-core-pdf-pipeline` (lib test) generated 99 warnings (95 duplicates) (run `cargo clippy --fix --lib -p dual-core-pdf-pipeline --tests` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.74s

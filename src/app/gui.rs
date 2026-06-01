@@ -349,6 +349,29 @@ pub struct MyApp {
 
     // Config (read-only)
     config: std::sync::Arc<crate::app::config::AppConfig>,
+
+    // --- In-app API key / credentials editor (Settings → API keys) ---
+    /// Editable buffers, seeded from the current environment. Persisted to
+    /// `.env` and hot-reloaded into the runtime via `Job::ReloadConfig`.
+    edit_gemini_api_key: String,
+    edit_docai_project_id: String,
+    edit_docai_location: String,
+    edit_docai_processor_id: String,
+    /// Path to a Document AI service-account JSON key (best-practice auth).
+    edit_docai_service_account: String,
+    /// Optional Document AI API key (Beta), takes precedence over OAuth/SA.
+    edit_docai_api_key: String,
+    edit_pymupdf_pro_key: String,
+    /// Gemini auth mode buffer: false = API key (default), true = Vertex AI
+    /// (service-account / ADC). Persisted as `GEMINI_AUTH_MODE`.
+    edit_gemini_use_vertex: bool,
+    /// Latest credential/AI status reported by the runtime after a
+    /// `Job::ReloadConfig` (document_ai_configured, gemini_configured,
+    /// pro_editing_available). `None` until the first reload this session.
+    config_status: Option<(bool, bool, bool)>,
+    /// True once the buffers have been seeded from the environment.
+    #[allow(dead_code)]
+    api_keys_seeded: bool,
 }
 
 impl MyApp {
@@ -414,10 +437,78 @@ impl MyApp {
             workflow_cell_buffers: std::collections::HashMap::new(),
             config,
             settings,
+            // Seed API-key editor buffers from the current environment so the
+            // Settings panel shows what's active. Values are masked in the UI.
+            edit_gemini_api_key: std::env::var("GEMINI_API_KEY").unwrap_or_default(),
+            edit_docai_project_id: std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default(),
+            edit_docai_location: {
+                let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
+                if l.is_empty() { "us".to_string() } else { l }
+            },
+            edit_docai_processor_id: std::env::var("DOCUMENT_AI_PROCESSOR_ID").unwrap_or_default(),
+            edit_docai_service_account: std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default(),
+            edit_docai_api_key: std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default(),
+            edit_pymupdf_pro_key: std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default(),
+            edit_gemini_use_vertex: matches!(
+                std::env::var("GEMINI_AUTH_MODE")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "vertex" | "vertex_ai" | "vertexai"
+            ),
+            config_status: None,
+            api_keys_seeded: true,
         }
     }
 
     // -- helpers --------------------------------------------------------------
+
+    /// Persist the in-app credential buffers to `.env`, apply them to the
+    /// current process environment, and tell the runtime to hot-reload its
+    /// `AppConfig` so subsequent Document AI / Gemini / Pro jobs use the new
+    /// values without an application restart.
+    ///
+    /// Keys are upserted into `.env` (existing lines replaced in place,
+    /// missing ones appended). Empty buffers remove the override from the live
+    /// environment so a cleared field truly disables that credential.
+    fn save_credentials(&mut self) {
+        // (env var name, value) pairs to upsert.
+        let pairs: Vec<(&str, String)> = vec![
+            ("GEMINI_API_KEY", self.edit_gemini_api_key.trim().to_string()),
+            ("DOCUMENT_AI_PROJECT_ID", self.edit_docai_project_id.trim().to_string()),
+            ("DOCUMENT_AI_LOCATION", self.edit_docai_location.trim().to_string()),
+            ("DOCUMENT_AI_PROCESSOR_ID", self.edit_docai_processor_id.trim().to_string()),
+            ("GOOGLE_APPLICATION_CREDENTIALS", self.edit_docai_service_account.trim().to_string()),
+            ("DOCUMENT_AI_API_KEY", self.edit_docai_api_key.trim().to_string()),
+            ("PYMUPDF_PRO_KEY", self.edit_pymupdf_pro_key.trim().to_string()),
+            (
+                "GEMINI_AUTH_MODE",
+                if self.edit_gemini_use_vertex { "vertex".to_string() } else { "api_key".to_string() },
+            ),
+        ];
+
+        // 1) Apply to the live process environment so from_env() sees them.
+        for (k, v) in &pairs {
+            if v.is_empty() {
+                std::env::remove_var(k);
+            } else {
+                std::env::set_var(k, v);
+            }
+        }
+
+        // 2) Upsert into .env so the change survives a restart.
+        if let Err(e) = upsert_env_file(std::path::Path::new(".env"), &pairs) {
+            tracing::warn!("[gui] failed to write .env: {}", e);
+            self.toast(ToastKind::Error, format!("Could not write .env: {e}"));
+            // Still attempt the live reload below — the in-memory env is set.
+        }
+
+        // 3) Ask the runtime to hot-reload AppConfig from the environment.
+        let _ = self.job_tx.send(Job::ReloadConfig);
+        self.in_flight += 1;
+        self.toast(ToastKind::Info, "Saving credentials and reloading…");
+    }
 
     fn toast(&mut self, kind: ToastKind, msg: impl Into<String>) {
         self.toasts.push_back(Toast {
@@ -465,8 +556,7 @@ impl MyApp {
         self.in_flight += 1;
     }
 
-    fn update_recent_files(&mut self, path: String) {
-        self.settings.recent_files.retain(|f| f != &path);
+    fn update_recent_files(&mut self, path: String) {        self.settings.recent_files.retain(|f| f != &path);
         self.settings.recent_files.insert(0, path);
         if self.settings.recent_files.len() > 10 {
             self.settings.recent_files.pop();
@@ -851,8 +941,7 @@ impl MyApp {
                 self.request_render("before");
                 self.request_render("after");
             }
-            JobResult::BalanceProposed { imbalance, changes } => {
-                self.last_imbalance = Some(imbalance);
+            JobResult::BalanceProposed { imbalance, changes } => {                self.last_imbalance = Some(imbalance);
                 self.proposed_changes = changes.into_iter().map(|c| (c, true)).collect();
                 if self.proposed_changes.is_empty() {
                     self.status = "Statement is already perfectly balanced.".into();
@@ -884,6 +973,41 @@ impl MyApp {
                         format!("Applied {changes_applied} ({} failures)", failures.len()),
                     );
                 }
+                // Statement may have changed on disk; refresh the views.
+                self.request_render("current");
+                self.request_render("before");
+                self.request_render("after");
+            }
+            JobResult::ConfigReloaded {
+                document_ai_configured,
+                gemini_configured,
+                pro_editing_available,
+            } => {
+                self.config_status =
+                    Some((document_ai_configured, gemini_configured, pro_editing_available));
+                let mut parts = Vec::new();
+                parts.push(format!(
+                    "Document AI {}",
+                    if document_ai_configured { "✓" } else { "✗" }
+                ));
+                parts.push(format!(
+                    "Gemini {}",
+                    if gemini_configured { "✓" } else { "✗" }
+                ));
+                parts.push(format!(
+                    "Pro editing {}",
+                    if pro_editing_available { "✓" } else { "✗" }
+                ));
+                let summary = parts.join(" · ");
+                self.status = format!("Credentials reloaded: {summary}");
+                self.toast(
+                    if document_ai_configured && gemini_configured {
+                        ToastKind::Success
+                    } else {
+                        ToastKind::Warn
+                    },
+                    format!("Credentials reloaded — {summary}"),
+                );
             }
             JobResult::TransactionsExtracted(txs) => {
                 self.toast(
@@ -1180,6 +1304,28 @@ impl MyApp {
 
     fn draw_status_bar(&self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            // Global progress: a labeled bar with percentage shown whenever a
+            // job is running (explicit Progress updates) or any job is in
+            // flight (spinner fallback for jobs that don't stream progress).
+            if let Some((label, fraction)) = self.progress.clone() {
+                let pct = (fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
+                ui.add(
+                    egui::ProgressBar::new(fraction.clamp(0.0, 1.0))
+                        .desired_width(ui.available_width())
+                        .text(format!("{label} — {pct}%")),
+                );
+                ui.add_space(2.0);
+            } else if self.in_flight > 0 {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new());
+                    ui.small(format!(
+                        "Working… ({} task{} in progress)",
+                        self.in_flight,
+                        if self.in_flight == 1 { "" } else { "s" }
+                    ));
+                });
+                ui.add_space(2.0);
+            }
             ui.horizontal(|ui| {
                 ui.small(&self.status);
                 ui.separator();
@@ -1295,6 +1441,84 @@ impl MyApp {
                             self.toast(ToastKind::Info, format!("Queued edit ({} pending)", self.workflow_edits.len()));
                         }
                     });
+
+                    // "Adjust entire bank statement accordingly and apply all
+                    // edits": run the Smart Balance Engine over the whole
+                    // document and auto-apply every proposed adjustment so the
+                    // running balances stay internally consistent after edits.
+                    ui.add_space(4.0);
+                    let adjust_btn = ui.add_sized(
+                        [ui.available_width(), 28.0],
+                        egui::Button::new("⚖ Adjust entire bank statement accordingly and apply all edits"),
+                    );
+                    if adjust_btn
+                        .on_hover_text(
+                            "Runs Document AI + Gemini across the whole statement, computes the minimal set of balancing adjustments, and applies them all to the PDF in one pass.",
+                        )
+                        .clicked()
+                    {
+                        let input = if self.current_pdf_path.exists() {
+                            self.current_pdf_path.clone()
+                        } else {
+                            PathBuf::from(&self.input_path)
+                        };
+                        if input.as_os_str().is_empty() || !input.exists() {
+                            self.toast(ToastKind::Error, "Open a PDF first.");
+                        } else {
+                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+                                input,
+                                output: PathBuf::from(&self.output_path),
+                                auto_apply: true,
+                            });
+                            self.in_flight += 1;
+                            self.status = "Adjusting entire statement and applying all edits…".into();
+                            self.toast(ToastKind::Info, "Adjusting entire statement…");
+                        }
+                    }
+
+                    // "Preview Balance-Out Adjustments": same cascade engine,
+                    // but STOPS at the proposal stage so the user can review
+                    // every cascaded change (which can span many pages — often
+                    // more than 3 pages from the edited row) before committing.
+                    // Editing one amount recomputes every subsequent running
+                    // balance, so this surfaces the full set of downstream
+                    // changes for approval. Results appear in the
+                    // "⚖ Smart Balance Engine" panel as a checklist with an
+                    // "Apply approved" button.
+                    ui.add_space(2.0);
+                    let preview_btn = ui.add_sized(
+                        [ui.available_width(), 26.0],
+                        egui::Button::new("🔍 Preview Balance-Out Adjustments"),
+                    );
+                    if preview_btn
+                        .on_hover_text(
+                            "Recompute the whole statement after your edits and PREVIEW every cascaded balance change (may span many pages) before applying. Review the list in the Smart Balance Engine panel, then 'Apply approved'.",
+                        )
+                        .clicked()
+                    {
+                        let input = if self.current_pdf_path.exists() {
+                            self.current_pdf_path.clone()
+                        } else {
+                            PathBuf::from(&self.input_path)
+                        };
+                        if input.as_os_str().is_empty() || !input.exists() {
+                            self.toast(ToastKind::Error, "Open a PDF first.");
+                        } else {
+                            // auto_apply: false → emits BalanceProposed only;
+                            // proposals render as an approve-then-apply checklist.
+                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+                                input,
+                                output: PathBuf::from(&self.output_path),
+                                auto_apply: false,
+                            });
+                            self.in_flight += 1;
+                            self.status = "Previewing balance-out adjustments…".into();
+                            self.toast(
+                                ToastKind::Info,
+                                "Computing balance-out preview — review proposals in the Smart Balance Engine panel.",
+                            );
+                        }
+                    }
                 } else {
                     ui.weak("Click any text on the canvas to edit.");
                 }
@@ -1483,9 +1707,151 @@ impl MyApp {
                                 }
                             }
                         }
+
+                        ui.add_space(10.0);
+                        self.draw_api_keys_editor(ui);
                     });
                 });
             });
+    }
+
+    /// Settings → API keys & credentials editor.
+    ///
+    /// Lets the user view/update the Gemini key, Document AI processor
+    /// coordinates, the service-account JSON path (best-practice auth), an
+    /// optional Document AI API key, and the PyMuPDF Pro key — then persist
+    /// them to `.env`, push them into the process environment, and hot-reload
+    /// the runtime config (`Job::ReloadConfig`) so they take effect with no
+    /// restart.
+    fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("🔑 API keys & credentials", |ui| {
+            ui.small("Stored in .env (gitignored). Applied live — no restart needed.");
+            ui.add_space(4.0);
+
+            egui::Grid::new("api_keys_grid")
+                .num_columns(2)
+                .spacing([8.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Gemini API key:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.edit_gemini_api_key)
+                            .password(true)
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text("AI Studio key (AIza…). Used for completeness + vision checks.");
+                    ui.end_row();
+
+                    ui.label("Gemini auth mode:");
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.edit_gemini_use_vertex, false, "API key");
+                        ui.selectable_value(&mut self.edit_gemini_use_vertex, true, "Vertex AI");
+                    });
+                    ui.end_row();
+
+                    ui.label("Doc AI project ID:");
+                    ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
+                    ui.end_row();
+
+                    ui.label("Doc AI location:");
+                    ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
+                        .on_hover_text("e.g. 'us' or 'eu' — must match the processor region.");
+                    ui.end_row();
+
+                    ui.label("Doc AI processor ID:");
+                    ui.add(egui::TextEdit::singleline(&mut self.edit_docai_processor_id).desired_width(220.0))
+                        .on_hover_text("The Bank Statement parser or Custom Extractor processor ID.");
+                    ui.end_row();
+
+                    ui.label("Service account JSON:");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
+                            .on_hover_text("Path to the service-account key JSON (best-practice auth).");
+                        if ui.button("Browse…").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("JSON", &["json"])
+                                .pick_file()
+                            {
+                                self.edit_docai_service_account = path.to_string_lossy().into_owned();
+                            }
+                        }
+                    });
+                    ui.end_row();
+
+                    ui.label("Doc AI API key (opt):");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.edit_docai_api_key)
+                            .password(true)
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text("Optional Beta API key; takes precedence over OAuth/SA.");
+                    ui.end_row();
+
+                    ui.label("PyMuPDF Pro key:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.edit_pymupdf_pro_key)
+                            .password(true)
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text("24-char 'hFKt…' trial key enables per-segment Pro editing.");
+                    ui.end_row();
+                });
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .button("💾 Save & apply keys")
+                    .on_hover_text("Write .env, update the environment, and hot-reload the engine")
+                    .clicked()
+                {
+                    self.save_credentials();
+                }
+                if ui
+                    .button("↻ Reload from env")
+                    .on_hover_text("Discard edits and re-read the current environment")
+                    .clicked()
+                {
+                    self.edit_gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+                    self.edit_docai_project_id = std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default();
+                    self.edit_docai_location = {
+                        let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
+                        if l.is_empty() { "us".to_string() } else { l }
+                    };
+                    self.edit_docai_processor_id = std::env::var("DOCUMENT_AI_PROCESSOR_ID").unwrap_or_default();
+                    self.edit_docai_service_account = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default();
+                    self.edit_docai_api_key = std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default();
+                    self.edit_pymupdf_pro_key = std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default();
+                    self.edit_gemini_use_vertex = matches!(
+                        std::env::var("GEMINI_AUTH_MODE")
+                            .unwrap_or_default()
+                            .trim()
+                            .to_ascii_lowercase()
+                            .as_str(),
+                        "vertex" | "vertex_ai" | "vertexai"
+                    );
+                    self.toast(ToastKind::Info, "Reloaded keys from environment");
+                }
+            });
+
+            // Live credential status reported by the runtime after the last
+            // Save & apply (Job::ReloadConfig → JobResult::ConfigReloaded).
+            if let Some((doc_ai, gemini, pro)) = self.config_status {
+                ui.add_space(4.0);
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    let mark = |ok: bool| if ok { "✓" } else { "✗" };
+                    ui.small(format!("Document AI {}", mark(doc_ai)));
+                    ui.separator();
+                    ui.small(format!("Gemini {}", mark(gemini)));
+                    ui.separator();
+                    ui.small(format!("Pro editing {}", mark(pro)));
+                });
+            }
+            if self.edit_gemini_use_vertex {
+                ui.small(
+                    "Vertex mode reuses the Document AI service-account JSON (or ADC) and the project/location above. No separate key needed.",
+                );
+            }
+        });
     }
 
     /// Stage 5 / Item #6 + #8: inline editable table of parsed transactions.
@@ -2912,6 +3278,58 @@ impl MyApp {
         }
     }
 }
+
+/// Upsert `pairs` (env var name → value) into a dotenv file at `path`.
+///
+/// Existing `KEY=...` lines are replaced in place (preserving order and
+/// unrelated lines/comments); keys not present are appended. A key whose
+/// value is empty is written as `KEY=` so the file documents that it was
+/// intentionally cleared (the live process env already had it removed by the
+/// caller). Creates the file if it does not exist.
+fn upsert_env_file(path: &std::path::Path, pairs: &[(&str, String)]) -> std::io::Result<()> {
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+
+    // Track which keys we've already written so leftovers get appended.
+    let mut remaining: std::collections::HashMap<&str, &String> =
+        pairs.iter().map(|(k, v)| (*k, v)).collect();
+
+    let mut out_lines: Vec<String> = Vec::new();
+    for line in existing.lines() {
+        let trimmed = line.trim_start();
+        // Leave comments and blank lines untouched.
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out_lines.push(line.to_string());
+            continue;
+        }
+        if let Some(eq) = trimmed.find('=') {
+            let key = trimmed[..eq].trim();
+            if let Some(val) = remaining.remove(key) {
+                out_lines.push(format!("{key}={val}"));
+                continue;
+            }
+        }
+        out_lines.push(line.to_string());
+    }
+
+    // Append any keys that weren't already present.
+    if !remaining.is_empty() {
+        // Deterministic order for the appended block.
+        let mut appended: Vec<(&str, &String)> = pairs
+            .iter()
+            .filter(|(k, _)| remaining.contains_key(*k))
+            .map(|(k, v)| (*k, v))
+            .collect();
+        appended.dedup_by(|a, b| a.0 == b.0);
+        for (k, v) in appended {
+            out_lines.push(format!("{k}={v}"));
+        }
+    }
+
+    let mut contents = out_lines.join("\n");
+    contents.push('\n');
+    std::fs::write(path, contents)
+}
+
 
 // ---------------------------------------------------------------------------
 // Entry point

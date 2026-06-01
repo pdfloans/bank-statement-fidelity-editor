@@ -1,4 +1,4 @@
-use crate::app::config::AppConfig;
+use crate::app::config::{AppConfig, GeminiAuthMode};
 use crate::engine::layout::DocumentLayout;
 use crate::engine::model::Transaction;
 use reqwest::{Client, StatusCode};
@@ -94,6 +94,10 @@ impl GeminiVisionReport {
 pub enum GeminiError {
     #[error("Missing Configuration: GEMINI_API_KEY")]
     MissingKey,
+    #[error("Missing Vertex AI configuration: DOCUMENT_AI_PROJECT_ID (+ location) and a service-account/ADC credential are required for Vertex mode")]
+    MissingVertexConfig,
+    #[error("Vertex AI auth error: {0}")]
+    Vertex(String),
     #[error("HTTP Error: {0}")]
     Http(#[from] reqwest::Error),
     #[error("API Error (HTTP {0}): {1}")]
@@ -108,16 +112,181 @@ pub struct GeminiClient {
     api_key: String,
     http: Client,
     base_url: String,
+    /// How this client authenticates and which endpoint family it targets.
+    auth: GeminiAuth,
+}
+
+/// The best available Gemini **Pro** model id, tried first for all reasoning
+/// and vision calls.
+///
+/// `gemini-3.1-pro-preview` is Google's most advanced reasoning model and the
+/// designated replacement for the now-shutdown `gemini-3-pro-preview`
+/// (retired Mar 9, 2026). Google specifically calls out its agentic
+/// improvements "in domains like finance and spreadsheet applications", which
+/// is exactly this statement-balancing workload — so it's both the most
+/// capable and the most specialized fit. There is no separate finance-specific
+/// `generateContent` model; this is it.
+const GEMINI_PRO_MODEL: &str = "gemini-3.1-pro-preview";
+
+/// GA Pro fallback if the preview frontier model isn't enabled for a given
+/// project/key (some projects must allowlist preview models). Still a top-tier
+/// reasoning model and generally available on Vertex AI + the AI Studio API.
+const GEMINI_PRO_FALLBACK: &str = "gemini-2.5-pro";
+
+/// Last-resort flash fallback when neither Pro model is available for this
+/// key/project (403/404).
+const GEMINI_FLASH_FALLBACK: &str = "gemini-2.5-flash";
+
+/// Resolved authentication strategy for a `GeminiClient`.
+#[derive(Clone)]
+enum GeminiAuth {
+    /// AI Studio API key, appended as `?key=...` to the public endpoint.
+    ApiKey,
+    /// Vertex AI: a Google Cloud OAuth bearer token (minted from a service
+    /// account or ADC) sent as `Authorization: Bearer`, targeting the
+    /// regional `{location}-aiplatform.googleapis.com` endpoint for
+    /// `projects/{project}/locations/{location}/publishers/google/models`.
+    Vertex {
+        project_id: String,
+        location: String,
+        access_token: String,
+    },
 }
 
 impl GeminiClient {
     pub fn from_app_config(cfg: &AppConfig) -> Result<Self, GeminiError> {
-        let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
-        Ok(Self {
-            api_key,
-            http: Client::new(),
-            base_url: "https://generativelanguage.googleapis.com".into(),
-        })
+        match cfg.gemini_auth_mode {
+            GeminiAuthMode::Vertex => {
+                // Vertex needs a GCP project + location and an OAuth token,
+                // which we mint from the same Document AI service-account / ADC
+                // credentials. This keeps a single GCP identity for both APIs.
+                let doc_ai = cfg
+                    .document_ai
+                    .clone()
+                    .ok_or(GeminiError::MissingVertexConfig)?;
+                if doc_ai.project_id.is_empty() {
+                    return Err(GeminiError::MissingVertexConfig);
+                }
+                let location = if doc_ai.location.is_empty() {
+                    "us-central1".to_string()
+                } else {
+                    doc_ai.location.clone()
+                };
+                let access_token = mint_gcp_access_token(&doc_ai)
+                    .map_err(|e| GeminiError::Vertex(format!("token mint failed: {e}")))?;
+                let base_url = format!("https://{location}-aiplatform.googleapis.com");
+                Ok(Self {
+                    api_key: String::new(),
+                    http: Client::new(),
+                    base_url,
+                    auth: GeminiAuth::Vertex {
+                        project_id: doc_ai.project_id,
+                        location,
+                        access_token,
+                    },
+                })
+            }
+            GeminiAuthMode::ApiKey => {
+                let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
+                Ok(Self {
+                    api_key,
+                    http: Client::new(),
+                    base_url: "https://generativelanguage.googleapis.com".into(),
+                    auth: GeminiAuth::ApiKey,
+                })
+            }
+        }
+    }
+
+    /// Build the `generateContent` URL for `model` and return it alongside an
+    /// optional bearer token to attach as an `Authorization` header.
+    ///
+    /// This is the single place that differs between the AI Studio API-key
+    /// endpoint and the Vertex AI endpoint, so every request method routes
+    /// through it and stays auth-agnostic.
+    fn endpoint(&self, model: &str) -> (String, Option<String>) {
+        match &self.auth {
+            GeminiAuth::ApiKey => (
+                format!(
+                    "{}/v1beta/models/{}:generateContent?key={}",
+                    self.base_url, model, self.api_key
+                ),
+                None,
+            ),
+            GeminiAuth::Vertex {
+                project_id,
+                location,
+                access_token,
+            } => (
+                format!(
+                    "{}/v1/projects/{}/locations/{}/publishers/google/models/{}:generateContent",
+                    self.base_url, project_id, location, model
+                ),
+                Some(access_token.clone()),
+            ),
+        }
+    }
+
+    /// POST `body` to `model`'s endpoint, attaching the right auth for the
+    /// active mode (query-param API key or bearer token).
+    async fn post_generate(
+        &self,
+        model: &str,
+        body: &serde_json::Value,
+    ) -> Result<reqwest::Response, GeminiError> {
+        let (url, bearer) = self.endpoint(model);
+        let mut req = self.http.post(&url).json(body);
+        if let Some(token) = bearer {
+            req = req.bearer_auth(token);
+        }
+        Ok(req.send().await?)
+    }
+
+    /// POST to the best available **Pro** model, with a graceful fallback
+    /// chain. Tries the frontier preview model first, then the GA Pro model
+    /// (for projects/keys that haven't allowlisted preview models, or whose
+    /// free tier has no quota for the preview model — HTTP 429), then flash
+    /// as a last resort. All reasoning and vision calls go through here so they
+    /// always prefer Pro — never the old flash-by-default behavior.
+    async fn post_generate_pro(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<reqwest::Response, GeminiError> {
+        // A model is "unavailable for this key/project" when access is denied
+        // (403), the model id isn't served (404), or the key has no quota for
+        // it (429 — common on the AI Studio free tier for preview models).
+        fn should_fall_back(status: StatusCode) -> bool {
+            status == StatusCode::FORBIDDEN
+                || status == StatusCode::NOT_FOUND
+                || status == StatusCode::TOO_MANY_REQUESTS
+        }
+
+        // Tier 1: frontier preview Pro (best, finance-tuned).
+        let response = self.post_generate(GEMINI_PRO_MODEL, body).await?;
+        if !should_fall_back(response.status()) {
+            return Ok(response);
+        }
+        tracing::warn!(
+            "[gemini] Pro model '{}' unavailable ({}); falling back to GA '{}'",
+            GEMINI_PRO_MODEL,
+            response.status(),
+            GEMINI_PRO_FALLBACK
+        );
+
+        // Tier 2: GA Pro.
+        let response = self.post_generate(GEMINI_PRO_FALLBACK, body).await?;
+        if !should_fall_back(response.status()) {
+            return Ok(response);
+        }
+        tracing::warn!(
+            "[gemini] GA Pro '{}' unavailable ({}); falling back to flash '{}'",
+            GEMINI_PRO_FALLBACK,
+            response.status(),
+            GEMINI_FLASH_FALLBACK
+        );
+
+        // Tier 3: flash, last resort.
+        Ok(self.post_generate(GEMINI_FLASH_FALLBACK, body).await?)
     }
 
     // Internal method for testing
@@ -127,6 +296,7 @@ impl GeminiClient {
             api_key,
             http: Client::new(),
             base_url,
+            auth: GeminiAuth::ApiKey,
         }
     }
 
@@ -181,12 +351,7 @@ impl GeminiClient {
             }
         });
 
-        let url = format!(
-            "{}/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-            self.base_url, self.api_key
-        );
-
-        let response = self.http.post(&url).json(&body).send().await?;
+        let response = self.post_generate_pro(&body).await?;
 
         if !response.status().is_success() {
             return Err(GeminiError::Api(
@@ -254,12 +419,7 @@ impl GeminiClient {
             }
         });
 
-        let url = format!(
-            "{}/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-            self.base_url, self.api_key
-        );
-
-        let response = self.http.post(&url).json(&body).send().await?;
+        let response = self.post_generate_pro(&body).await?;
         if !response.status().is_success() {
             return Err(GeminiError::Api(
                 response.status(),
@@ -351,25 +511,9 @@ impl GeminiClient {
             }
         });
 
-        // Vision benefits from the more capable Pro model; fall back to flash
-        // if the user's key doesn't have Pro access.
-        let url = format!(
-            "{}/v1beta/models/gemini-2.5-pro:generateContent?key={}",
-            self.base_url, self.api_key
-        );
-        let response = self.http.post(&url).json(&body).send().await?;
-        let response = if response.status() == StatusCode::FORBIDDEN
-            || response.status() == StatusCode::NOT_FOUND
-        {
-            tracing::warn!("[gemini] vision pro endpoint rejected; retrying on flash");
-            let flash_url = format!(
-                "{}/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-                self.base_url, self.api_key
-            );
-            self.http.post(&flash_url).json(&body).send().await?
-        } else {
-            response
-        };
+        // Vision benefits from the most capable Pro model; the helper falls
+        // back to flash automatically if Pro is unavailable for this key.
+        let response = self.post_generate_pro(&body).await?;
 
         if !response.status().is_success() {
             return Err(GeminiError::Api(
@@ -384,6 +528,124 @@ impl GeminiClient {
         serde_json::from_str(report_text)
             .map_err(|e| GeminiError::InvalidResponse(format!("vision JSON parse: {}", e)))
     }
+}
+
+/// Mint a short-lived Google Cloud OAuth access token (scope
+/// `cloud-platform`) for Vertex AI, from the same credentials the Document AI
+/// client uses. Prefers an explicit service-account JSON key
+/// (`service_account_path`); falls back to an ADC `authorized_user` file
+/// (`adc_path`). Returns the bearer token string.
+///
+/// This is a synchronous, one-shot exchange (used at client construction)
+/// implemented with `reqwest::blocking` so `from_app_config` stays non-async.
+fn mint_gcp_access_token(
+    doc_ai: &crate::app::config::DocumentAiConfig,
+) -> Result<String, String> {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|e| format!("clock error: {e}"))?;
+
+    let http = reqwest::blocking::Client::new();
+
+    // Preferred: service-account JWT-bearer grant.
+    if !doc_ai.service_account_path.is_empty() {
+        let key_content = std::fs::read_to_string(&doc_ai.service_account_path)
+            .map_err(|e| format!("read service account: {e}"))?;
+        let sa: serde_json::Value =
+            serde_json::from_str(&key_content).map_err(|e| format!("parse SA json: {e}"))?;
+        let client_email = sa["client_email"]
+            .as_str()
+            .ok_or("service account missing client_email")?;
+        let private_key = sa["private_key"]
+            .as_str()
+            .ok_or("service account missing private_key")?;
+
+        #[derive(Serialize)]
+        struct Claims {
+            iss: String,
+            scope: String,
+            aud: String,
+            iat: u64,
+            exp: u64,
+        }
+        let claims = Claims {
+            iss: client_email.to_string(),
+            scope: "https://www.googleapis.com/auth/cloud-platform".to_string(),
+            aud: "https://oauth2.googleapis.com/token".to_string(),
+            iat: now,
+            exp: now + 3600,
+        };
+        let mut header = Header::new(Algorithm::RS256);
+        header.typ = Some("JWT".to_string());
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
+            .map_err(|e| format!("bad private key: {e}"))?;
+        let signed = encode(&header, &claims, &encoding_key)
+            .map_err(|e| format!("jwt sign: {e}"))?;
+
+        let resp = http
+            .post("https://oauth2.googleapis.com/token")
+            .form(&[
+                ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+                ("assertion", &signed),
+            ])
+            .send()
+            .map_err(|e| format!("token request: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!(
+                "token endpoint {}: {}",
+                resp.status(),
+                resp.text().unwrap_or_default()
+            ));
+        }
+        let v: serde_json::Value = resp.json().map_err(|e| format!("token json: {e}"))?;
+        return v["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "token response missing access_token".to_string());
+    }
+
+    // Fallback: ADC authorized_user refresh-token grant.
+    if !doc_ai.adc_path.is_empty() {
+        let raw = std::fs::read_to_string(&doc_ai.adc_path)
+            .map_err(|e| format!("read ADC: {e}"))?;
+        let adc: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("parse ADC json: {e}"))?;
+        let client_id = adc["client_id"].as_str().ok_or("ADC missing client_id")?;
+        let client_secret = adc["client_secret"]
+            .as_str()
+            .ok_or("ADC missing client_secret")?;
+        let refresh_token = adc["refresh_token"]
+            .as_str()
+            .ok_or("ADC missing refresh_token")?;
+        let resp = http
+            .post("https://oauth2.googleapis.com/token")
+            .form(&[
+                ("grant_type", "refresh_token"),
+                ("client_id", client_id),
+                ("client_secret", client_secret),
+                ("refresh_token", refresh_token),
+            ])
+            .send()
+            .map_err(|e| format!("ADC token request: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!(
+                "ADC token endpoint {}: {}",
+                resp.status(),
+                resp.text().unwrap_or_default()
+            ));
+        }
+        let v: serde_json::Value = resp.json().map_err(|e| format!("ADC token json: {e}"))?;
+        return v["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "ADC token response missing access_token".to_string());
+    }
+
+    Err("Vertex mode needs a service-account JSON (GOOGLE_APPLICATION_CREDENTIALS) or ADC".into())
 }
 
 #[cfg(test)]
@@ -453,7 +715,7 @@ mod tests {
         let server = MockServer::start().await;
 
         Mock::given(method("POST"))
-            .and(path("/v1beta/models/gemini-2.5-flash:generateContent"))
+            .and(path("/v1beta/models/gemini-2.5-pro:generateContent"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "candidates": [{
                     "content": {

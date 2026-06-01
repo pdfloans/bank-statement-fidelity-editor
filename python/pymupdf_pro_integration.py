@@ -2254,24 +2254,39 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
         except Exception as e:
             print(f"[replace] supplied font load failed: {e}", file=sys.stderr)
 
-    # 4. Hard fail when no font can render the new text. Caller is expected to
-    #    surface this so the user can either pick a different font or trigger
-    #    deep font replication for the missing glyphs.
+    # 4. No embedded/supplied font covers the new text. Per Req 18.6, do NOT
+    #    hard-fail: complete the edit with a weight/style-matched standard-14
+    #    builtin (which always covers ASCII digits, $ , . - and spaces — the
+    #    character set of every bank-statement amount) and flag the cell for
+    #    review. This mirrors apply_many_edits and keeps the single-edit
+    #    "Apply Edit" button working on subsetted fonts (Aeonik, INGMe, etc.)
+    #    that lack the new glyphs in their embedded subset.
+    review_fallback = False
     if not coverage_ok:
-        doc.close()
-        err = {
-            "error": "FONT_COVERAGE_INSUFFICIENT",
-            "original_font": original_font_name,
-            "missing_chars": missing_chars,
-            "new_text": new_text,
-        }
-        raise ValueError(json.dumps(err))
+        emit_fontname = _fallback_standard14(original_font_name)
+        try:
+            measure_font = pymupdf.Font(fontname=emit_fontname)
+        except Exception:
+            measure_font = None
+        method = "std14-fallback"
+        coverage_ok = True  # the builtin renders WinAnsi (covers the amount)
+        review_fallback = True
+        print(
+            f"[replace] no embedded/supplied coverage for {original_font_name!r} "
+            f"(missing {missing_chars}); using weight/style-matched builtin "
+            f"{emit_fontname!r} (cell flagged for review)",
+            file=sys.stderr,
+        )
 
     # Decide the name `insert_text` will draw with and the Font we measure
     # with. For the embedded path, prefer the re-embedded buffer refname;
     # only when that registration failed do we drop to a weight/style-matched
     # standard-14 (Item #4) — never a blind Helvetica.
-    if method == "supplied":
+    if review_fallback:
+        # emit_fontname / measure_font already chosen by the step-4 std14
+        # fallback above; don't override them.
+        pass
+    elif method == "supplied":
         emit_fontname = insert_font_name
         measure_font = supplied_measure_font
     elif is_std14:
@@ -2434,6 +2449,10 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
         "missing_chars": missing_chars,
         "right_aligned": placement["is_right_aligned"],
         "char_spacing": placement["char_spacing"],
+        # True when the edit completed via a standard-14 fallback because the
+        # embedded/supplied font lacked coverage (Req 18.6) — the cell should
+        # be flagged for visual review even though the edit succeeded.
+        "review": bool(review_fallback) or method in ("std14-fallback", "embedded-fallback"),
     }
 
 
@@ -2508,6 +2527,17 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
             except (TypeError, AttributeError):
                 page.apply_redactions()
             methods.append("no-text")
+            # Improvement #3: the user supplied replacement text but the target
+            # rect overlaps NO text span, so nothing was written — only a blank
+            # redaction. Surface this as a review flag + warning rather than a
+            # silent "success", so the caller/GUI knows the edit had no target.
+            if new_text.strip():
+                review_flag_pages.add(page_num)
+                warnings.append(
+                    f"edit {idx}: target rect {rect} overlaps no text on page "
+                    f"{page_num}; new_text was not placed (blank redaction only). "
+                    f"Check the bounding box."
+                )
             continue
 
         original_size = float(span.get("size", 10.0)) or 10.0
