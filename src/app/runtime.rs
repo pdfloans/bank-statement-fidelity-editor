@@ -240,6 +240,8 @@ pub enum Job {
         output: PathBuf,
         auto_apply: bool,
     },
+    /// Cleanup orphaned temporary files from crash recovery
+    CleanupTempFiles,
 
     // ----- Multi-stage workflow -------------------------------------------
     /// Stage 1: parse with Document AI then validate completeness with Gemini.
@@ -501,6 +503,8 @@ impl Runtime {
                             }
                         };
                         let _ = reply_tx.send(final_res);
+                        // Stage 2 Memory Management: explicit collection
+                        crate::ai::pyo3_bridge::PyEngine::garbage_collect();
                     }
                     Err(e) => {
                         let _ = reply_tx.send(PythonJobResult::Error(format!(
@@ -529,6 +533,9 @@ impl Runtime {
         // takes effect on subsequent jobs without an application restart.
         let config_holder: Arc<Mutex<Arc<crate::app::config::AppConfig>>> =
             Arc::new(Mutex::new(config.clone()));
+
+        let api_semaphore = Arc::new(tokio::sync::Semaphore::new(3));
+        let _ = tokio_job_tx_clone.send(Job::CleanupTempFiles);
 
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
@@ -948,8 +955,12 @@ impl Runtime {
                         let res_tx = result_tx_clone.clone();
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
-                        
+                        let semaphore = api_semaphore.clone();
+
                         tokio::spawn(async move {
+                            let _permit = semaphore.acquire().await.unwrap();
+                            let _ = res_tx.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
+
                             let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                 Ok(c) => Arc::new(c),
                                 Err(_) => {
@@ -991,8 +1002,10 @@ impl Runtime {
                         let res_tx = result_tx_clone.clone();
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
+                        let semaphore = api_semaphore.clone();
                         
                         tokio::spawn(async move {
+                            let _permit = semaphore.acquire().await.unwrap();
                             let _ = res_tx.send(JobResult::Progress { label: "Smart Balance Analysis".to_string(), fraction: 0.1 });
                             
                             let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
@@ -1052,8 +1065,10 @@ impl Runtime {
                         let res_tx = result_tx_clone.clone();
                         let job_tx_ref = tokio_job_tx_clone.clone();
                         let py_tx = python_tx_clone.clone();
+                        let semaphore = api_semaphore.clone();
 
                         tokio::spawn(async move {
+                            let _permit = semaphore.acquire().await.unwrap();
                             // Determine page count: cascaded balance changes
                             // routinely land MANY pages from the edited row —
                             // often >3 pages away. A direct full-document apply
@@ -1241,6 +1256,26 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Error { job_label: "export_history".into(), message: e });
                         });
                     }
+                    Job::CleanupTempFiles => {
+                        tokio::task::spawn_blocking(|| {
+                            let now = std::time::SystemTime::now();
+                            for dir in &["output", "audit"] {
+                                if let Ok(entries) = std::fs::read_dir(dir) {
+                                    for entry in entries.flatten() {
+                                        if let Ok(meta) = entry.metadata() {
+                                            if let Ok(modified) = meta.modified() {
+                                                if let Ok(age) = now.duration_since(modified) {
+                                                    if age.as_secs() > 86400 {
+                                                        let _ = std::fs::remove_file(entry.path());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
                     Job::Cancel { id } => {
                         let cancelled = cancellations_for_loop.cancel(id);
                         if cancelled {
@@ -1252,9 +1287,6 @@ impl Runtime {
                     }
                     Job::ReloadConfig => {
                         let res_tx = result_tx_clone.clone();
-                        // Re-read AppConfig from the current process environment
-                        // (the GUI has just written .env and called set_var) and
-                        // swap it into the live holder so subsequent jobs use it.
                         match crate::app::config::AppConfig::from_env() {
                             Ok(new_cfg) => {
                                 let document_ai_configured = new_cfg.document_ai.is_some();
@@ -1282,8 +1314,10 @@ impl Runtime {
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
                         let job_tx_ref = tokio_job_tx_clone.clone();
+                        let semaphore = api_semaphore.clone();
 
                         tokio::spawn(async move {
+                            let _permit = semaphore.acquire().await.unwrap();
                             let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statement…".to_string(), fraction: 0.1 });
 
                             let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {

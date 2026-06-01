@@ -306,6 +306,7 @@ impl GeminiClient {
         imbalance: f64,
         layout: &DocumentLayout,
     ) -> Result<GeminiBalancePlan, GeminiError> {
+        let scrubbed = scrub_pii(transactions);
         let prompt = format!(
             "You are an expert financial auditor.\n\
              A bank statement has a mathematical imbalance of ${:.2}.\n\
@@ -313,7 +314,7 @@ impl GeminiClient {
              Transactions: {}\n\
              Document layout summary: {} pages.",
             imbalance,
-            serde_json::to_string(transactions).unwrap_or_default(),
+            serde_json::to_string(&scrubbed).unwrap_or_default(),
             layout.total_pages
         );
 
@@ -385,6 +386,7 @@ impl GeminiClient {
         closing_balance: f64,
         total_pages: usize,
     ) -> Result<GeminiCompletenessReport, GeminiError> {
+        let scrubbed = scrub_pii(transactions);
         let prompt = format!(
             "You are a bank-statement auditor. Document AI extracted the \
              following transactions from a {} page statement.\n\n\
@@ -397,7 +399,7 @@ impl GeminiClient {
             total_pages,
             opening_balance,
             closing_balance,
-            serde_json::to_string(transactions).unwrap_or_default(),
+            serde_json::to_string(&scrubbed).unwrap_or_default(),
         );
 
         let schema = json!({
@@ -805,4 +807,17 @@ mod tests {
         assert!(!report.should_reject(&[], 0.15));
         assert!(!report.should_reject(&[[0.0, 0.0, 100.0, 100.0]], 0.15));
     }
+}
+
+/// Helper function to redact PII (like account numbers) from transactions before
+/// sending them to the cloud for analysis. Gemini only needs the math, not the PII.
+fn scrub_pii(transactions: &[Transaction]) -> Vec<Transaction> {
+    // Basic scrubbing: replace sequences of 6+ digits (potential account/routing numbers)
+    let re_digits = regex::Regex::new(r"\b\d{6,}\b").unwrap();
+    
+    transactions.iter().map(|t| {
+        let mut scrubbed = t.clone();
+        scrubbed.raw_text = re_digits.replace_all(&scrubbed.raw_text, "[REDACTED_ACCOUNT]").into_owned();
+        scrubbed
+    }).collect()
 }

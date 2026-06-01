@@ -354,4 +354,12 @@ impl PyEngine {
             )
         })
     }
+
+    /// Force Python garbage collection.
+    /// Stage 2 Memory Management: explicit collection to prevent OOM in batch processing.
+    pub fn garbage_collect() {
+        if let Err(e) = Python::with_gil(|py| py.run_bound("import gc; gc.collect()", None, None)) {
+            tracing::warn!("Failed to run Python GC: {}", e);
+        }
+    }
 }
