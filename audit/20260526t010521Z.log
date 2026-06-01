@@ -1,1 +1,0 @@
-audit_v1 ts=2026-05-26T01:05:22.912742300+00:00 page=0 id=1779757522906 old="Statement" new="REDACTED" op=manual prov=Manual bbox=[10,10,100,100] in="examples/sample.pdf" out="output/test.pdf" review=true
