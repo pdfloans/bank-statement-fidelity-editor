@@ -109,7 +109,7 @@ pub enum GeminiError {
 }
 
 pub struct GeminiClient {
-    api_key: String,
+    api_keys: Vec<String>,
     http: Client,
     base_url: String,
     /// How this client authenticates and which endpoint family it targets.
@@ -176,7 +176,7 @@ impl GeminiClient {
                     .map_err(|e| GeminiError::Vertex(format!("token mint failed: {e}")))?;
                 let base_url = format!("https://{location}-aiplatform.googleapis.com");
                 Ok(Self {
-                    api_key: String::new(),
+                    api_keys: vec![String::new()],
                     http: Client::new(),
                     base_url,
                     auth: GeminiAuth::Vertex {
@@ -188,8 +188,10 @@ impl GeminiClient {
             }
             GeminiAuthMode::ApiKey => {
                 let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
+                let mut keys = vec![api_key];
+                keys.extend(cfg.gemini_fallback_api_keys.iter().cloned());
                 Ok(Self {
-                    api_key,
+                    api_keys: keys,
                     http: Client::new(),
                     base_url: "https://generativelanguage.googleapis.com".into(),
                     auth: GeminiAuth::ApiKey,
@@ -204,15 +206,18 @@ impl GeminiClient {
     /// This is the single place that differs between the AI Studio API-key
     /// endpoint and the Vertex AI endpoint, so every request method routes
     /// through it and stays auth-agnostic.
-    fn endpoint(&self, model: &str) -> (String, Option<String>) {
+    fn endpoint(&self, model: &str, key_idx: usize) -> (String, Option<String>) {
         match &self.auth {
-            GeminiAuth::ApiKey => (
-                format!(
-                    "{}/v1beta/models/{}:generateContent?key={}",
-                    self.base_url, model, self.api_key
-                ),
-                None,
-            ),
+            GeminiAuth::ApiKey => {
+                let key = self.api_keys.get(key_idx).unwrap_or(&self.api_keys[0]);
+                (
+                    format!(
+                        "{}/v1beta/models/{}:generateContent?key={}",
+                        self.base_url, model, key
+                    ),
+                    None,
+                )
+            },
             GeminiAuth::Vertex {
                 project_id,
                 location,
@@ -234,12 +239,32 @@ impl GeminiClient {
         model: &str,
         body: &serde_json::Value,
     ) -> Result<reqwest::Response, GeminiError> {
-        let (url, bearer) = self.endpoint(model);
-        let mut req = self.http.post(&url).json(body);
-        if let Some(token) = bearer {
-            req = req.bearer_auth(token);
+        let mut last_response = None;
+        for i in 0..self.api_keys.len() {
+            let (url, bearer) = self.endpoint(model, i);
+            let mut req = self.http.post(&url).json(body);
+            if let Some(token) = bearer {
+                req = req.bearer_auth(token);
+            }
+            
+            let resp = req.send().await?;
+            let status = resp.status();
+            
+            // If it succeeds, or if it's a non-auth/non-rate-limit error, return it immediately.
+            if status != StatusCode::TOO_MANY_REQUESTS && status != StatusCode::FORBIDDEN && status != StatusCode::UNAUTHORIZED {
+                return Ok(resp);
+            }
+            
+            // If we only have 1 key, or if this is Vertex mode (where api_keys has length 1), just return it.
+            if self.api_keys.len() == 1 {
+                return Ok(resp);
+            }
+            
+            tracing::warn!("[gemini] Key {} failed with {}; rotating to fallback...", i, status);
+            last_response = Some(resp);
         }
-        Ok(req.send().await?)
+        
+        Ok(last_response.unwrap())
     }
 
     /// POST to the best available **Pro** model, with a graceful fallback

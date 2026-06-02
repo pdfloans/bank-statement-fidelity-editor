@@ -114,6 +114,7 @@ impl Default for ConnectionMode {
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gemini_api_key: Option<String>,
+    pub gemini_fallback_api_keys: Vec<String>,
     pub pdfrest_api_key: Option<String>,
     pub document_ai: Option<DocumentAiConfig>,
     pub pymupdf_pro_key: Option<String>, // Changed to Option - must come from env
@@ -136,6 +137,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             gemini_api_key: None,
+            gemini_fallback_api_keys: Vec::new(),
             pdfrest_api_key: None,
             document_ai: None,
             pymupdf_pro_key: None,
@@ -161,6 +163,12 @@ impl AppConfig {
 
         // Optional API keys
         let gemini_api_key = env::var("GEMINI_API_KEY").ok().filter(|s| !s.is_empty());
+        let gemini_fallback_api_keys = env::var("GEMINI_FALLBACK_API_KEYS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>();
         let pdfrest_api_key = env::var("PDFREST_API_KEY").ok().filter(|s| !s.is_empty());
         let webhook_url = env::var("WEBHOOK_URL").ok().filter(|s| !s.is_empty());
 
@@ -257,6 +265,7 @@ impl AppConfig {
 
         Ok(Self {
             gemini_api_key,
+            gemini_fallback_api_keys,
             pdfrest_api_key,
             document_ai,
             pymupdf_pro_key,

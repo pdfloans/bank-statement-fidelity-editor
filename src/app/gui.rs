@@ -371,6 +371,7 @@ pub struct MyApp {
     /// Editable buffers, seeded from the current environment. Persisted to
     /// `.env` and hot-reloaded into the runtime via `Job::ReloadConfig`.
     edit_gemini_api_key: String,
+    edit_gemini_fallback_keys: String,
     edit_docai_project_id: String,
     edit_docai_location: String,
     edit_docai_processor_id: String,
@@ -462,6 +463,7 @@ impl MyApp {
             // Seed API-key editor buffers from the current environment so the
             // Settings panel shows what's active. Values are masked in the UI.
             edit_gemini_api_key: std::env::var("GEMINI_API_KEY").unwrap_or_default(),
+            edit_gemini_fallback_keys: std::env::var("GEMINI_FALLBACK_API_KEYS").unwrap_or_default(),
             edit_docai_project_id: std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default(),
             edit_docai_location: {
                 let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
@@ -499,6 +501,7 @@ impl MyApp {
         // (env var name, value) pairs to upsert.
         let pairs: Vec<(&str, String)> = vec![
             ("GEMINI_API_KEY", self.edit_gemini_api_key.trim().to_string()),
+            ("GEMINI_FALLBACK_API_KEYS", self.edit_gemini_fallback_keys.trim().to_string()),
             ("DOCUMENT_AI_PROJECT_ID", self.edit_docai_project_id.trim().to_string()),
             ("DOCUMENT_AI_LOCATION", self.edit_docai_location.trim().to_string()),
             ("DOCUMENT_AI_PROCESSOR_ID", self.edit_docai_processor_id.trim().to_string()),
@@ -1832,6 +1835,15 @@ impl MyApp {
                     .on_hover_text("AI Studio key (AIza…). Used for completeness + vision checks.");
                     ui.end_row();
 
+                    ui.label("Gemini Fallback Keys:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.edit_gemini_fallback_keys)
+                            .password(true)
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text("Comma-separated list of fallback Gemini API keys (used if primary fails)");
+                    ui.end_row();
+
                     ui.label("Gemini auth mode:");
                     ui.horizontal(|ui| {
                         ui.selectable_value(&mut self.edit_gemini_use_vertex, false, "API key");
@@ -1902,6 +1914,7 @@ impl MyApp {
                     .clicked()
                 {
                     self.edit_gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+                    self.edit_gemini_fallback_keys = std::env::var("GEMINI_FALLBACK_API_KEYS").unwrap_or_default();
                     self.edit_docai_project_id = std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default();
                     self.edit_docai_location = {
                         let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
