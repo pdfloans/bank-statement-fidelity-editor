@@ -63,6 +63,10 @@ pub struct DocumentAiConfig {
     pub project_id: String,
     pub location: String,
     pub processor_id: String,
+    /// Optional Document AI processor for specialized documents (fallback).
+    pub specialized_processor_id: Option<String>,
+    /// Optional Custom Document Splitter ID (Phase 3).
+    pub splitter_processor_id: Option<String>,
     /// Optional path to a Google Cloud Service Account JSON key (legacy auth).
     /// If empty, the client falls back to API-key auth (`api_key` field).
     pub service_account_path: String,
@@ -182,10 +186,16 @@ impl AppConfig {
         let proc_id = env::var("DOCUMENT_AI_PROCESSOR_ID")
             .ok()
             .filter(|s| !s.is_empty());
+        let spec_proc_id = env::var("DOCUMENT_AI_SPECIALIZED_PROCESSOR_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
         let sa_path = env::var("GOOGLE_APPLICATION_CREDENTIALS")
             .ok()
             .filter(|s| !s.is_empty());
         let api_key = env::var("DOCUMENT_AI_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty());
+        let splitter_id = env::var("DOCUMENT_AI_SPLITTER_PROCESSOR_ID")
             .ok()
             .filter(|s| !s.is_empty());
         let adc_path = detect_adc_path();
@@ -198,6 +208,8 @@ impl AppConfig {
                     project_id,
                     location,
                     processor_id,
+                    specialized_processor_id: spec_proc_id,
+                    splitter_processor_id: splitter_id,
                     service_account_path: sa_path.unwrap_or_default(),
                     api_key: api_key.unwrap_or_default(),
                     adc_path: adc_path.unwrap_or_default(),

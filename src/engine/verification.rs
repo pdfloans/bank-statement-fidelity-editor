@@ -398,7 +398,7 @@ pub async fn verify_edit_pages_with_padding(
         }
     }
 
-    let pdfium = Pdfium::default();
+    let pdfium = crate::pdf::get_pdfium_instance();
     let original_doc = pdfium
         .load_pdf_from_file(original, None)
         .map_err(|e| VerificationError::PdfiumLoad(e.to_string()))?;

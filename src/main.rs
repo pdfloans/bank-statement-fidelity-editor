@@ -9,6 +9,37 @@ use std::sync::Arc;
 fn main() {
     dotenvy::dotenv().ok();
 
+    // Set PYTHONHOME if running inside a macOS .app bundle
+    if let Ok(exe_path) = std::env::current_exe() {
+        if exe_path.to_string_lossy().contains(".app/Contents/MacOS") {
+            if let Some(macos_dir) = exe_path.parent() {
+                if let Some(contents_dir) = macos_dir.parent() {
+                    let python_home = contents_dir.join("Resources").join("python");
+                    if python_home.exists() {
+                        std::env::set_var("PYTHONHOME", &python_home);
+                        
+                        let python_path = python_home.join("lib").join("python3.11");
+                        let python_lib_dynload = python_path.join("lib-dynload");
+                        let python_site_packages = python_path.join("site-packages");
+                        
+                        let combined_path = format!("{}:{}:{}", 
+                            python_path.display(), 
+                            python_lib_dynload.display(),
+                            python_site_packages.display()
+                        );
+                        std::env::set_var("PYTHONPATH", combined_path);
+
+                        // Also prepend the bin directory to PATH so python executable is found if needed
+                        if let Ok(path_var) = std::env::var("PATH") {
+                            let new_path = format!("{}:{}", python_home.join("bin").display(), path_var);
+                            std::env::set_var("PATH", new_path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let config = Arc::new(app::config::AppConfig::from_env().unwrap_or_else(|e| {
         eprintln!("\n❌ Configuration Error\n");
         eprintln!("{}", e);

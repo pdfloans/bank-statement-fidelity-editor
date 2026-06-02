@@ -28,7 +28,7 @@ use std::sync::mpsc::{Receiver, Sender};
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -246,42 +246,66 @@ fn validate_pdf_path(path: &std::path::Path, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Blocking synchronous receiver helper
-/// Drains progress beats and handles errors.
 fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (String, String)> {
-    loop {
+    wait_for_terminal_result_ext(job_rx, false)
+}
+
+fn wait_for_terminal_result_ext(
+    job_rx: &Receiver<JobResult>,
+    ignore_change_applied: bool,
+) -> Result<JobResult, (String, String)> {
+    let pb = indicatif::ProgressBar::new(100);
+    pb.set_style(
+        indicatif::ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}% ({eta}) {msg}")
+            .unwrap()
+            .progress_chars("#>-")
+    );
+    let mut last_fraction = 0.0;
+
+    let res = loop {
         match job_rx.recv() {
             Ok(JobResult::Progress { label, fraction }) => {
-                tracing::info!("[progress] {}: {:.0}%", label, fraction * 100.0);
+                let pct = (fraction * 100.0) as u64;
+                if pct != last_fraction as u64 {
+                    pb.set_position(pct);
+                    last_fraction = fraction;
+                }
+                pb.set_message(label);
             }
-            // `LoadDocument` fires an async font-analysis task that emits
-            // `FontAnalysisReady` independently of the document-load result —
-            // and on a cache hit it can arrive *first*. It is not a terminal
-            // result for any CLI flow, so skip it (otherwise `extract` and
-            // friends mistake it for their answer and report "unexpected
-            // result"). The font analysis is surfaced in the GUI separately.
+            Ok(JobResult::ChangeApplied { record, requires_visual_review }) => {
+                pb.println(format!("✅ Live Edit: '{}' -> '{}' (Page {})", record.old_text, record.new_text, record.page + 1));
+                if !ignore_change_applied {
+                    break Ok(JobResult::ChangeApplied { record, requires_visual_review });
+                }
+            }
             Ok(JobResult::FontAnalysisReady(_)) => {
                 tracing::debug!("[cli] ignoring non-terminal FontAnalysisReady");
             }
-            // Likewise, an incidental cascade report is informational only.
             Ok(JobResult::FontCascadeUsed(_)) => {
                 tracing::debug!("[cli] ignoring non-terminal FontCascadeUsed");
             }
-            // `ApplyChange` emits a `HistoryUpdated` side-effect *after* the
-            // terminal `ChangeApplied`. For sequential CLI flows that apply an
-            // edit then immediately issue another job (e.g. re-render in
-            // `selftest`), this would otherwise be mistaken for the next job's
-            // result. It is never a terminal result for a CLI command, so skip.
             Ok(JobResult::HistoryUpdated { .. }) => {
                 tracing::debug!("[cli] ignoring non-terminal HistoryUpdated");
             }
             Ok(JobResult::Error { job_label, message }) => {
-                return Err((job_label, message));
+                break Err((job_label, message));
             }
-            Ok(res) => return Ok(res),
-            Err(e) => return Err(("runtime".into(), format!("Disconnected: {}", e))),
+            Ok(res) => {
+                break Ok(res);
+            }
+            Err(e) => {
+                break Err(("runtime".into(), format!("Disconnected: {}", e)));
+            }
         }
+    };
+    
+    if res.is_ok() {
+        pb.finish_with_message("Done");
+    } else {
+        pb.finish_with_message("Failed");
     }
+    res
 }
 
 /// End-to-end self-test: render → edit a real text span → re-render, asserting
@@ -618,7 +642,8 @@ pub fn run(
     config: std::sync::Arc<crate::app::config::AppConfig>,
 ) -> i32 {
     // Pre-flight: input file existence checks for subcommands that take an input.
-    let preflight = match &cli.command {
+    let cmd = cli.command.unwrap_or(Commands::Gui);
+    let preflight = match &cmd {
         Commands::Text { input, .. }
         | Commands::Balance { input, .. }
         | Commands::Extract { input, .. }
@@ -662,7 +687,7 @@ pub fn run(
         }
     }
 
-    match cli.command {
+    match cmd {
         Commands::Gui => {
             if let Err(e) = crate::app::gui::run_gui(job_tx, job_rx, config.clone()) {
                 tracing::error!("Failed to launch GUI: {}", e);
@@ -767,7 +792,7 @@ pub fn run(
                             changes,
                         });
 
-                        match wait_for_terminal_result(&job_rx) {
+                        match wait_for_terminal_result_ext(&job_rx, true) {
                             Ok(JobResult::ProposedChangesApplied {
                                 changes_applied,
                                 failures,

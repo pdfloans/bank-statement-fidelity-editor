@@ -51,6 +51,79 @@ pub struct BankStatement {
     pub account_number: Option<String>,
 }
 
+fn xml_escape(s: &str) -> String {
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
+}
+
+impl BankStatement {
+    /// Export the BankStatement to an OFX format string for accounting software integration.
+    pub fn export_to_ofx(&self) -> String {
+        let mut ofx = String::new();
+        let current_time = chrono::Utc::now().format("%Y%m%d%H%M%S.000[%z:GMT]").to_string();
+        
+        ofx.push_str("OFXHEADER:100\n");
+        ofx.push_str("DATA:OFXSGML\n");
+        ofx.push_str("VERSION:102\n");
+        ofx.push_str("SECURITY:NONE\n");
+        ofx.push_str("ENCODING:USASCII\n");
+        ofx.push_str("CHARSET:1252\n");
+        ofx.push_str("COMPRESSION:NONE\n");
+        ofx.push_str("OLDFILEUID:NONE\n");
+        ofx.push_str("NEWFILEUID:NONE\n\n");
+        
+        ofx.push_str("<OFX>\n");
+        ofx.push_str("  <SIGNONMSGSRSV1>\n");
+        ofx.push_str("    <SONRS>\n");
+        ofx.push_str("      <STATUS><CODE>0<SEVERITY>INFO</STATUS>\n");
+        ofx.push_str(&format!("      <DTSERVER>{}\n", current_time));
+        ofx.push_str("      <LANGUAGE>ENG\n");
+        ofx.push_str("    </SONRS>\n");
+        ofx.push_str("  </SIGNONMSGSRSV1>\n");
+        
+        ofx.push_str("  <BANKMSGSRSV1>\n");
+        ofx.push_str("    <STMTTRNRS>\n");
+        ofx.push_str("      <TRNUID>1\n");
+        ofx.push_str("      <STATUS><CODE>0<SEVERITY>INFO</STATUS>\n");
+        ofx.push_str("      <STMTRS>\n");
+        ofx.push_str("        <CURDEF>USD\n");
+        ofx.push_str("        <BANKACCTFROM>\n");
+        ofx.push_str("          <BANKID>UNKNOWN\n");
+        ofx.push_str(&format!("          <ACCTID>{}\n", self.account_number.clone().unwrap_or_else(|| "UNKNOWN".to_string())));
+        ofx.push_str("          <ACCTTYPE>CHECKING\n");
+        ofx.push_str("        </BANKACCTFROM>\n");
+        ofx.push_str("        <BANKTRANLIST>\n");
+        
+        for (i, tx) in self.transactions.iter().enumerate() {
+            let trntype = if tx.delta_in() > rust_decimal::Decimal::ZERO { "CREDIT" } else { "DEBIT" };
+            let amount = tx.net_delta();
+            
+            // Extract digits only for basic date formatting YYYYMMDD
+            let dtposted = tx.date.chars().filter(|c| c.is_ascii_digit()).collect::<String>();
+            let dtposted = if dtposted.is_empty() { current_time.clone() } else { dtposted };
+            
+            ofx.push_str("          <STMTTRN>\n");
+            ofx.push_str(&format!("            <TRNTYPE>{}\n", trntype));
+            ofx.push_str(&format!("            <DTPOSTED>{}\n", dtposted));
+            ofx.push_str(&format!("            <TRNAMT>{}\n", amount));
+            ofx.push_str(&format!("            <FITID>{}\n", i + 1));
+            ofx.push_str(&format!("            <NAME>{}\n", xml_escape(&tx.raw_text)));
+            ofx.push_str("          </STMTTRN>\n");
+        }
+        
+        ofx.push_str("        </BANKTRANLIST>\n");
+        ofx.push_str("        <LEDGERBAL>\n");
+        ofx.push_str(&format!("          <BALAMT>{}\n", self.closing_balance));
+        ofx.push_str(&format!("          <DTASOF>{}\n", current_time));
+        ofx.push_str("        </LEDGERBAL>\n");
+        ofx.push_str("      </STMTRS>\n");
+        ofx.push_str("    </STMTTRNRS>\n");
+        ofx.push_str("  </BANKMSGSRSV1>\n");
+        ofx.push_str("</OFX>\n");
+        
+        ofx
+    }
+}
+
 #[derive(Serialize)]
 struct JwtClaims {
     iss: String,
@@ -58,6 +131,71 @@ struct JwtClaims {
     aud: String,
     iat: u64,
     exp: u64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct Metrics {
+    #[serde(rename = "f1Score")]
+    pub f1_score: Option<f32>,
+    pub precision: Option<f32>,
+    pub recall: Option<f32>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct EvaluationMetrics {
+    #[serde(rename = "allEntitiesMetrics")]
+    pub all_entities_metrics: Option<Metrics>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ProcessorVersion {
+    pub name: String,
+    pub state: String,
+    pub evaluation: Option<EvaluationMetrics>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ListProcessorVersionsResponse {
+    #[serde(rename = "processorVersions")]
+    pub processor_versions: Option<Vec<ProcessorVersion>>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct GcsPrefix {
+    #[serde(rename = "gcsUriPrefix")]
+    pub gcs_uri_prefix: String,
+}
+
+#[derive(Serialize, Debug)]
+pub struct BatchInputDocuments {
+    #[serde(rename = "gcsPrefix")]
+    pub gcs_prefix: GcsPrefix,
+}
+
+#[derive(Serialize, Debug)]
+pub struct GcsOutputConfig {
+    #[serde(rename = "gcsUri")]
+    pub gcs_uri: String,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DocumentOutputConfig {
+    #[serde(rename = "gcsOutputConfig")]
+    pub gcs_output_config: GcsOutputConfig,
+}
+
+#[derive(Serialize, Debug)]
+pub struct BatchProcessRequest {
+    #[serde(rename = "inputDocuments")]
+    pub input_documents: BatchInputDocuments,
+    #[serde(rename = "documentOutputConfig")]
+    pub document_output_config: DocumentOutputConfig,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Operation {
+    pub name: String,
+    pub done: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -100,18 +238,141 @@ impl DocumentAiClient {
         })
     }
 
-    fn process_url_v1beta3(&self) -> String {
+    fn process_url_v1beta3(&self, version_id: Option<&str>, location: &str) -> String {
+        match version_id {
+            Some(v) => format!(
+                "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}/processorVersions/{}:process",
+                location, self.config.project_id, location, self.config.processor_id, v
+            ),
+            None => format!(
+                "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}:process",
+                location, self.config.project_id, location, self.config.processor_id
+            )
+        }
+    }
+
+    fn process_url_v1(&self, version_id: Option<&str>, location: &str) -> String {
+        match version_id {
+            Some(v) => format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions/{}:process",
+                location, self.config.project_id, location, self.config.processor_id, v
+            ),
+            None => format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:process",
+                location, self.config.project_id, location, self.config.processor_id
+            )
+        }
+    }
+
+    fn process_url_specialized(&self, processor_id: &str, version_id: Option<&str>, location: &str) -> String {
+        match version_id {
+            Some(v) => format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions/{}:process",
+                location, self.config.project_id, location, processor_id, v
+            ),
+            None => format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:process",
+                location, self.config.project_id, location, processor_id
+            )
+        }
+    }
+
+    fn batch_process_url(&self, version_id: Option<&str>, location: &str) -> String {
+        match version_id {
+            Some(v) => format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions/{}:batchProcess",
+                location, self.config.project_id, location, self.config.processor_id, v
+            ),
+            None => format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:batchProcess",
+                location, self.config.project_id, location, self.config.processor_id
+            )
+        }
+    }
+
+    fn list_versions_url(&self, location: &str) -> String {
         format!(
-            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}:process",
-            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions",
+            location, self.config.project_id, location, self.config.processor_id
         )
     }
 
-    fn process_url_v1(&self) -> String {
-        format!(
-            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:process",
-            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
-        )
+    /// Wraps a Document AI request to catch 429/503 errors and silently failover
+    /// between `us` and `eu` regions before giving up.
+    async fn execute_with_failover<F>(
+        &self,
+        url_builder: F,
+        body: Option<&serde_json::Value>,
+        access_token: Option<&str>,
+        api_key: Option<&str>,
+    ) -> Result<reqwest::Response, DocAiError>
+    where
+        F: Fn(&str) -> String,
+    {
+        let locations = if self.config.location == "us" {
+            vec!["us", "eu"]
+        } else if self.config.location == "eu" {
+            vec!["eu", "us"]
+        } else {
+            vec![self.config.location.as_str()]
+        };
+
+        let mut last_status = reqwest::StatusCode::OK;
+        let mut last_text = String::new();
+
+        for location in locations {
+            let base_url = url_builder(location);
+            let url = if let Some(key) = api_key {
+                format!("{}?key={}", base_url, key)
+            } else {
+                base_url
+            };
+
+            let mut req = if let Some(b) = body {
+                self.http.post(&url).json(b)
+            } else {
+                self.http.get(&url)
+            };
+
+            if let Some(tok) = access_token {
+                req = req.bearer_auth(tok);
+            }
+
+            let response = req.send().await?;
+            if response.status().is_success() {
+                return Ok(response);
+            }
+
+            last_status = response.status();
+            last_text = response.text().await.unwrap_or_default();
+
+            if last_status != reqwest::StatusCode::TOO_MANY_REQUESTS && last_status != reqwest::StatusCode::SERVICE_UNAVAILABLE {
+                return Err(DocAiError::Api(last_status, last_text));
+            }
+
+            tracing::warn!("[doc_ai] {} in location {}, falling back...", last_status, location);
+        }
+
+        Err(DocAiError::Api(last_status, last_text))
+    }
+
+    pub async fn list_processor_versions(&self) -> Result<Vec<ProcessorVersion>, DocAiError> {
+        let access_token = self.get_access_token().await?;
+        
+        let response = self.execute_with_failover(
+            |loc| self.list_versions_url(loc),
+            None,
+            Some(&access_token),
+            None
+        ).await?;
+
+        #[derive(serde::Deserialize)]
+        struct ListResponse {
+            #[serde(rename = "processorVersions")]
+            processor_versions: Option<Vec<ProcessorVersion>>,
+        }
+        let list_res: ListResponse = response.json().await?;
+        Ok(list_res.processor_versions.unwrap_or_default())
     }
 
     async fn get_access_token(&self) -> Result<String, DocAiError> {
@@ -214,6 +475,7 @@ impl DocumentAiClient {
                 kind
             ))));
         }
+
         let client_id = adc["client_id"]
             .as_str()
             .ok_or_else(|| DocAiError::Parse(serde::de::Error::custom("ADC missing client_id")))?;
@@ -261,9 +523,53 @@ impl DocumentAiClient {
         Ok(())
     }
 
+    /// Submits an asynchronous batch processing job to Document AI for a GCS directory.
+    /// `gcs_input_prefix` must be a gs:// URI (e.g. "gs://my-bucket/statements/").
+    /// `gcs_output_uri` must be a gs:// URI where output JSONs will be written.
+    pub async fn batch_process_gcs_prefix(
+        &self,
+        gcs_input_prefix: &str,
+        gcs_output_uri: &str,
+        version_id: Option<&str>,
+    ) -> Result<Operation, DocAiError> {
+        let access_token = self.get_access_token().await?;
+
+        let req_body = BatchProcessRequest {
+            input_documents: BatchInputDocuments {
+                gcs_prefix: GcsPrefix {
+                    gcs_uri_prefix: gcs_input_prefix.to_string(),
+                },
+            },
+            document_output_config: DocumentOutputConfig {
+                gcs_output_config: GcsOutputConfig {
+                    gcs_uri: gcs_output_uri.to_string(),
+                },
+            },
+        };
+
+        let body = serde_json::to_value(&req_body).unwrap_or_default();
+        let response = self.execute_with_failover(
+            |loc| self.batch_process_url(version_id, loc),
+            Some(&body),
+            Some(&access_token),
+            None
+        ).await?;
+
+        let op: Operation = response.json().await?;
+        Ok(op)
+    }
+
     pub async fn parse_entire_statement(
         &self,
         pdf_path: &Path,
+    ) -> Result<BankStatement, DocAiError> {
+        self.parse_entire_statement_with_version(pdf_path, None).await
+    }
+
+    pub async fn parse_entire_statement_with_version(
+        &self,
+        pdf_path: &Path,
+        version_id: Option<&str>,
     ) -> Result<BankStatement, DocAiError> {
         // ----- Cache lookup --------------------------------------------------
         // Document AI is billed per page; if we've parsed this exact PDF
@@ -281,7 +587,7 @@ impl DocumentAiClient {
                 &self.config.project_id,
                 &self.config.location,
                 &self.config.processor_id,
-                "default", // we don't currently route to a specific version
+                version_id.unwrap_or("default"), // routing to specific version if provided
             )
             .ok()
         } else {
@@ -303,67 +609,23 @@ impl DocumentAiClient {
             }
         });
 
-        // 1. Primary: API key → v1beta3.
-        if !self.config.api_key.is_empty() {
-            let url = format!("{}?key={}", self.process_url_v1beta3(), self.config.api_key);
-            tracing::debug!("[doc_ai] trying v1beta3 API-key auth");
-            match self.http.post(&url).json(&body).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    let result: serde_json::Value = resp.json().await?;
-                    let stmt = Self::parse_response_into_bank_statement(&result)?;
-                    if let (Some(c), Some(k)) = (cache.as_ref(), cache_key.as_ref()) {
-                        if let Err(e) = c.put(k, &stmt) {
-                            tracing::warn!("[doc_ai] cache write failed: {}", e);
-                        }
-                    }
-                    return Ok(stmt);
-                }
-                Ok(resp) => {
-                    let status = resp.status();
-                    let text = resp.text().await.unwrap_or_default();
-                    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-                        tracing::warn!(
-                            "[doc_ai] API-key auth rejected ({}); falling back to service-account",
-                            status
-                        );
-                    } else {
-                        // Non-auth errors propagate immediately.
-                        return Err(DocAiError::Api(status, text));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "[doc_ai] API-key request failed: {}; trying service-account",
-                        e
-                    );
-                }
-            }
-        }
+        let access_token = if self.config.api_key.is_empty() {
+            Some(self.get_access_token().await?)
+        } else {
+            None
+        };
+        let api_key_opt = if !self.config.api_key.is_empty() {
+            Some(self.config.api_key.as_str())
+        } else {
+            None
+        };
 
-        // 2. Fallback: OAuth — get_access_token() handles ADC then SA in priority order.
-        if self.config.adc_path.is_empty() && self.config.service_account_path.is_empty() {
-            return Err(DocAiError::MissingConfig(
-                "no OAuth credential available (neither ADC nor service account)",
-            ));
-        }
-
-        let access_token = self.get_access_token().await?;
-        let url = self.process_url_v1();
-        tracing::debug!("[doc_ai] using v1 OAuth (ADC or service-account)");
-        let response = self
-            .http
-            .post(&url)
-            .bearer_auth(access_token)
-            .json(&body)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(DocAiError::Api(
-                response.status(),
-                response.text().await.unwrap_or_default(),
-            ));
-        }
+        let response = self.execute_with_failover(
+            |loc| self.process_url_v1beta3(version_id, loc),
+            Some(&body),
+            access_token.as_deref(),
+            api_key_opt
+        ).await?;
 
         let result: serde_json::Value = response.json().await?;
         let stmt = Self::parse_response_into_bank_statement(&result)?;
@@ -373,6 +635,321 @@ impl DocumentAiClient {
             }
         }
         Ok(stmt)
+    }
+
+    pub async fn parse_specialized_document(
+        &self,
+        pdf_path: &Path,
+        processor_id: &str,
+        version_id: Option<&str>,
+    ) -> Result<serde_json::Value, DocAiError> {
+        let pdf_bytes = std::fs::read(pdf_path)?;
+        let base64_pdf = Base64Standard.encode(&pdf_bytes);
+        let body = serde_json::json!({
+            "rawDocument": {
+                "content": base64_pdf,
+                "mimeType": "application/pdf"
+            }
+        });
+
+        let access_token = self.get_access_token().await?;
+        
+        let response = self.execute_with_failover(
+            |loc| self.process_url_specialized(processor_id, version_id, loc),
+            Some(&body),
+            Some(&access_token),
+            None
+        ).await?;
+
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    /// Invokes a Custom Document Splitter to determine which pages of a PDF
+    /// actually belong to a Bank Statement. Returns a list of 0-indexed page numbers.
+    pub async fn get_bank_statement_pages(
+        &self,
+        pdf_path: &Path,
+        splitter_id: &str,
+    ) -> Result<Vec<usize>, DocAiError> {
+        let result = self.parse_specialized_document(pdf_path, splitter_id, None).await?;
+        let mut valid_pages = Vec::new();
+
+        if let Some(entities) = result.get("document").and_then(|d| d.get("entities")).and_then(|e| e.as_array()) {
+            for entity in entities {
+                if let Some(doc_type) = entity.get("type").and_then(|t| t.as_str()) {
+                    let is_statement = doc_type.to_lowercase().contains("statement");
+                    if is_statement {
+                        if let Some(page_refs) = entity.get("pageAnchor").and_then(|a| a.get("pageRefs")).and_then(|pr| pr.as_array()) {
+                            for pr in page_refs {
+                                if let Some(page_num) = pr.get("page").and_then(|p| p.as_u64()) {
+                                    // The API sometimes returns page indices as string vs int depending on version
+                                    let p_idx = page_num as usize;
+                                    if !valid_pages.contains(&p_idx) {
+                                        valid_pages.push(p_idx);
+                                    }
+                                } else if let Some(page_str) = pr.get("page").and_then(|p| p.as_str()) {
+                                    if let Ok(p_idx) = page_str.parse::<usize>() {
+                                        if !valid_pages.contains(&p_idx) {
+                                            valid_pages.push(p_idx);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        valid_pages.sort();
+        Ok(valid_pages)
+    }
+
+    pub async fn parse_layout_chunks(
+        &self,
+        pdf_path: &Path,
+        version_id: Option<&str>,
+    ) -> Result<serde_json::Value, DocAiError> {
+        let pdf_bytes = std::fs::read(pdf_path)?;
+        let base64_pdf = Base64Standard.encode(&pdf_bytes);
+        let body = serde_json::json!({
+            "rawDocument": {
+                "content": base64_pdf,
+                "mimeType": "application/pdf"
+            },
+            "processOptions": {
+                "layoutConfig": {
+                    "chunkingConfig": {
+                        "chunkSize": 1000,
+                        "includeAncestorHeadings": true
+                    }
+                }
+            }
+        });
+
+        let access_token = self.get_access_token().await?;
+
+        let response = self.execute_with_failover(
+            |loc| self.process_url_v1(version_id, loc),
+            Some(&body),
+            Some(&access_token),
+            None
+        ).await?;
+
+
+
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    pub async fn tournament_parse(
+        &self,
+        pdf_path: &Path,
+        progress_tx: Option<&std::sync::mpsc::Sender<crate::app::runtime::JobResult>>,
+    ) -> Result<BankStatement, DocAiError> {
+        let mut versions = Vec::new();
+        
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(crate::app::runtime::JobResult::Progress {
+                label: "Fetching processor versions and evaluation metrics...".into(),
+                fraction: 0.1,
+            });
+        }
+        
+        match self.list_processor_versions().await {
+            Ok(mut fetched_versions) => {
+                // Filter to DEPLOYED versions and sort by F1 Score (descending)
+                fetched_versions.retain(|v| v.state == "DEPLOYED");
+                fetched_versions.sort_by(|a, b| {
+                    let f1_a = a.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
+                    let f1_b = b.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
+                    f1_b.partial_cmp(&f1_a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                
+                // Extract just the version ID part (everything after processorVersions/)
+                for v in fetched_versions.iter().take(4) {
+                    if let Some(idx) = v.name.rfind('/') {
+                        let id = &v.name[idx + 1..];
+                        versions.push(id.to_string());
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to list processor versions: {}. Falling back to hardcoded defaults.", e);
+            }
+        }
+        
+        if versions.is_empty() {
+            versions = vec![
+                "pretrained-bankstatement-v5.0-2023-12-06".to_string(),
+                "pretrained-bankstatement-v3.0-2022-05-16".to_string(),
+                "pretrained-bankstatement-v2.0-2021-12-10".to_string(),
+            ];
+        }
+
+        let mut best_stmt = None;
+        let mut best_imbalance = 9999999999.0;
+
+        for v in versions {
+            if let Some(tx) = progress_tx {
+                let _ = tx.send(crate::app::runtime::JobResult::Progress {
+                    label: format!("Analyzing Document AI version: {}", v),
+                    fraction: 0.4,
+                });
+            }
+
+            match self.parse_entire_statement_with_version(pdf_path, Some(&v)).await {
+                Ok(stmt) => {
+                    if stmt.transactions.is_empty() { continue; }
+                    
+                    let initial = crate::engine::model::dec_to_f64(stmt.opening_balance);
+                    let final_bal = crate::engine::model::dec_to_f64(stmt.closing_balance);
+                    let mut sum = 0.0;
+                    for t in &stmt.transactions {
+                        if let Some(c) = t.credit { sum += crate::engine::model::dec_to_f64(c); }
+                        if let Some(d) = t.debit { sum -= crate::engine::model::dec_to_f64(d); }
+                    }
+                    let calculated = initial + sum;
+                    let imbalance = (final_bal - calculated).abs();
+                    
+                    if imbalance < 0.01 {
+                        if let Some(tx) = progress_tx {
+                            let _ = tx.send(crate::app::runtime::JobResult::Progress {
+                                label: format!("Perfect match found with {}", v),
+                                fraction: 0.5,
+                            });
+                        }
+                        return Ok(stmt);
+                    }
+
+                    if imbalance < best_imbalance {
+                        best_imbalance = imbalance;
+                        best_stmt = Some(stmt);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Version {} failed: {}", v, e);
+                }
+            }
+        }
+
+        if let Some(stmt) = best_stmt {
+            return Ok(stmt);
+        }
+
+        // Fallback to specialized processor if defined
+        if let Some(spec_proc_id) = &self.config.specialized_processor_id {
+            if let Some(tx) = progress_tx {
+                let _ = tx.send(crate::app::runtime::JobResult::Progress {
+                    label: "Bank Statement parsers failed. Trying Specialized Processor...".into(),
+                    fraction: 0.5,
+                });
+            }
+            match self.parse_specialized_document(pdf_path, spec_proc_id, None).await {
+                Ok(raw) => {
+                    match Self::parse_response_into_bank_statement(&raw) {
+                        Ok(stmt) => return Ok(stmt),
+                        Err(e) => {
+                            tracing::warn!("Specialized processor failed to map to Bank Statement: {}", e);
+                            return Err(DocAiError::Parse(serde::de::Error::custom("UNSUPPORTED_FORMAT")));
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!("Specialized processor failed: {}", e),
+            }
+        }
+
+        Err(DocAiError::Parse(serde::de::Error::custom("UNSUPPORTED_FORMAT: No Document AI processor version is suited for this bank statement layout.")))
+    }
+
+    pub async fn tournament_parse_chunked(
+        &self,
+        chunks: &[(std::path::PathBuf, usize)],
+        max_concurrency: usize,
+        progress_tx: Option<&std::sync::mpsc::Sender<crate::app::runtime::JobResult>>,
+    ) -> Result<BankStatement, DocAiError> {
+        let mut versions = Vec::new();
+        
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(crate::app::runtime::JobResult::Progress {
+                label: "Fetching processor versions and evaluation metrics...".into(),
+                fraction: 0.1,
+            });
+        }
+        
+        match self.list_processor_versions().await {
+            Ok(mut fetched_versions) => {
+                fetched_versions.retain(|v| v.state == "DEPLOYED");
+                fetched_versions.sort_by(|a, b| {
+                    let f1_a = a.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
+                    let f1_b = b.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
+                    f1_b.partial_cmp(&f1_a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                for v in fetched_versions.iter().take(4) {
+                    if let Some(idx) = v.name.rfind('/') {
+                        versions.push(v.name[idx + 1..].to_string());
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("Failed to list processor versions: {}. Falling back.", e),
+        }
+        
+        if versions.is_empty() {
+            versions = vec![
+                "pretrained-bankstatement-v5.0-2023-12-06".to_string(),
+                "pretrained-bankstatement-v3.0-2022-05-16".to_string(),
+                "pretrained-bankstatement-v2.0-2021-12-10".to_string(),
+            ];
+        }
+
+        let mut best_stmt = None;
+        let mut best_imbalance = 9999999999.0;
+
+        for v in versions {
+            if let Some(tx) = progress_tx {
+                let _ = tx.send(crate::app::runtime::JobResult::Progress {
+                    label: format!("Analyzing Document AI version: {}", v),
+                    fraction: 0.4,
+                });
+            }
+
+            match self.parse_chunked_statement_with_version(chunks, max_concurrency, Some(&v)).await {
+                Ok(stmt) => {
+                    if stmt.transactions.is_empty() { continue; }
+                    
+                    let initial = crate::engine::model::dec_to_f64(stmt.opening_balance);
+                    let final_bal = crate::engine::model::dec_to_f64(stmt.closing_balance);
+                    let mut sum = 0.0;
+                    for t in &stmt.transactions {
+                        if let Some(c) = t.credit { sum += crate::engine::model::dec_to_f64(c); }
+                        if let Some(d) = t.debit { sum -= crate::engine::model::dec_to_f64(d); }
+                    }
+                    let calculated = initial + sum;
+                    let imbalance = (final_bal - calculated).abs();
+                    
+                    if imbalance < 0.01 {
+                        if let Some(tx) = progress_tx {
+                            let _ = tx.send(crate::app::runtime::JobResult::Progress {
+                                label: format!("Perfect match found with {}", v),
+                                fraction: 0.5,
+                            });
+                        }
+                        return Ok(stmt);
+                    }
+
+                    if imbalance < best_imbalance {
+                        best_imbalance = imbalance;
+                        best_stmt = Some(stmt);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Version {} failed: {}", v, e);
+                }
+            }
+        }
+
+        best_stmt.ok_or_else(|| DocAiError::Api(reqwest::StatusCode::BAD_REQUEST, "UNSUPPORTED_FORMAT: No Document AI processor version is suited for this bank statement layout.".into()))
     }
 
     /// Parse a list of pre-chunked PDFs in parallel and merge the results
@@ -387,6 +964,15 @@ impl DocumentAiClient {
         &self,
         chunks: &[(std::path::PathBuf, usize)],
         max_concurrency: usize,
+    ) -> Result<BankStatement, DocAiError> {
+        self.parse_chunked_statement_with_version(chunks, max_concurrency, None).await
+    }
+
+    pub async fn parse_chunked_statement_with_version(
+        &self,
+        chunks: &[(std::path::PathBuf, usize)],
+        max_concurrency: usize,
+        version_id: Option<&str>,
     ) -> Result<BankStatement, DocAiError> {
         use futures_util::stream::{FuturesUnordered, StreamExt};
         use std::future::Future;
@@ -408,7 +994,7 @@ impl DocumentAiClient {
             let (path, offset) = chunks[next_idx].clone();
             let idx = next_idx;
             in_flight.push(Box::pin(async move {
-                let r = self.parse_entire_statement(&path).await;
+                let r = self.parse_entire_statement_with_version(&path, version_id).await;
                 (idx, offset, r)
             }));
             next_idx += 1;
@@ -438,7 +1024,7 @@ impl DocumentAiClient {
                 let (path, offset) = chunks[next_idx].clone();
                 let i = next_idx;
                 in_flight.push(Box::pin(async move {
-                    let r = self.parse_entire_statement(&path).await;
+                    let r = self.parse_entire_statement_with_version(&path, version_id).await;
                     (i, offset, r)
                 }));
                 next_idx += 1;
@@ -1096,6 +1682,7 @@ mod tests {
                 project_id: "p".into(),
                 location: "us".into(),
                 processor_id: "abc".into(),
+                specialized_processor_id: None,
                 service_account_path: String::new(),
                 api_key: String::new(),
                 adc_path: String::new(),

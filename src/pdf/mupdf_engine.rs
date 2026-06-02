@@ -22,7 +22,7 @@ impl PdfEngine for MuPdfEngine {
     }
 
     fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
-        let pdfium = Pdfium::default();
+        let pdfium = crate::pdf::get_pdfium_instance();
         let doc = pdfium
             .load_pdf_from_file(path, None)
             .map_err(|e| EngineError::LoadFailed(e.to_string()))?;

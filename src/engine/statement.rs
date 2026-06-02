@@ -129,7 +129,7 @@ impl SmartDocumentEngine {
 
         // 3. Hybrid Merge
         let report = self.merger.merge(bank_stmt.transactions, geometries);
-        self.all_transactions = report.transactions.clone();
+        self.all_transactions = report.transactions;
 
         // 4. Calculate current global balance status
         let imbalance = self.calculate_global_imbalance();

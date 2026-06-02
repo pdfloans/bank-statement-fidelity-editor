@@ -470,7 +470,7 @@ pub fn build_preview(
 
     // 2. Recompute running balances.
     let (recomputed, msg) =
-        process_and_reconcile(working.clone(), opening_balance, expected_closing)
+        process_and_reconcile(working, opening_balance, expected_closing)
             .map_err(|e| e.to_string())?;
 
     // 3. Build per-row preview.

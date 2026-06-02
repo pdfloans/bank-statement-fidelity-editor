@@ -245,6 +245,26 @@ pub enum Job {
     },
     /// Cleanup orphaned temporary files from crash recovery
     CleanupTempFiles,
+    
+    /// Trigger native Google Cloud Storage (GCS) batch processing.
+    GcsBatchProcess {
+        input_uri: String,
+        output_uri: String,
+    },
+
+    /// Index a folder locally to extract text for high-speed local search.
+    IndexFolder {
+        path: PathBuf,
+    },
+
+    ExportOfx {
+        statement: crate::ai::document_ai::BankStatement,
+        output: PathBuf,
+    },
+    ExportWebhook {
+        statement: crate::ai::document_ai::BankStatement,
+        url: String,
+    },
 
     // ----- Multi-stage workflow -------------------------------------------
     /// Stage 1: parse with Document AI then validate completeness with Gemini.
@@ -273,6 +293,15 @@ pub enum Job {
 #[derive(Debug)]
 pub enum JobResult {
     Pong,
+    BatchOperationStarted {
+        operation_name: String,
+    },
+    FolderIndexed {
+        index: std::collections::HashMap<String, String>,
+    },
+    ExportComplete {
+        message: String,
+    },
     ValidationStatus {
         gemini_ok: Result<(), String>,
         docai_ok: Result<(), String>,
@@ -976,7 +1005,7 @@ impl Runtime {
                                 }
                             };
                             
-                            let bank_stmt = match doc_ai.parse_entire_statement(&path).await {
+                            let bank_stmt = match doc_ai.tournament_parse(&path, Some(&res_tx)).await {
                                 Ok(stmt) => stmt,
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Document AI failed: {}", e) });
@@ -1283,6 +1312,28 @@ impl Runtime {
                             }
                         });
                     }
+                    Job::GcsBatchProcess { input_uri, output_uri } => {
+                        let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&config_for_tokio);
+                        let res_tx = result_tx_clone.clone();
+                        tokio::spawn(async move {
+                            match doc_ai {
+                                Ok(client) => {
+                                    match client.batch_process_gcs_prefix(&input_uri, &output_uri, None).await {
+                                        Ok(op) => {
+                                            let _ = res_tx.send(JobResult::BatchOperationStarted { operation_name: op.name.clone() });
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Cloud Batch Process Failed: {}", e);
+                                            let _ = res_tx.send(JobResult::Error { job_label: "cloud_batch".into(), message: format!("Cloud Batch Process Failed: {}", e) });
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "cloud_batch".into(), message: format!("Cloud Config error: {}", e) });
+                                }
+                            }
+                        });
+                    }
                     Job::Cancel { id } => {
                         let cancelled = cancellations_for_loop.cancel(id);
                         if cancelled {
@@ -1437,6 +1488,84 @@ impl Runtime {
                             }
                         }).await.unwrap_or(());
                     }
+                    Job::IndexFolder { path } => {
+                        let res_tx = result_tx_clone.clone();
+                        tokio::spawn(async move {
+                            use pdfium_render::prelude::Pdfium;
+                            let mut index = std::collections::HashMap::new();
+                            let pdfium = crate::pdf::get_pdfium_instance();
+
+                            let mut entries = match std::fs::read_dir(&path) {
+                                Ok(e) => e,
+                                Err(err) => {
+                                    tracing::warn!("Failed to read folder {}: {}", path.display(), err);
+                                    let _ = res_tx.send(JobResult::FolderIndexed { index });
+                                    return;
+                                }
+                            };
+
+                            let mut pdf_paths = Vec::new();
+                            while let Some(Ok(entry)) = entries.next() {
+                                let p = entry.path();
+                                if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("pdf") {
+                                    pdf_paths.push(p);
+                                }
+                            }
+
+                            // Optional: Send a generic progress update here if desired.
+                            
+                            for (i, pdf_path) in pdf_paths.iter().enumerate() {
+                                if let Ok(doc) = pdfium.load_pdf_from_file(&pdf_path, None) {
+                                    let mut doc_text = String::new();
+                                    for page_idx in 0..doc.pages().len() {
+                                        if let Ok(page) = doc.pages().get(page_idx) {
+                                            if let Ok(text) = page.text() {
+                                                let s = text.all();
+                                                doc_text.push_str(&s);
+                                                doc_text.push(' ');
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            let _ = res_tx.send(JobResult::FolderIndexed { index });
+                        });
+                    }
+
+                    Job::ExportOfx { statement, output } => {
+                        let res_tx = result_tx_clone.clone();
+                        tokio::spawn(async move {
+                            let ofx_str = statement.export_to_ofx();
+                            match std::fs::write(&output, ofx_str) {
+                                Ok(_) => {
+                                    let _ = res_tx.send(JobResult::ExportComplete { message: format!("OFX saved to {}", output.display()) });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "export_ofx".into(), message: format!("Failed to write OFX: {}", e) });
+                                }
+                            }
+                        });
+                    }
+
+                    Job::ExportWebhook { statement, url } => {
+                        let res_tx = result_tx_clone.clone();
+                        tokio::spawn(async move {
+                            let client = reqwest::Client::new();
+                            match client.post(&url).json(&statement).send().await {
+                                Ok(resp) if resp.status().is_success() => {
+                                    let _ = res_tx.send(JobResult::ExportComplete { message: format!("Webhook delivered successfully to {}", url) });
+                                }
+                                Ok(resp) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "export_webhook".into(), message: format!("Webhook failed with status: {}", resp.status()) });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "export_webhook".into(), message: format!("Webhook error: {}", e) });
+                                }
+                            }
+                        });
+                    }
+
                     Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest, pdfrest_key } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
                         let (reply_tx, reply_rx) = oneshot::channel();
@@ -1555,11 +1684,12 @@ impl Runtime {
                             // chunks in parallel. v1 sync allows 30 pages
                             // but we standardise on 15 because the auth
                             // cascade may fall back to v1beta3 at any time.
-                            let page_count = {
-                                let p = input.clone();
+                            let mut current_input = input.clone();
+                            let mut page_count = {
+                                let p = current_input.clone();
                                 tokio::task::spawn_blocking(move || -> usize {
                                     use pdfium_render::prelude::Pdfium;
-                                    let pdfium = Pdfium::default();
+                                    let pdfium = crate::pdf::get_pdfium_instance();
                                     pdfium
                                         .load_pdf_from_file(&p, None)
                                         .map(|d| d.pages().len() as usize)
@@ -1568,6 +1698,36 @@ impl Runtime {
                                 .await
                                 .unwrap_or(0)
                             };
+
+                            // --- PHASE 3: Custom Document Splitter (Pre-Routing) ---
+                            if let Some(doc_config) = &cfg.document_ai {
+                                if let Some(splitter_id) = &doc_config.splitter_processor_id {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Filtering irrelevant pages (Cloud Splitter)".into(), fraction: 0.25 });
+                                    match doc_ai.get_bank_statement_pages(&current_input, splitter_id).await {
+                                        Ok(valid_pages) => {
+                                            if !valid_pages.is_empty() && valid_pages.len() < page_count {
+                                                let filtered_path = std::path::PathBuf::from("output").join("filtered_statement.pdf");
+                                                match crate::engine::pdf_split_merge::extract_pages(&current_input, &filtered_path, &valid_pages) {
+                                                    Ok(_) => {
+                                                        current_input = filtered_path;
+                                                        page_count = valid_pages.len();
+                                                        let _ = res_tx.send(JobResult::Progress { label: format!("Kept {} bank statement pages", page_count), fraction: 0.28 });
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::warn!("Failed to extract pages: {}", e);
+                                                    }
+                                                }
+                                            } else if valid_pages.is_empty() {
+                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("No bank statement pages found by the Cloud Splitter.".to_string())));
+                                                return;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("Cloud Splitter failed: {}, proceeding with full document", e);
+                                        }
+                                    }
+                                }
+                            }
 
                             let stmt = if page_count > 15 {
                                 let _ = res_tx.send(JobResult::Progress {
@@ -1590,7 +1750,7 @@ impl Runtime {
                                 let (tx, rx) = oneshot::channel();
                                 let _ = python_tx_clone.send((
                                     PythonJob::ChunkPdfForDocai {
-                                        pdf_path: input.to_string_lossy().to_string(),
+                                        pdf_path: current_input.to_string_lossy().to_string(),
                                         output_dir: chunk_dir.to_string_lossy().to_string(),
                                         max_pages_per_chunk: 15,
                                     },
@@ -1634,7 +1794,7 @@ impl Runtime {
                                     label: format!("Parsing {} chunks in parallel", chunks.len()),
                                     fraction: 0.5,
                                 });
-                                match doc_ai.parse_chunked_statement(&chunks, 4).await {
+                                match doc_ai.tournament_parse_chunked(&chunks, 4, Some(&res_tx)).await {
                                     Ok(s) => s,
                                     Err(e) => {
                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
@@ -1642,7 +1802,7 @@ impl Runtime {
                                     }
                                 }
                             } else {
-                                match doc_ai.parse_entire_statement(&input).await {
+                                match doc_ai.tournament_parse(&current_input, Some(&res_tx)).await {
                                     Ok(s) => s,
                                     Err(e) => {
                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
@@ -1736,7 +1896,10 @@ impl Runtime {
                                     });
                                 }
                                 Err(e) => {
-                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(format!("preview build failed: {e}"))));
+                                    let _ = res_tx.send(JobResult::Error {
+                                        job_label: "Workflow Preview".into(),
+                                        message: format!("Preview build failed: {e}"),
+                                    });
                                 }
                             }
                         });
@@ -2392,7 +2555,7 @@ impl Runtime {
                             let re_parsed_count;
                             match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                 Ok(client) => {
-                                    match client.parse_entire_statement(&output).await {
+                                    match client.tournament_parse(&output, Some(&res_tx)).await {
                                         Ok(stmt) => {
                                             re_parsed_count = stmt.transactions.len();
                                             let opening = stmt.opening_balance;

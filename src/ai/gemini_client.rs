@@ -318,8 +318,8 @@ impl GeminiClient {
     #[cfg(test)]
     fn with_base_url(api_key: String, base_url: String) -> Self {
         Self {
-            api_key,
-            http: Client::new(),
+            api_keys: vec![api_key],
+            http: Client::builder().build().unwrap(),
             base_url,
             auth: GeminiAuth::ApiKey,
         }

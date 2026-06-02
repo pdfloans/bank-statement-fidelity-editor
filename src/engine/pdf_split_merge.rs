@@ -92,6 +92,51 @@ pub fn split_pdf(
     Ok(segments)
 }
 
+/// Extract specific 0-indexed pages from `src_path` and save as a new PDF to `out_path`.
+pub fn extract_pages(
+    src_path: &Path,
+    out_path: &Path,
+    pages_to_extract: &[usize],
+) -> Result<(), SplitMergeError> {
+    if pages_to_extract.is_empty() {
+        return Err(SplitMergeError::Structure("no pages to extract".into()));
+    }
+
+    let mut doc = Document::load(src_path)
+        .map_err(|e| SplitMergeError::Load { path: src_path.to_path_buf(), source: e })?;
+
+    doc.decompress();
+
+    let page_map = doc.get_pages();
+    
+    // Ordered (1-based page number -> object id)
+    let mut ordered_pages: Vec<(u32, ObjectId)> = page_map.into_iter().collect();
+    ordered_pages.sort_by_key(|(num, _)| *num);
+
+    let mut window = Vec::new();
+    for &page_idx in pages_to_extract {
+        if page_idx < ordered_pages.len() {
+            window.push(ordered_pages[page_idx].1);
+        }
+    }
+
+    if window.is_empty() {
+        return Err(SplitMergeError::Structure("none of the requested pages were found in the document".into()));
+    }
+
+    let mut segment_doc = build_segment_document(&doc, &window)?;
+    normalize_pages(&mut segment_doc)?;
+
+    segment_doc
+        .save(out_path)
+        .map_err(|e| SplitMergeError::Save {
+            path: out_path.to_path_buf(),
+            source: lopdf::Error::IO(e),
+        })?;
+
+    Ok(())
+}
+
 /// Build a fresh, self-contained `lopdf::Document` containing exactly the pages
 /// in `window` (object ids in the source `doc`), in order, with a fresh
 /// `Catalog` + flat `Pages` tree. All objects each page transitively

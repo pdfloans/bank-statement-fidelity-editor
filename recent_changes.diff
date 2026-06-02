@@ -1,0 +1,1598 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 1c1fe92..58c411b 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1140,7 +1140,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3538270d33cc669650c4b093848450d380def10c331d38c768e34cac80576e6e"
+ dependencies = [
+  "termcolor",
+- "unicode-width",
++ "unicode-width 0.1.14",
+ ]
+ 
+ [[package]]
+@@ -1217,6 +1217,19 @@ dependencies = [
+  "toml",
+ ]
+ 
++[[package]]
++name = "console"
++version = "0.15.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
++dependencies = [
++ "encode_unicode",
++ "libc",
++ "once_cell",
++ "unicode-width 0.2.2",
++ "windows-sys 0.59.0",
++]
++
+ [[package]]
+ name = "console_error_panic_hook"
+ version = "0.1.7"
+@@ -1528,6 +1541,7 @@ dependencies = [
+  "futures-util",
+  "image",
+  "image_hasher",
++ "indicatif",
+  "jsonwebtoken",
+  "lopdf",
+  "opentelemetry",
+@@ -1735,6 +1749,12 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "encode_unicode"
++version = "1.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
++
+ [[package]]
+ name = "encoding_rs"
+ version = "0.8.35"
+@@ -2893,6 +2913,19 @@ dependencies = [
+  "serde_core",
+ ]
+ 
++[[package]]
++name = "indicatif"
++version = "0.17.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
++dependencies = [
++ "console",
++ "number_prefix",
++ "portable-atomic",
++ "unicode-width 0.2.2",
++ "web-time 1.1.0",
++]
++
+ [[package]]
+ name = "indoc"
+ version = "2.0.7"
+@@ -3708,6 +3741,12 @@ dependencies = [
+  "syn 2.0.117",
+ ]
+ 
++[[package]]
++name = "number_prefix"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
++
+ [[package]]
+ name = "objc"
+ version = "0.2.7"
+@@ -6511,6 +6550,12 @@ version = "0.1.14"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
+ 
++[[package]]
++name = "unicode-width"
++version = "0.2.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
++
+ [[package]]
+ name = "unicode-xid"
+ version = "0.2.6"
+diff --git a/Cargo.toml b/Cargo.toml
+index 31202a7..5dbeb85 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -51,6 +51,7 @@ confy = "0.6"
+ rust_xlsxwriter = "0.64"
+ rust_decimal = { version = "1.36", features = ["serde-with-str"] }
+ rust_decimal_macros = "1.36"
++indicatif = "0.17"
+ 
+ [dev-dependencies]
+ wiremock = "0.6"
+diff --git a/src/ai/document_ai.rs b/src/ai/document_ai.rs
+index 23bbf8b..0678b02 100644
+--- a/src/ai/document_ai.rs
++++ b/src/ai/document_ai.rs
+@@ -60,6 +60,71 @@ struct JwtClaims {
+     exp: u64,
+ }
+ 
++#[derive(Deserialize, Debug, Clone)]
++pub struct Metrics {
++    #[serde(rename = "f1Score")]
++    pub f1_score: Option<f32>,
++    pub precision: Option<f32>,
++    pub recall: Option<f32>,
++}
++
++#[derive(Deserialize, Debug, Clone)]
++pub struct EvaluationMetrics {
++    #[serde(rename = "allEntitiesMetrics")]
++    pub all_entities_metrics: Option<Metrics>,
++}
++
++#[derive(Deserialize, Debug, Clone)]
++pub struct ProcessorVersion {
++    pub name: String,
++    pub state: String,
++    pub evaluation: Option<EvaluationMetrics>,
++}
++
++#[derive(Deserialize, Debug)]
++pub struct ListProcessorVersionsResponse {
++    #[serde(rename = "processorVersions")]
++    pub processor_versions: Option<Vec<ProcessorVersion>>,
++}
++
++#[derive(Serialize, Debug)]
++pub struct GcsPrefix {
++    #[serde(rename = "gcsUriPrefix")]
++    pub gcs_uri_prefix: String,
++}
++
++#[derive(Serialize, Debug)]
++pub struct BatchInputDocuments {
++    #[serde(rename = "gcsPrefix")]
++    pub gcs_prefix: GcsPrefix,
++}
++
++#[derive(Serialize, Debug)]
++pub struct GcsOutputConfig {
++    #[serde(rename = "gcsUri")]
++    pub gcs_uri: String,
++}
++
++#[derive(Serialize, Debug)]
++pub struct DocumentOutputConfig {
++    #[serde(rename = "gcsOutputConfig")]
++    pub gcs_output_config: GcsOutputConfig,
++}
++
++#[derive(Serialize, Debug)]
++pub struct BatchProcessRequest {
++    #[serde(rename = "inputDocuments")]
++    pub input_documents: BatchInputDocuments,
++    #[serde(rename = "documentOutputConfig")]
++    pub document_output_config: DocumentOutputConfig,
++}
++
++#[derive(Deserialize, Debug)]
++pub struct Operation {
++    pub name: String,
++    pub done: Option<bool>,
++}
++
+ #[derive(Deserialize)]
+ struct TokenResponse {
+     access_token: String,
+@@ -100,20 +165,86 @@ impl DocumentAiClient {
+         })
+     }
+ 
+-    fn process_url_v1beta3(&self) -> String {
+-        format!(
+-            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}:process",
+-            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+-        )
++    fn process_url_v1beta3(&self, version_id: Option<&str>) -> String {
++        match version_id {
++            Some(v) => format!(
++                "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}/processorVersions/{}:process",
++                self.config.location, self.config.project_id, self.config.location, self.config.processor_id, v
++            ),
++            None => format!(
++                "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}:process",
++                self.config.location, self.config.project_id, self.config.location, self.config.processor_id
++            )
++        }
++    }
++
++    fn process_url_v1(&self, version_id: Option<&str>) -> String {
++        match version_id {
++            Some(v) => format!(
++                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions/{}:process",
++                self.config.location, self.config.project_id, self.config.location, self.config.processor_id, v
++            ),
++            None => format!(
++                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:process",
++                self.config.location, self.config.project_id, self.config.location, self.config.processor_id
++            )
++        }
++    }
++
++    fn process_url_specialized(&self, processor_id: &str, version_id: Option<&str>) -> String {
++        match version_id {
++            Some(v) => format!(
++                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions/{}:process",
++                self.config.location, self.config.project_id, self.config.location, processor_id, v
++            ),
++            None => format!(
++                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:process",
++                self.config.location, self.config.project_id, self.config.location, processor_id
++            )
++        }
++    }
++
++    fn batch_process_url(&self, version_id: Option<&str>) -> String {
++        match version_id {
++            Some(v) => format!(
++                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions/{}:batchProcess",
++                self.config.location, self.config.project_id, self.config.location, self.config.processor_id, v
++            ),
++            None => format!(
++                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:batchProcess",
++                self.config.location, self.config.project_id, self.config.location, self.config.processor_id
++            )
++        }
+     }
+ 
+-    fn process_url_v1(&self) -> String {
++    fn list_versions_url(&self) -> String {
+         format!(
+-            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:process",
++            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}/processorVersions",
+             self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+         )
+     }
+ 
++    pub async fn list_processor_versions(&self) -> Result<Vec<ProcessorVersion>, DocAiError> {
++        let access_token = self.get_access_token().await?;
++        let url = self.list_versions_url();
++        let response = self
++            .http
++            .get(&url)
++            .bearer_auth(access_token)
++            .send()
++            .await?;
++
++        if !response.status().is_success() {
++            return Err(DocAiError::Api(
++                response.status(),
++                response.text().await.unwrap_or_default(),
++            ));
++        }
++
++        let resp: ListProcessorVersionsResponse = response.json().await?;
++        Ok(resp.processor_versions.unwrap_or_default())
++    }
++
+     async fn get_access_token(&self) -> Result<String, DocAiError> {
+         let now = SystemTime::now()
+             .duration_since(UNIX_EPOCH)
+@@ -214,6 +345,7 @@ impl DocumentAiClient {
+                 kind
+             ))));
+         }
++
+         let client_id = adc["client_id"]
+             .as_str()
+             .ok_or_else(|| DocAiError::Parse(serde::de::Error::custom("ADC missing client_id")))?;
+@@ -261,9 +393,61 @@ impl DocumentAiClient {
+         Ok(())
+     }
+ 
++    /// Submits an asynchronous batch processing job to Document AI for a GCS directory.
++    /// `gcs_input_prefix` must be a gs:// URI (e.g. "gs://my-bucket/statements/").
++    /// `gcs_output_uri` must be a gs:// URI where output JSONs will be written.
++    pub async fn batch_process_gcs_prefix(
++        &self,
++        gcs_input_prefix: &str,
++        gcs_output_uri: &str,
++        version_id: Option<&str>,
++    ) -> Result<Operation, DocAiError> {
++        let access_token = self.get_access_token().await?;
++        let url = self.batch_process_url(version_id);
++
++        let req_body = BatchProcessRequest {
++            input_documents: BatchInputDocuments {
++                gcs_prefix: GcsPrefix {
++                    gcs_uri_prefix: gcs_input_prefix.to_string(),
++                },
++            },
++            document_output_config: DocumentOutputConfig {
++                gcs_output_config: GcsOutputConfig {
++                    gcs_uri: gcs_output_uri.to_string(),
++                },
++            },
++        };
++
++        let response = self
++            .http
++            .post(&url)
++            .bearer_auth(access_token)
++            .json(&req_body)
++            .send()
++            .await?;
++
++        if !response.status().is_success() {
++            return Err(DocAiError::Api(
++                response.status(),
++                response.text().await.unwrap_or_default(),
++            ));
++        }
++
++        let op: Operation = response.json().await?;
++        Ok(op)
++    }
++
+     pub async fn parse_entire_statement(
+         &self,
+         pdf_path: &Path,
++    ) -> Result<BankStatement, DocAiError> {
++        self.parse_entire_statement_with_version(pdf_path, None).await
++    }
++
++    pub async fn parse_entire_statement_with_version(
++        &self,
++        pdf_path: &Path,
++        version_id: Option<&str>,
+     ) -> Result<BankStatement, DocAiError> {
+         // ----- Cache lookup --------------------------------------------------
+         // Document AI is billed per page; if we've parsed this exact PDF
+@@ -281,7 +465,7 @@ impl DocumentAiClient {
+                 &self.config.project_id,
+                 &self.config.location,
+                 &self.config.processor_id,
+-                "default", // we don't currently route to a specific version
++                version_id.unwrap_or("default"), // routing to specific version if provided
+             )
+             .ok()
+         } else {
+@@ -305,7 +489,7 @@ impl DocumentAiClient {
+ 
+         // 1. Primary: API key → v1beta3.
+         if !self.config.api_key.is_empty() {
+-            let url = format!("{}?key={}", self.process_url_v1beta3(), self.config.api_key);
++            let url = format!("{}?key={}", self.process_url_v1beta3(version_id), self.config.api_key);
+             tracing::debug!("[doc_ai] trying v1beta3 API-key auth");
+             match self.http.post(&url).json(&body).send().await {
+                 Ok(resp) if resp.status().is_success() => {
+@@ -348,7 +532,7 @@ impl DocumentAiClient {
+         }
+ 
+         let access_token = self.get_access_token().await?;
+-        let url = self.process_url_v1();
++        let url = self.process_url_v1(version_id);
+         tracing::debug!("[doc_ai] using v1 OAuth (ADC or service-account)");
+         let response = self
+             .http
+@@ -375,6 +559,294 @@ impl DocumentAiClient {
+         Ok(stmt)
+     }
+ 
++    pub async fn parse_specialized_document(
++        &self,
++        pdf_path: &Path,
++        processor_id: &str,
++        version_id: Option<&str>,
++    ) -> Result<serde_json::Value, DocAiError> {
++        let pdf_bytes = std::fs::read(pdf_path)?;
++        let base64_pdf = Base64Standard.encode(&pdf_bytes);
++        let body = serde_json::json!({
++            "rawDocument": {
++                "content": base64_pdf,
++                "mimeType": "application/pdf"
++            }
++        });
++
++        let access_token = self.get_access_token().await?;
++        let url = self.process_url_specialized(processor_id, version_id);
++        let response = self
++            .http
++            .post(&url)
++            .bearer_auth(access_token)
++            .json(&body)
++            .send()
++            .await?;
++
++        if !response.status().is_success() {
++            return Err(DocAiError::Api(
++                response.status(),
++                response.text().await.unwrap_or_default(),
++            ));
++        }
++
++        let result: serde_json::Value = response.json().await?;
++        Ok(result)
++    }
++
++    pub async fn parse_layout_chunks(
++        &self,
++        pdf_path: &Path,
++        version_id: Option<&str>,
++    ) -> Result<serde_json::Value, DocAiError> {
++        let pdf_bytes = std::fs::read(pdf_path)?;
++        let base64_pdf = Base64Standard.encode(&pdf_bytes);
++        let body = serde_json::json!({
++            "rawDocument": {
++                "content": base64_pdf,
++                "mimeType": "application/pdf"
++            },
++            "processOptions": {
++                "layoutConfig": {
++                    "chunkingConfig": {
++                        "chunkSize": 1000,
++                        "includeAncestorHeadings": true
++                    }
++                }
++            }
++        });
++
++        let access_token = self.get_access_token().await?;
++        let url = self.process_url_v1(version_id);
++        let response = self
++            .http
++            .post(&url)
++            .bearer_auth(access_token)
++            .json(&body)
++            .send()
++            .await?;
++
++        if !response.status().is_success() {
++            return Err(DocAiError::Api(
++                response.status(),
++                response.text().await.unwrap_or_default(),
++            ));
++        }
++
++        let result: serde_json::Value = response.json().await?;
++        Ok(result)
++    }
++
++    pub async fn tournament_parse(
++        &self,
++        pdf_path: &Path,
++        progress_tx: Option<&std::sync::mpsc::Sender<crate::app::runtime::JobResult>>,
++    ) -> Result<BankStatement, DocAiError> {
++        let mut versions = Vec::new();
++        
++        if let Some(tx) = progress_tx {
++            let _ = tx.send(crate::app::runtime::JobResult::Progress {
++                label: "Fetching processor versions and evaluation metrics...".into(),
++                fraction: 0.1,
++            });
++        }
++        
++        match self.list_processor_versions().await {
++            Ok(mut fetched_versions) => {
++                // Filter to DEPLOYED versions and sort by F1 Score (descending)
++                fetched_versions.retain(|v| v.state == "DEPLOYED");
++                fetched_versions.sort_by(|a, b| {
++                    let f1_a = a.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
++                    let f1_b = b.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
++                    f1_b.partial_cmp(&f1_a).unwrap_or(std::cmp::Ordering::Equal)
++                });
++                
++                // Extract just the version ID part (everything after processorVersions/)
++                for v in fetched_versions.iter().take(4) {
++                    if let Some(idx) = v.name.rfind('/') {
++                        let id = &v.name[idx + 1..];
++                        versions.push(id.to_string());
++                    }
++                }
++            }
++            Err(e) => {
++                tracing::warn!("Failed to list processor versions: {}. Falling back to hardcoded defaults.", e);
++            }
++        }
++        
++        if versions.is_empty() {
++            versions = vec![
++                "pretrained-bankstatement-v5.0-2023-12-06".to_string(),
++                "pretrained-bankstatement-v3.0-2022-05-16".to_string(),
++                "pretrained-bankstatement-v2.0-2021-12-10".to_string(),
++            ];
++        }
++
++        let mut best_stmt = None;
++        let mut best_imbalance = 9999999999.0;
++
++        for v in versions {
++            if let Some(tx) = progress_tx {
++                let _ = tx.send(crate::app::runtime::JobResult::Progress {
++                    label: format!("Analyzing Document AI version: {}", v),
++                    fraction: 0.4,
++                });
++            }
++
++            match self.parse_entire_statement_with_version(pdf_path, Some(&v)).await {
++                Ok(stmt) => {
++                    if stmt.transactions.is_empty() { continue; }
++                    
++                    let initial = crate::engine::model::dec_to_f64(stmt.opening_balance);
++                    let final_bal = crate::engine::model::dec_to_f64(stmt.closing_balance);
++                    let mut sum = 0.0;
++                    for t in &stmt.transactions {
++                        if let Some(c) = t.credit { sum += crate::engine::model::dec_to_f64(c); }
++                        if let Some(d) = t.debit { sum -= crate::engine::model::dec_to_f64(d); }
++                    }
++                    let calculated = initial + sum;
++                    let imbalance = (final_bal - calculated).abs();
++                    
++                    if imbalance < 0.01 {
++                        if let Some(tx) = progress_tx {
++                            let _ = tx.send(crate::app::runtime::JobResult::Progress {
++                                label: format!("Perfect match found with {}", v),
++                                fraction: 0.5,
++                            });
++                        }
++                        return Ok(stmt);
++                    }
++
++                    if imbalance < best_imbalance {
++                        best_imbalance = imbalance;
++                        best_stmt = Some(stmt);
++                    }
++                }
++                Err(e) => {
++                    tracing::warn!("Version {} failed: {}", v, e);
++                }
++            }
++        }
++
++        if let Some(stmt) = best_stmt {
++            return Ok(stmt);
++        }
++
++        // Fallback to specialized processor if defined
++        if let Some(spec_proc_id) = &self.config.specialized_processor_id {
++            if let Some(tx) = progress_tx {
++                let _ = tx.send(crate::app::runtime::JobResult::Progress {
++                    label: "Bank Statement parsers failed. Trying Specialized Processor...".into(),
++                    fraction: 0.5,
++                });
++            }
++            match self.parse_specialized_document(pdf_path, spec_proc_id, None).await {
++                Ok(raw) => {
++                    match Self::parse_response_into_bank_statement(&raw) {
++                        Ok(stmt) => return Ok(stmt),
++                        Err(e) => {
++                            tracing::warn!("Specialized processor failed to map to Bank Statement: {}", e);
++                            return Err(DocAiError::Parse(serde::de::Error::custom("UNSUPPORTED_FORMAT")));
++                        }
++                    }
++                }
++                Err(e) => tracing::warn!("Specialized processor failed: {}", e),
++            }
++        }
++
++        Err(DocAiError::Parse(serde::de::Error::custom("UNSUPPORTED_FORMAT: No Document AI processor version is suited for this bank statement layout.")))
++    }
++
++    pub async fn tournament_parse_chunked(
++        &self,
++        chunks: &[(std::path::PathBuf, usize)],
++        max_concurrency: usize,
++        progress_tx: Option<&std::sync::mpsc::Sender<crate::app::runtime::JobResult>>,
++    ) -> Result<BankStatement, DocAiError> {
++        let mut versions = Vec::new();
++        
++        if let Some(tx) = progress_tx {
++            let _ = tx.send(crate::app::runtime::JobResult::Progress {
++                label: "Fetching processor versions and evaluation metrics...".into(),
++                fraction: 0.1,
++            });
++        }
++        
++        match self.list_processor_versions().await {
++            Ok(mut fetched_versions) => {
++                fetched_versions.retain(|v| v.state == "DEPLOYED");
++                fetched_versions.sort_by(|a, b| {
++                    let f1_a = a.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
++                    let f1_b = b.evaluation.as_ref().and_then(|e| e.all_entities_metrics.as_ref()).and_then(|m| m.f1_score).unwrap_or(0.0);
++                    f1_b.partial_cmp(&f1_a).unwrap_or(std::cmp::Ordering::Equal)
++                });
++                for v in fetched_versions.iter().take(4) {
++                    if let Some(idx) = v.name.rfind('/') {
++                        versions.push(v.name[idx + 1..].to_string());
++                    }
++                }
++            }
++            Err(e) => tracing::warn!("Failed to list processor versions: {}. Falling back.", e),
++        }
++        
++        if versions.is_empty() {
++            versions = vec![
++                "pretrained-bankstatement-v5.0-2023-12-06".to_string(),
++                "pretrained-bankstatement-v3.0-2022-05-16".to_string(),
++                "pretrained-bankstatement-v2.0-2021-12-10".to_string(),
++            ];
++        }
++
++        let mut best_stmt = None;
++        let mut best_imbalance = 9999999999.0;
++
++        for v in versions {
++            if let Some(tx) = progress_tx {
++                let _ = tx.send(crate::app::runtime::JobResult::Progress {
++                    label: format!("Analyzing Document AI version: {}", v),
++                    fraction: 0.4,
++                });
++            }
++
++            match self.parse_chunked_statement_with_version(chunks, max_concurrency, Some(&v)).await {
++                Ok(stmt) => {
++                    if stmt.transactions.is_empty() { continue; }
++                    
++                    let initial = crate::engine::model::dec_to_f64(stmt.opening_balance);
++                    let final_bal = crate::engine::model::dec_to_f64(stmt.closing_balance);
++                    let mut sum = 0.0;
++                    for t in &stmt.transactions {
++                        if let Some(c) = t.credit { sum += crate::engine::model::dec_to_f64(c); }
++                        if let Some(d) = t.debit { sum -= crate::engine::model::dec_to_f64(d); }
++                    }
++                    let calculated = initial + sum;
++                    let imbalance = (final_bal - calculated).abs();
++                    
++                    if imbalance < 0.01 {
++                        if let Some(tx) = progress_tx {
++                            let _ = tx.send(crate::app::runtime::JobResult::Progress {
++                                label: format!("Perfect match found with {}", v),
++                                fraction: 0.5,
++                            });
++                        }
++                        return Ok(stmt);
++                    }
++
++                    if imbalance < best_imbalance {
++                        best_imbalance = imbalance;
++                        best_stmt = Some(stmt);
++                    }
++                }
++                Err(e) => {
++                    tracing::warn!("Version {} failed: {}", v, e);
++                }
++            }
++        }
++
++        best_stmt.ok_or_else(|| DocAiError::Api(reqwest::StatusCode::BAD_REQUEST, "UNSUPPORTED_FORMAT: No Document AI processor version is suited for this bank statement layout.".into()))
++    }
++
+     /// Parse a list of pre-chunked PDFs in parallel and merge the results
+     /// into a single [`BankStatement`]. Stage 3 / Item #16: avoids the 30
+     /// page-per-request processor cap by chunking + parallelising.
+@@ -387,6 +859,15 @@ impl DocumentAiClient {
+         &self,
+         chunks: &[(std::path::PathBuf, usize)],
+         max_concurrency: usize,
++    ) -> Result<BankStatement, DocAiError> {
++        self.parse_chunked_statement_with_version(chunks, max_concurrency, None).await
++    }
++
++    pub async fn parse_chunked_statement_with_version(
++        &self,
++        chunks: &[(std::path::PathBuf, usize)],
++        max_concurrency: usize,
++        version_id: Option<&str>,
+     ) -> Result<BankStatement, DocAiError> {
+         use futures_util::stream::{FuturesUnordered, StreamExt};
+         use std::future::Future;
+@@ -408,7 +889,7 @@ impl DocumentAiClient {
+             let (path, offset) = chunks[next_idx].clone();
+             let idx = next_idx;
+             in_flight.push(Box::pin(async move {
+-                let r = self.parse_entire_statement(&path).await;
++                let r = self.parse_entire_statement_with_version(&path, version_id).await;
+                 (idx, offset, r)
+             }));
+             next_idx += 1;
+@@ -438,7 +919,7 @@ impl DocumentAiClient {
+                 let (path, offset) = chunks[next_idx].clone();
+                 let i = next_idx;
+                 in_flight.push(Box::pin(async move {
+-                    let r = self.parse_entire_statement(&path).await;
++                    let r = self.parse_entire_statement_with_version(&path, version_id).await;
+                     (i, offset, r)
+                 }));
+                 next_idx += 1;
+@@ -1096,6 +1577,7 @@ mod tests {
+                 project_id: "p".into(),
+                 location: "us".into(),
+                 processor_id: "abc".into(),
++                specialized_processor_id: None,
+                 service_account_path: String::new(),
+                 api_key: String::new(),
+                 adc_path: String::new(),
+diff --git a/src/ai/gemini_client.rs b/src/ai/gemini_client.rs
+index 8b7af76..9be1d3e 100644
+--- a/src/ai/gemini_client.rs
++++ b/src/ai/gemini_client.rs
+@@ -318,8 +318,8 @@ impl GeminiClient {
+     #[cfg(test)]
+     fn with_base_url(api_key: String, base_url: String) -> Self {
+         Self {
+-            api_key,
+-            http: Client::new(),
++            api_keys: vec![api_key],
++            http: Client::builder().build().unwrap(),
+             base_url,
+             auth: GeminiAuth::ApiKey,
+         }
+diff --git a/src/app/cli.rs b/src/app/cli.rs
+index fec6ffc..3447050 100644
+--- a/src/app/cli.rs
++++ b/src/app/cli.rs
+@@ -246,42 +246,66 @@ fn validate_pdf_path(path: &std::path::Path, name: &str) -> Result<(), String> {
+     Ok(())
+ }
+ 
+-/// Blocking synchronous receiver helper
+-/// Drains progress beats and handles errors.
+ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (String, String)> {
+-    loop {
++    wait_for_terminal_result_ext(job_rx, false)
++}
++
++fn wait_for_terminal_result_ext(
++    job_rx: &Receiver<JobResult>,
++    ignore_change_applied: bool,
++) -> Result<JobResult, (String, String)> {
++    let pb = indicatif::ProgressBar::new(100);
++    pb.set_style(
++        indicatif::ProgressStyle::default_bar()
++            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}% ({eta}) {msg}")
++            .unwrap()
++            .progress_chars("#>-")
++    );
++    let mut last_fraction = 0.0;
++
++    let res = loop {
+         match job_rx.recv() {
+             Ok(JobResult::Progress { label, fraction }) => {
+-                tracing::info!("[progress] {}: {:.0}%", label, fraction * 100.0);
++                let pct = (fraction * 100.0) as u64;
++                if pct != last_fraction as u64 {
++                    pb.set_position(pct);
++                    last_fraction = fraction;
++                }
++                pb.set_message(label);
++            }
++            Ok(JobResult::ChangeApplied { record, requires_visual_review }) => {
++                pb.println(format!("✅ Live Edit: '{}' -> '{}' (Page {})", record.old_text, record.new_text, record.page + 1));
++                if !ignore_change_applied {
++                    break Ok(JobResult::ChangeApplied { record, requires_visual_review });
++                }
+             }
+-            // `LoadDocument` fires an async font-analysis task that emits
+-            // `FontAnalysisReady` independently of the document-load result —
+-            // and on a cache hit it can arrive *first*. It is not a terminal
+-            // result for any CLI flow, so skip it (otherwise `extract` and
+-            // friends mistake it for their answer and report "unexpected
+-            // result"). The font analysis is surfaced in the GUI separately.
+             Ok(JobResult::FontAnalysisReady(_)) => {
+                 tracing::debug!("[cli] ignoring non-terminal FontAnalysisReady");
+             }
+-            // Likewise, an incidental cascade report is informational only.
+             Ok(JobResult::FontCascadeUsed(_)) => {
+                 tracing::debug!("[cli] ignoring non-terminal FontCascadeUsed");
+             }
+-            // `ApplyChange` emits a `HistoryUpdated` side-effect *after* the
+-            // terminal `ChangeApplied`. For sequential CLI flows that apply an
+-            // edit then immediately issue another job (e.g. re-render in
+-            // `selftest`), this would otherwise be mistaken for the next job's
+-            // result. It is never a terminal result for a CLI command, so skip.
+             Ok(JobResult::HistoryUpdated { .. }) => {
+                 tracing::debug!("[cli] ignoring non-terminal HistoryUpdated");
+             }
+             Ok(JobResult::Error { job_label, message }) => {
+-                return Err((job_label, message));
++                break Err((job_label, message));
++            }
++            Ok(res) => {
++                break Ok(res);
++            }
++            Err(e) => {
++                break Err(("runtime".into(), format!("Disconnected: {}", e)));
+             }
+-            Ok(res) => return Ok(res),
+-            Err(e) => return Err(("runtime".into(), format!("Disconnected: {}", e))),
+         }
++    };
++    
++    if res.is_ok() {
++        pb.finish_with_message("Done");
++    } else {
++        pb.finish_with_message("Failed");
+     }
++    res
+ }
+ 
+ /// End-to-end self-test: render → edit a real text span → re-render, asserting
+@@ -767,7 +791,7 @@ pub fn run(
+                             changes,
+                         });
+ 
+-                        match wait_for_terminal_result(&job_rx) {
++                        match wait_for_terminal_result_ext(&job_rx, true) {
+                             Ok(JobResult::ProposedChangesApplied {
+                                 changes_applied,
+                                 failures,
+diff --git a/src/app/config.rs b/src/app/config.rs
+index 6fd477b..1e384dc 100644
+--- a/src/app/config.rs
++++ b/src/app/config.rs
+@@ -63,6 +63,8 @@ pub struct DocumentAiConfig {
+     pub project_id: String,
+     pub location: String,
+     pub processor_id: String,
++    /// Optional Document AI processor for specialized documents (fallback).
++    pub specialized_processor_id: Option<String>,
+     /// Optional path to a Google Cloud Service Account JSON key (legacy auth).
+     /// If empty, the client falls back to API-key auth (`api_key` field).
+     pub service_account_path: String,
+@@ -182,6 +184,9 @@ impl AppConfig {
+         let proc_id = env::var("DOCUMENT_AI_PROCESSOR_ID")
+             .ok()
+             .filter(|s| !s.is_empty());
++        let spec_proc_id = env::var("DOCUMENT_AI_SPECIALIZED_PROCESSOR_ID")
++            .ok()
++            .filter(|s| !s.is_empty());
+         let sa_path = env::var("GOOGLE_APPLICATION_CREDENTIALS")
+             .ok()
+             .filter(|s| !s.is_empty());
+@@ -198,6 +203,7 @@ impl AppConfig {
+                     project_id,
+                     location,
+                     processor_id,
++                    specialized_processor_id: spec_proc_id,
+                     service_account_path: sa_path.unwrap_or_default(),
+                     api_key: api_key.unwrap_or_default(),
+                     adc_path: adc_path.unwrap_or_default(),
+diff --git a/src/app/gui.rs b/src/app/gui.rs
+index fea7c28..b8db824 100644
+--- a/src/app/gui.rs
++++ b/src/app/gui.rs
+@@ -286,11 +286,16 @@ pub struct MyApp {
+     // Batch Processing
+     batch_folder_path: Option<PathBuf>,
+     batch_files: Vec<PathBuf>,
++    gcs_input_uri: String,
++    gcs_output_uri: String,
++    gcs_batch_operation: Option<String>,
+ 
+     // View
+     current_view: AppView,
+     zoom_factor: f32,
++    target_zoom: f32,
+     pan_offset: egui::Vec2,
++    target_pan: egui::Vec2,
+     show_curtain: bool,
+     curtain_ratio: f32,
+     fit_to_view: bool,
+@@ -419,9 +424,14 @@ impl MyApp {
+             history_state: ChangeHistory::new(),
+             batch_folder_path: None,
+             batch_files: Vec::new(),
++            gcs_input_uri: String::new(),
++            gcs_output_uri: String::new(),
++            gcs_batch_operation: None,
+             current_view: AppView::SingleDocument,
+             zoom_factor: 1.0,
++            target_zoom: 1.0,
+             pan_offset: egui::Vec2::ZERO,
++            target_pan: egui::Vec2::ZERO,
+             show_curtain: false,
+             curtain_ratio: 0.5,
+             fit_to_view: true,
+@@ -647,8 +657,8 @@ impl MyApp {
+         }
+         let scale_x = available.x / tex_size.x;
+         let scale_y = available.y / tex_size.y;
+-        self.zoom_factor = scale_x.min(scale_y).clamp(0.1, 5.0) * 0.95;
+-        self.pan_offset = egui::Vec2::ZERO;
++        self.target_zoom = scale_x.min(scale_y).clamp(0.1, 5.0) * 0.95;
++        self.target_pan = egui::Vec2::ZERO;
+     }
+ 
+     fn balance_trend_points(&self) -> PlotPoints {
+@@ -683,6 +693,29 @@ impl eframe::App for MyApp {
+         // theme
+         self.settings.theme.apply(ctx);
+ 
++        // Smooth camera animation
++        let dt = ctx.input(|i| i.stable_dt).min(0.1);
++        let lerp_speed = 10.0;
++        let mut animated = false;
++
++        if (self.zoom_factor - self.target_zoom).abs() > 0.001 {
++            self.zoom_factor += (self.target_zoom - self.zoom_factor) * (1.0 - (-lerp_speed * dt).exp());
++            animated = true;
++        } else {
++            self.zoom_factor = self.target_zoom;
++        }
++
++        if (self.pan_offset - self.target_pan).length() > 0.1 {
++            self.pan_offset += (self.target_pan - self.pan_offset) * (1.0 - (-lerp_speed * dt).exp());
++            animated = true;
++        } else {
++            self.pan_offset = self.target_pan;
++        }
++
++        if animated {
++            ctx.request_repaint();
++        }
++
+         // Stage 13 / Item #6: workflow shortcuts.
+         //   Ctrl+1 → Parse + AI validate
+         //   Ctrl+2 → Balance Out Preview
+@@ -877,6 +910,24 @@ impl eframe::App for MyApp {
+                         match serde_json::from_str::<TextBlock>(&json) {
+                             Ok(b) => {
+                                 self.new_text = b.text.clone();
++                                
++                                // Auto focus and zoom transition
++                                if let (Some(tex), Some((w_pts, h_pts))) = (&self.current_page_texture, self.current_page_size_pts) {
++                                    let [x0, y0, x1, y1] = b.bbox;
++                                    let cx_pts = (x0 + x1) / 2.0;
++                                    let cy_pts = (y0 + y1) / 2.0;
++                                    let tex_size = tex.size_vec2();
++                                    
++                                    if self.target_zoom < 1.5 {
++                                        self.target_zoom = 1.5;
++                                    }
++                                    self.fit_to_view = false;
++                                    
++                                    let pan_x = -((cx_pts - w_pts / 2.0) / w_pts) * tex_size.x * self.target_zoom;
++                                    let pan_y = -((cy_pts - h_pts / 2.0) / h_pts) * tex_size.y * self.target_zoom;
++                                    self.target_pan = egui::vec2(pan_x, pan_y);
++                                }
++                                
+                                 self.selected_block = Some(b);
+                             }
+                             Err(e) => {
+@@ -939,6 +990,10 @@ impl MyApp {
+             JobResult::ValidationStatus { gemini_ok, docai_ok } => {
+                 self.credential_validation_status = Some((gemini_ok, docai_ok));
+             }
++            JobResult::BatchOperationStarted { operation_name } => {
++                self.gcs_batch_operation = Some(operation_name.clone());
++                self.toast(ToastKind::Success, format!("Batch job started: {}", operation_name));
++            }
+             JobResult::DocumentLoaded { total_pages, .. } => {
+                 self.total_pages = total_pages;
+                 self.current_page = 0;
+@@ -1465,155 +1520,6 @@ impl MyApp {
+                     }
+                 });
+ 
+-                ui.separator();
+-                ui.heading("Targeted Edit");
+-                if let Some(block) = self.selected_block.clone() {
+-                    ui.small(format!("Font: {}", if block.font.is_empty() { "(unknown)" } else { &block.font }));
+-                    ui.small(format!("Size: {:.1}", block.size));
+-                    ui.add_enabled(false, egui::TextEdit::multiline(&mut block.text.clone()).desired_rows(2));
+-                    ui.text_edit_multiline(&mut self.new_text);
+-                    if self.settings.advanced_mode {
+-                        ui.checkbox(&mut self.settings.deep_font_replication, "Deep Font Replication (AI)");
+-                    }
+-                    ui.horizontal(|ui| {
+-                        if ui.button("🎯 Apply Edit")
+-                            .on_hover_text("Replace the selected text directly (single-step path)")
+-                            .clicked() {
+-                            let input = if self.current_pdf_path.exists() {
+-                                self.current_pdf_path.clone()
+-                            } else {
+-                                PathBuf::from(&self.input_path)
+-                            };
+-                            let _ = self.job_tx.send(Job::ApplyChange {
+-                                input,
+-                                output: PathBuf::from(&self.output_path),
+-                                page: self.current_page,
+-                                bbox: block.bbox,
+-                                new_text: self.new_text.clone(),
+-                                old_text: block.text.clone(),
+-                                description: "Manual edit".into(),
+-                                deep_font_replication: self.settings.deep_font_replication,
+-                            });
+-                            self.in_flight += 1;
+-                        }
+-                        let in_workflow = self.workflow_validation.is_some();
+-                        if ui.add_enabled(in_workflow, egui::Button::new("📋 Queue for Preview"))
+-                            .on_hover_text("Add this edit to the workflow queue (use 'Balance Out Preview' next)")
+-                            .clicked()
+-                        {
+-                            // Try to map the edit to a known transaction row.
+-                            let line_on_page = self.workflow_transactions
+-                                .iter()
+-                                .filter(|t| t.page == self.current_page)
+-                                .min_by(|a, b| {
+-                                    let by_a = a.bbox.unwrap_or([0.0; 4])[1];
+-                                    let by_b = b.bbox.unwrap_or([0.0; 4])[1];
+-                                    let ba = (by_a - block.bbox[1]).abs();
+-                                    let bb = (by_b - block.bbox[1]).abs();
+-                                    ba.partial_cmp(&bb).unwrap_or(std::cmp::Ordering::Equal)
+-                                })
+-                                .map(|t| t.line_on_page)
+-                                .unwrap_or(0);
+-                            // Heuristic: numeric edit -> credit/debit/balance based on font column.
+-                            let trimmed = self.new_text.trim();
+-                            let field = if trimmed.replace([',', '$', '.', '-'], "").chars().all(|c| c.is_ascii_digit()) {
+-                                crate::engine::workflow::EditField::RunningBalance
+-                            } else {
+-                                crate::engine::workflow::EditField::Description
+-                            };
+-                            self.workflow_edits.push(crate::engine::workflow::UserEdit {
+-                                page: self.current_page,
+-                                line_on_page,
+-                                bbox: block.bbox,
+-                                old_text: block.text.clone(),
+-                                new_text: self.new_text.clone(),
+-                                field,
+-                            });
+-                            self.workflow_dirty = true;
+-                            self.toast(ToastKind::Info, format!("Queued edit ({} pending)", self.workflow_edits.len()));
+-                        }
+-                    });
+-
+-                    // "Adjust entire bank statement accordingly and apply all
+-                    // edits": run the Smart Balance Engine over the whole
+-                    // document and auto-apply every proposed adjustment so the
+-                    // running balances stay internally consistent after edits.
+-                    ui.add_space(4.0);
+-                    let adjust_btn = ui.add_sized(
+-                        [ui.available_width(), 28.0],
+-                        egui::Button::new("⚖ Adjust entire bank statement accordingly and apply all edits"),
+-                    );
+-                    if adjust_btn
+-                        .on_hover_text(
+-                            "Runs Document AI + Gemini across the whole statement, computes the minimal set of balancing adjustments, and applies them all to the PDF in one pass.",
+-                        )
+-                        .clicked()
+-                    {
+-                        let input = if self.current_pdf_path.exists() {
+-                            self.current_pdf_path.clone()
+-                        } else {
+-                            PathBuf::from(&self.input_path)
+-                        };
+-                        if input.as_os_str().is_empty() || !input.exists() {
+-                            self.toast(ToastKind::Error, "Open a PDF first.");
+-                        } else {
+-                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+-                                input,
+-                                output: PathBuf::from(&self.output_path),
+-                                auto_apply: true,
+-                            });
+-                            self.in_flight += 1;
+-                            self.status = "Adjusting entire statement and applying all edits…".into();
+-                            self.toast(ToastKind::Info, "Adjusting entire statement…");
+-                        }
+-                    }
+-
+-                    // "Preview Balance-Out Adjustments": same cascade engine,
+-                    // but STOPS at the proposal stage so the user can review
+-                    // every cascaded change (which can span many pages — often
+-                    // more than 3 pages from the edited row) before committing.
+-                    // Editing one amount recomputes every subsequent running
+-                    // balance, so this surfaces the full set of downstream
+-                    // changes for approval. Results appear in the
+-                    // "⚖ Smart Balance Engine" panel as a checklist with an
+-                    // "Apply approved" button.
+-                    ui.add_space(2.0);
+-                    let preview_btn = ui.add_sized(
+-                        [ui.available_width(), 26.0],
+-                        egui::Button::new("🔍 Preview Balance-Out Adjustments"),
+-                    );
+-                    if preview_btn
+-                        .on_hover_text(
+-                            "Recompute the whole statement after your edits and PREVIEW every cascaded balance change (may span many pages) before applying. Review the list in the Smart Balance Engine panel, then 'Apply approved'.",
+-                        )
+-                        .clicked()
+-                    {
+-                        let input = if self.current_pdf_path.exists() {
+-                            self.current_pdf_path.clone()
+-                        } else {
+-                            PathBuf::from(&self.input_path)
+-                        };
+-                        if input.as_os_str().is_empty() || !input.exists() {
+-                            self.toast(ToastKind::Error, "Open a PDF first.");
+-                        } else {
+-                            // auto_apply: false → emits BalanceProposed only;
+-                            // proposals render as an approve-then-apply checklist.
+-                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+-                                input,
+-                                output: PathBuf::from(&self.output_path),
+-                                auto_apply: false,
+-                            });
+-                            self.in_flight += 1;
+-                            self.status = "Previewing balance-out adjustments…".into();
+-                            self.toast(
+-                                ToastKind::Info,
+-                                "Computing balance-out preview — review proposals in the Smart Balance Engine panel.",
+-                            );
+-                        }
+-                    }
+-                } else {
+-                    ui.weak("Click any text on the canvas to edit.");
+-                }
+             });
+     }
+ 
+@@ -1621,20 +1527,86 @@ impl MyApp {
+         egui::SidePanel::right("right_panel")
+             .width_range(280.0..=380.0)
+             .show(ctx, |ui| {
+-                ui.heading("Analysis & Tools");
++                ui.heading("Workflow Action Center");
+                 egui::ScrollArea::vertical().show(ui, |ui| {
+                     self.draw_font_analysis_section(ui);
+                     self.draw_workflow_section(ui);
++                    
++                    ui.collapsing("✍ Manual Edit", |ui| {
++                        if let Some(block) = self.selected_block.clone() {
++                            ui.small(format!("Font: {} (Size: {:.1})", if block.font.is_empty() { "unknown" } else { &block.font }, block.size));
++                            ui.add_enabled(false, egui::TextEdit::multiline(&mut block.text.clone()).desired_rows(2));
++                            ui.text_edit_multiline(&mut self.new_text);
++                            
++                            if self.settings.advanced_mode {
++                                ui.checkbox(&mut self.settings.deep_font_replication, "Deep Font Replication");
++                            }
++                            
++                            ui.horizontal(|ui| {
++                                if ui.button("🎯 Apply Single Edit").clicked() {
++                                    let input = if self.current_pdf_path.exists() { self.current_pdf_path.clone() } else { PathBuf::from(&self.input_path) };
++                                    let _ = self.job_tx.send(Job::ApplyChange {
++                                        input, output: PathBuf::from(&self.output_path), page: self.current_page, bbox: block.bbox,
++                                        new_text: self.new_text.clone(), old_text: block.text.clone(), description: "Manual edit".into(),
++                                        deep_font_replication: self.settings.deep_font_replication,
++                                    });
++                                    self.in_flight += 1;
++                                }
++                                let in_workflow = self.workflow_validation.is_some();
++                                if ui.add_enabled(in_workflow, egui::Button::new("📋 Queue Edit")).clicked() {
++                                    let line_on_page = self.workflow_transactions.iter().filter(|t| t.page == self.current_page)
++                                        .min_by(|a, b| {
++                                            let by_a = a.bbox.unwrap_or([0.0; 4])[1];
++                                            let by_b = b.bbox.unwrap_or([0.0; 4])[1];
++                                            (by_a - block.bbox[1]).abs().partial_cmp(&(by_b - block.bbox[1]).abs()).unwrap_or(std::cmp::Ordering::Equal)
++                                        }).map(|t| t.line_on_page).unwrap_or(0);
++                                    let trimmed = self.new_text.trim();
++                                    let field = if trimmed.replace([',', '$', '.', '-'], "").chars().all(|c| c.is_ascii_digit()) {
++                                        crate::engine::workflow::EditField::RunningBalance
++                                    } else {
++                                        crate::engine::workflow::EditField::Description
++                                    };
++                                    self.workflow_edits.push(crate::engine::workflow::UserEdit {
++                                        page: self.current_page, line_on_page, bbox: block.bbox, old_text: block.text.clone(), new_text: self.new_text.clone(), field,
++                                    });
++                                    self.workflow_dirty = true;
++                                    self.toast(ToastKind::Info, format!("Queued edit ({} pending)", self.workflow_edits.len()));
++                                }
++                            });
++                        } else {
++                            ui.weak("Click any text on the canvas to edit.");
++                        }
++                    });
+ 
+-                    ui.collapsing("⚖ Smart Balance Engine", |ui| {
+-                        if ui.button("Analyze Document")
+-                            .on_hover_text("Run Document AI + Gemini to find math errors and propose minimal adjustments")
++                    ui.collapsing("🤖 Smart Auto-Balance", |ui| {
++                        if ui.button("Analyze Document").on_hover_text("Find math errors").clicked() {
++                            let _ = self.job_tx.send(Job::BalanceStatement { path: PathBuf::from(&self.input_path) });
++                            self.in_flight += 1;
++                        }
++                        ui.add_space(4.0);
++                        if ui.button("⚖ Apply All Cascading Edits")
++                            .on_hover_text("Automatically compute and apply all necessary downstream balance adjustments")
+                             .clicked()
+                         {
+-                            let _ = self
+-                                .job_tx
+-                                .send(Job::BalanceStatement { path: PathBuf::from(&self.input_path) });
+-                            self.in_flight += 1;
++                            let input = if self.current_pdf_path.exists() { self.current_pdf_path.clone() } else { PathBuf::from(&self.input_path) };
++                            if !input.exists() { self.toast(ToastKind::Error, "Open a PDF first."); } else {
++                                let _ = self.job_tx.send(Job::BalanceAndApplyAll { input, output: PathBuf::from(&self.output_path), auto_apply: true });
++                                self.in_flight += 1;
++                                self.toast(ToastKind::Info, "Adjusting entire statement…");
++                            }
++                        }
++                        
++                        ui.add_space(2.0);
++                        if ui.button("🔍 Preview Cascading Edits")
++                            .on_hover_text("Preview cascading balance changes before applying")
++                            .clicked()
++                        {
++                            let input = if self.current_pdf_path.exists() { self.current_pdf_path.clone() } else { PathBuf::from(&self.input_path) };
++                            if !input.exists() { self.toast(ToastKind::Error, "Open a PDF first."); } else {
++                                let _ = self.job_tx.send(Job::BalanceAndApplyAll { input, output: PathBuf::from(&self.output_path), auto_apply: false });
++                                self.in_flight += 1;
++                                self.toast(ToastKind::Info, "Computing preview…");
++                            }
+                         }
+                         if let Some(imb) = self.last_imbalance {
+                             ui.label(format!("Global imbalance: ${imb}"));
+@@ -1826,49 +1798,49 @@ impl MyApp {
+                 .num_columns(2)
+                 .spacing([8.0, 6.0])
+                 .show(ui, |ui| {
+-                    ui.label("Gemini API key:");
++                    ui.label("Reasoning AI API key:");
+                     ui.add(
+                         egui::TextEdit::singleline(&mut self.edit_gemini_api_key)
+                             .password(true)
+                             .desired_width(220.0),
+                     )
+-                    .on_hover_text("AI Studio key (AIza…). Used for completeness + vision checks.");
++                    .on_hover_text("Reasoning API Key. Used for completeness + vision checks.");
+                     ui.end_row();
+ 
+-                    ui.label("Gemini Fallback Keys:");
++                    ui.label("Reasoning Fallback Keys:");
+                     ui.add(
+                         egui::TextEdit::singleline(&mut self.edit_gemini_fallback_keys)
+                             .password(true)
+                             .desired_width(220.0),
+                     )
+-                    .on_hover_text("Comma-separated list of fallback Gemini API keys (used if primary fails)");
++                    .on_hover_text("Comma-separated list of fallback Reasoning API keys (used if primary fails)");
+                     ui.end_row();
+ 
+-                    ui.label("Gemini auth mode:");
++                    ui.label("Reasoning auth mode:");
+                     ui.horizontal(|ui| {
+                         ui.selectable_value(&mut self.edit_gemini_use_vertex, false, "API key");
+-                        ui.selectable_value(&mut self.edit_gemini_use_vertex, true, "Vertex AI");
++                        ui.selectable_value(&mut self.edit_gemini_use_vertex, true, "Cloud Native");
+                     });
+                     ui.end_row();
+ 
+-                    ui.label("Doc AI project ID:");
++                    ui.label("Cloud Project ID:");
+                     ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
+                     ui.end_row();
+ 
+-                    ui.label("Doc AI location:");
++                    ui.label("Cloud Location:");
+                     ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
+                         .on_hover_text("e.g. 'us' or 'eu' — must match the processor region.");
+                     ui.end_row();
+ 
+-                    ui.label("Doc AI processor ID:");
++                    ui.label("Cloud Parser ID:");
+                     ui.add(egui::TextEdit::singleline(&mut self.edit_docai_processor_id).desired_width(220.0))
+-                        .on_hover_text("The Bank Statement parser or Custom Extractor processor ID.");
++                        .on_hover_text("The ID for the Cloud Document Parser component.");
+                     ui.end_row();
+ 
+-                    ui.label("Service account JSON:");
++                    ui.label("Cloud Auth Key (JSON):");
+                     ui.horizontal(|ui| {
+                         ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
+-                            .on_hover_text("Path to the service-account key JSON (best-practice auth).");
++                            .on_hover_text("Path to the cloud service-account key JSON (best-practice auth).");
+                         if ui.button("Browse…").clicked() {
+                             if let Some(path) = rfd::FileDialog::new()
+                                 .add_filter("JSON", &["json"])
+@@ -1880,7 +1852,7 @@ impl MyApp {
+                     });
+                     ui.end_row();
+ 
+-                    ui.label("Doc AI API key (opt):");
++                    ui.label("Parser API key (opt):");
+                     ui.add(
+                         egui::TextEdit::singleline(&mut self.edit_docai_api_key)
+                             .password(true)
+@@ -1936,7 +1908,7 @@ impl MyApp {
+                 }
+                 if ui
+                     .button("🧪 Test Connections")
+-                    .on_hover_text("Pings the Gemini and Document AI APIs to ensure your credentials are valid and authorized")
++                    .on_hover_text("Pings the Reasoning and Parser APIs to ensure your credentials are valid and authorized")
+                     .clicked()
+                 {
+                     // Eagerly save any unsaved edits to the environment first, then run validation
+@@ -1953,9 +1925,9 @@ impl MyApp {
+                 ui.separator();
+                 ui.horizontal_wrapped(|ui| {
+                     let mark = |ok: bool| if ok { "✓" } else { "✗" };
+-                    ui.small(format!("Document AI {}", mark(doc_ai)));
++                    ui.small(format!("Parser AI {}", mark(doc_ai)));
+                     ui.separator();
+-                    ui.small(format!("Gemini {}", mark(gemini)));
++                    ui.small(format!("Reasoning AI {}", mark(gemini)));
+                     ui.separator();
+                     ui.small(format!("Pro editing {}", mark(pro)));
+                 });
+@@ -1967,17 +1939,17 @@ impl MyApp {
+                 ui.separator();
+                 ui.label("Validation Results:");
+                 match docai_res {
+-                    Ok(_) => ui.label(egui::RichText::new("✓ Document AI: OK").color(egui::Color32::LIGHT_GREEN)),
+-                    Err(e) => ui.label(egui::RichText::new(format!("✗ Document AI: {}", e)).color(egui::Color32::LIGHT_RED)),
++                    Ok(_) => ui.label(egui::RichText::new("✓ Parser AI: OK").color(egui::Color32::LIGHT_GREEN)),
++                    Err(e) => ui.label(egui::RichText::new(format!("✗ Parser AI: {}", e)).color(egui::Color32::LIGHT_RED)),
+                 };
+                 match gemini_res {
+-                    Ok(_) => ui.label(egui::RichText::new("✓ Gemini: OK").color(egui::Color32::LIGHT_GREEN)),
+-                    Err(e) => ui.label(egui::RichText::new(format!("✗ Gemini: {}", e)).color(egui::Color32::LIGHT_RED)),
++                    Ok(_) => ui.label(egui::RichText::new("✓ Reasoning AI: OK").color(egui::Color32::LIGHT_GREEN)),
++                    Err(e) => ui.label(egui::RichText::new(format!("✗ Reasoning AI: {}", e)).color(egui::Color32::LIGHT_RED)),
+                 };
+             }
+             if self.edit_gemini_use_vertex {
+                 ui.small(
+-                    "Vertex mode reuses the Document AI service-account JSON (or ADC) and the project/location above. No separate key needed.",
++                    "Cloud Native mode reuses the Cloud Auth Key (or standard cloud environment) and the project/location above. No separate key needed.",
+                 );
+             }
+         });
+@@ -2510,12 +2482,12 @@ impl MyApp {
+             let step = stage.step_index();
+             ui.horizontal(|ui| {
+                 let descriptions = [
+-                    "Run Document AI + Gemini completeness check",
++                    "Run Parser AI + Reasoning AI completeness check",
+                     "Edit values inline; queued edits go to Preview",
+                     "Recompute every running balance with your edits",
+                     "Apply edits to the PDF (binary-level redact-and-replace)",
+                     "Render & compare; loop until visual match passes",
+-                    "Re-parse with Document AI to confirm math integrity",
++                    "Re-parse with Parser AI to confirm math integrity",
+                 ];
+                 for (i, name) in [
+                     "Parse", "Edit", "Preview", "Render", "Verify", "Confirm",
+@@ -2542,7 +2514,7 @@ impl MyApp {
+             let parse_enabled = !PathBuf::from(&self.input_path).as_os_str().is_empty();
+             if ui
+                 .add_enabled(parse_enabled, egui::Button::new("① Parse + AI validate"))
+-                .on_hover_text("Run Document AI on the file, then ask Gemini if anything was missed")
++                .on_hover_text("Run Parser AI on the file, then ask Reasoning AI if anything was missed")
+                 .clicked()
+             {
+                 let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+@@ -2651,7 +2623,7 @@ impl MyApp {
+             if ui
+                 .add_enabled(confirm_enabled, egui::Button::new("③ Confirm and Render"))
+                 .on_hover_text(
+-                    "Apply edits to the PDF, render-validate visually in a loop, then re-parse with Document AI to confirm math",
++                    "Apply edits to the PDF, render-validate visually in a loop, then re-parse with Parser AI to confirm math",
+                 )
+                 .clicked()
+             {
+@@ -2746,7 +2718,38 @@ impl MyApp {
+         egui::CentralPanel::default().show(ctx, |ui| {
+             ui.heading("Batch Processing Dashboard");
+             ui.add_space(10.0);
++            ui.heading("Cloud Batch Processing (Large Folders)");
++            ui.label("Submit massive processing jobs directly to the cloud for faster, parallel execution.");
++            ui.horizontal(|ui| {
++                ui.label("Cloud Input Link (gs://):");
++                ui.text_edit_singleline(&mut self.gcs_input_uri);
++            });
++            ui.horizontal(|ui| {
++                ui.label("Cloud Output Link (gs://):");
++                ui.text_edit_singleline(&mut self.gcs_output_uri);
++            });
++            
++            if ui.button("🚀 Start Cloud Batch Job").clicked() {
++                if self.gcs_input_uri.starts_with("gs://") && self.gcs_output_uri.starts_with("gs://") {
++                    let _ = self.job_tx.send(Job::GcsBatchProcess {
++                        input_uri: self.gcs_input_uri.clone(),
++                        output_uri: self.gcs_output_uri.clone(),
++                    });
++                    self.in_flight += 1;
++                    self.toast(ToastKind::Info, "Cloud Batch Job Submitted successfully.");
++                } else {
++                    self.toast(ToastKind::Error, "Cloud links must start with gs://");
++                }
++            }
++            if let Some(op) = &self.gcs_batch_operation {
++                ui.label(format!("Processing Status ID: {}", op));
++            }
++            
++            ui.add_space(20.0);
++            ui.separator();
++            ui.add_space(10.0);
+             
++            ui.heading("Local Batch Processing");
+             ui.horizontal(|ui| {
+                 if ui.button("📂 Select Directory").clicked() {
+                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
+@@ -2817,19 +2820,19 @@ impl MyApp {
+             // Toolbar above canvas
+             ui.horizontal(|ui| {
+                 if ui.button("🔍-").clicked() {
+-                    self.zoom_factor = (self.zoom_factor * 0.85).clamp(0.1, 5.0);
++                    self.target_zoom = (self.target_zoom * 0.85).clamp(0.1, 5.0);
+                     self.fit_to_view = false;
+                 }
+                 if ui.button("🔍+").clicked() {
+-                    self.zoom_factor = (self.zoom_factor * 1.15).clamp(0.1, 5.0);
++                    self.target_zoom = (self.target_zoom * 1.15).clamp(0.1, 5.0);
+                     self.fit_to_view = false;
+                 }
+                 if ui.button("Fit").clicked() {
+                     self.fit_to_view = true;
+                 }
+                 if ui.button("100%").clicked() {
+-                    self.zoom_factor = 1.0;
+-                    self.pan_offset = egui::Vec2::ZERO;
++                    self.target_zoom = 1.0;
++                    self.target_pan = egui::Vec2::ZERO;
+                     self.fit_to_view = false;
+                 }
+                 ui.separator();
+@@ -2854,14 +2857,17 @@ impl MyApp {
+                     }
+                 });
+                 if zoom_scroll != 0.0 {
+-                    self.zoom_factor = (self.zoom_factor + zoom_scroll * 0.002).clamp(0.1, 5.0);
++                    self.target_zoom = (self.target_zoom + zoom_scroll * 0.002).clamp(0.1, 5.0);
+                     self.fit_to_view = false;
+                 }
+ 
+                 // Pan — middle mouse, or shift+drag
+                 if response.dragged_by(egui::PointerButton::Middle)
+                     || (response.dragged() && ui.input(|i| i.modifiers.shift))
++                    || response.dragged_by(egui::PointerButton::Primary)
+                 {
++                    self.target_pan += response.drag_delta();
++                    // Keep immediate pan in sync for smooth drag feel without lag
+                     self.pan_offset += response.drag_delta();
+                     self.fit_to_view = false;
+                 }
+diff --git a/src/app/runtime.rs b/src/app/runtime.rs
+index ea97669..2ca451d 100644
+--- a/src/app/runtime.rs
++++ b/src/app/runtime.rs
+@@ -245,6 +245,12 @@ pub enum Job {
+     },
+     /// Cleanup orphaned temporary files from crash recovery
+     CleanupTempFiles,
++    
++    /// Trigger native Google Cloud Storage (GCS) batch processing.
++    GcsBatchProcess {
++        input_uri: String,
++        output_uri: String,
++    },
+ 
+     // ----- Multi-stage workflow -------------------------------------------
+     /// Stage 1: parse with Document AI then validate completeness with Gemini.
+@@ -273,6 +279,9 @@ pub enum Job {
+ #[derive(Debug)]
+ pub enum JobResult {
+     Pong,
++    BatchOperationStarted {
++        operation_name: String,
++    },
+     ValidationStatus {
+         gemini_ok: Result<(), String>,
+         docai_ok: Result<(), String>,
+@@ -976,7 +985,7 @@ impl Runtime {
+                                 }
+                             };
+                             
+-                            let bank_stmt = match doc_ai.parse_entire_statement(&path).await {
++                            let bank_stmt = match doc_ai.tournament_parse(&path, Some(&res_tx)).await {
+                                 Ok(stmt) => stmt,
+                                 Err(e) => {
+                                     let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Document AI failed: {}", e) });
+@@ -1283,6 +1292,28 @@ impl Runtime {
+                             }
+                         });
+                     }
++                    Job::GcsBatchProcess { input_uri, output_uri } => {
++                        let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&config_for_tokio);
++                        let res_tx = result_tx_clone.clone();
++                        tokio::spawn(async move {
++                            match doc_ai {
++                                Ok(client) => {
++                                    match client.batch_process_gcs_prefix(&input_uri, &output_uri, None).await {
++                                        Ok(op) => {
++                                            let _ = res_tx.send(JobResult::BatchOperationStarted { operation_name: op.name.clone() });
++                                        }
++                                        Err(e) => {
++                                            tracing::error!("Cloud Batch Process Failed: {}", e);
++                                            let _ = res_tx.send(JobResult::Error { job_label: "cloud_batch".into(), message: format!("Cloud Batch Process Failed: {}", e) });
++                                        }
++                                    }
++                                }
++                                Err(e) => {
++                                    let _ = res_tx.send(JobResult::Error { job_label: "cloud_batch".into(), message: format!("Cloud Config error: {}", e) });
++                                }
++                            }
++                        });
++                    }
+                     Job::Cancel { id } => {
+                         let cancelled = cancellations_for_loop.cancel(id);
+                         if cancelled {
+@@ -1634,7 +1665,7 @@ impl Runtime {
+                                     label: format!("Parsing {} chunks in parallel", chunks.len()),
+                                     fraction: 0.5,
+                                 });
+-                                match doc_ai.parse_chunked_statement(&chunks, 4).await {
++                                match doc_ai.tournament_parse_chunked(&chunks, 4, Some(&res_tx)).await {
+                                     Ok(s) => s,
+                                     Err(e) => {
+                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
+@@ -1642,7 +1673,7 @@ impl Runtime {
+                                     }
+                                 }
+                             } else {
+-                                match doc_ai.parse_entire_statement(&input).await {
++                                match doc_ai.tournament_parse(&input, Some(&res_tx)).await {
+                                     Ok(s) => s,
+                                     Err(e) => {
+                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
+@@ -1736,7 +1767,10 @@ impl Runtime {
+                                     });
+                                 }
+                                 Err(e) => {
+-                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(format!("preview build failed: {e}"))));
++                                    let _ = res_tx.send(JobResult::Error {
++                                        job_label: "Workflow Preview".into(),
++                                        message: format!("Preview build failed: {e}"),
++                                    });
+                                 }
+                             }
+                         });
+@@ -2392,7 +2426,7 @@ impl Runtime {
+                             let re_parsed_count;
+                             match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                 Ok(client) => {
+-                                    match client.parse_entire_statement(&output).await {
++                                    match client.tournament_parse(&output, Some(&res_tx)).await {
+                                         Ok(stmt) => {
+                                             re_parsed_count = stmt.transactions.len();
+                                             let opening = stmt.opening_balance;
+diff --git a/src/engine/statement.rs b/src/engine/statement.rs
+index d43655c..cc3c2f8 100644
+--- a/src/engine/statement.rs
++++ b/src/engine/statement.rs
+@@ -129,7 +129,7 @@ impl SmartDocumentEngine {
+ 
+         // 3. Hybrid Merge
+         let report = self.merger.merge(bank_stmt.transactions, geometries);
+-        self.all_transactions = report.transactions.clone();
++        self.all_transactions = report.transactions;
+ 
+         // 4. Calculate current global balance status
+         let imbalance = self.calculate_global_imbalance();
+diff --git a/src/engine/workflow.rs b/src/engine/workflow.rs
+index bcddfc7..9b9b747 100644
+--- a/src/engine/workflow.rs
++++ b/src/engine/workflow.rs
+@@ -470,7 +470,7 @@ pub fn build_preview(
+ 
+     // 2. Recompute running balances.
+     let (recomputed, msg) =
+-        process_and_reconcile(working.clone(), opening_balance, expected_closing)
++        process_and_reconcile(working, opening_balance, expected_closing)
+             .map_err(|e| e.to_string())?;
+ 
+     // 3. Build per-row preview.
+diff --git a/tests/fixtures/test_service_account.json b/tests/fixtures/test_service_account.json
+index 69418a5..cf4b308 100644
+--- a/tests/fixtures/test_service_account.json
++++ b/tests/fixtures/test_service_account.json
+@@ -4,7 +4,7 @@
+   "client_email": "fake-service-account@test-project.iam.gserviceaccount.com",
+   "client_id": "123456789012345678901",
+   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/fake-service-account%40test-project.iam.gserviceaccount.com",
+-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDHfxPXEW+LoUfY\naimstuB0Yi6s4d6pexiOVGY6cLTlG5JiKKE4wbc39qSUv8chNCqYiJtaxLXPifok\nbO+uSizmhacYfaJzbYPswubFxFij31hvN697vyllS6gYer0sv33pM9t6dMRmPSMr\nzZHlSYpemb3Omovd/BEI1YHHKJW2e4uWdh/+ySNEe5/DsdPDrGEvDdD0GNZ8lNPo\nn2xor4Vz0CkjjIa9cK8eyhEx0obpH0b02A7qnSHDwwobjR/+xSg6zElSb7pFn6Gd\nTNY/DL6963heAL148lg3LxBSLuevE4HPabuSQR0lRO3c7CcBF8zcGOHjLDaF3N+q\ne+vdNggfAgMBAAECggEAfdr0qEyuo1cnHSe0jOp+Zc3/BkAkmaU306r5J0stRBCF\n4/kf5M+JB/xIzjLCrHbdnIcqAzRwQrMYJNy4xKq08uVEilXQI6Pmg3pd3kxFY3Sm\ntNtbkOUDd40oSfE84TsZcwKtJu79bEaLprm0ngMsEQxKy0mCjZPVJ06S5hL7iDgB\njLsJFXB3pu12/AGU+Dcv9a2Ac3lOP/sj5/U7MdwBtI4NS/Ay3McHeMsu5CEumZnP\njXL+z8G0uJehOTpio9kHCPwlP4iehKUTLXxWwn5rVM2QPLNntemvTHVhTFozRY/z\nxfv2QRWX68r+PIWpt7kKyEVBnFTvuXdzvx0iSncO+QKBgQDo/ZwNZHsWukU1nz6E\nKmlwOwTT6apmS5PxJYCMHryl1ldRN1h14CwyUqNhhFKK1D5O6+JsA8qfvkoE1VY/\nH7KnfnIdZ03UaRWgP4evyjaoqrwvIzlsKfXfI0DVJ+CIBklo8wdECdk8Xxbqt5PU\noV/X5hlovrDNY/8CQ72mO4uQLQKBgQDbMq1kzvAeacXiqBwAIM+5Hc7u7gZhbBVN\nBOIEFtvi0z/UjFa/VLIWRlRyEtWhoHuW7v5wgH5PD55x6p8ZgAlQoa7a+Z2oxxly\nGNClmZCfGrPD/JJgCwXHJj3iSjDafmYkCy1+nbAcjbeczGTrrJ9Ks/sQvSmMbE2r\nO1uoq/3c+wKBgQChg+5Cen2567c+zP4RsTUW0FMwdLPj5lDQwyax/Dza2hP+AVgZ\nnyYEXLVWTNzL0QbAv1Vfe+FjjA7T+vCnIdo/srB5IbwanB6Z0HDHtG7fzjxWkRyl\nlxETduTi35oPsgwB7TgEOq+V4nWIkWqx5I0EpkbHDiqSt9d4Qm2eZ3kAoQKBgHpH\nuxMRnkJZH1tiDLzFkRvj1RzVDBotAXUF1FATsHbJAkLAR2RVC0QB1/oLJ8ISlN+O\nU8LO66ePPwStrjO7iXbBu5nMxnbxGvDbhwnasSMQ8lfS/pU1kPOYEc27NaWt/az9\nz1NjBGvpYxTFsUcH9ZTm8phT7mm3wVxUsL1XtTchAoGAOC6mXHEYr3OlJ9tJie5E\nsvfr1pExG8dreJX1Crk0t0W6szMehvU6RkZTwHetucT30sZMo5jAmm3TJmKpnGPK\ncoo5X4/BeEf55cwiP9Yh1GDHfsE9Yp28UdFwQ2ILSzOePLTiXVIVRzmwytueSBk/\nNs82i2Uz7AA7NfTNbdrdarM=\n-----END PRIVATE KEY-----\n",
++  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDaG7VVEevTYICS\nT+X2pM0Y1MJd1YBbWX7dcOBJFo9EfFSIVCFFZDEIkNkRW0ATBDAWnOi7k/BvrMdb\nvcpAreQ7hWlwcsX4Skl/WoN+LUfI5jUDwQn/uDt1iGCH+qYY/bQD/frBcEwuHJo8\nZpG6kawvLG0wusSVQb8IS8M0z9gOPFtjVYNDj86ClpnXglRFOoAlA8+REYy4CvjG\nreO83OeN1G7KFh3wF407lfApz19EgA7SN4nc44dCij8gNapQw1jo33hOmFqGVbWo\n5e0y9X/nTX1wHUTeInmFcsnHDJKB6ztARyzECy46qqpZXHPVrj66sYhTPaRcx3TB\ndyKxDuK5AgMBAAECggEAL35/IxIu9y15ceLiIa5LVw/lb0dxlvLLFG9i96do9THZ\nuoIPaKvjnYjlK8liD4IG8rWiXE5fugG2u7x9UU5Md8Waazki8OlETe4o2g4EJrQy\ncSnVApFcqUBUPOgQyTpdu8zPkNXiUNw7ndF8BFN6Wh9je4wACLxzW9wbmuFzm82T\n8D7b+ygbSz+E9gX6yeh6ds7Qhxs2Kz7Be+kFI4fm0YH53TIfVPCrIfeSREg3Xxls\nN+PtGl9y58vu85OqTRJD9+TN1cCG19NRBsySvRvJ4u3i2+uA/ny8p8A7MbAfpzkj\ncBts14DkUhJoL+ZJouIzK0xZ+jUUUHaYWLUQR1+V3QKBgQDwNyvYn7p5grx+dntP\nufvSNZObSQfdsD5pJp6SAKwlLH342spfxcamxFcFTAf1cGYGDtV5tmbZTjPWIe8c\ncJtxUJP7A1TyCxC11km1i7WiAAMapPaovMA32NLqlpoy3domuu7iC3ipFG6rzwGG\n7fStt2XEQAuAsxh44lVDRE0kcwKBgQDocKfOTSctXfFQykFtxeYcSaVZk7BmI2PJ\niWBmeuTImPf42L9YyzlhsRWwzVaxuGPz94cR/h2VKLiFKlt4//yL8cIV55KdH+fv\n6MDkVbWrO3rcBneDkqJduKnK9MJ/p6PlDR+pON+D5PF0jVw+RWJ0zf3M5ARC4kyK\neiGfMn69IwKBgQCKa/BrOtfUz15ZLWMvdQfEgTUWpYXP3JCKPUPg9Fw+a54HueQm\nPiyTys4ucjqf124jDYc8RLyNej/qo9FKvSUFrh4n5iqb835kmiANan125bTkNK0i\nXOoTBHG91pzytN7RtKSVQ3D7VZfUj0vc+eAl/mm5JgK63fk7J4lkYsZlOwKBgFxP\nWSUiGNv4gfyOxls9C7zSNpuTfquhhGCmcSVhyvgrX9dw5NTzqG82r6GOes6Lpw5d\nkEPCAqeZC2a/QqKULwy4z1Z5qA1EfY0Wh3xm2YYOUiWNX+td0aOc0bmraI7f2cP+\naUOANawgwQ+DkE2eqpIuuIulRlf1nWYlSLL7j7+3AoGBAJ6G+D+FyYHtS88WKe2+\n2tKOG+Mq/PStvBXnhx8vNGGZTDdueeUMCdFXk3bhQ/4Gd8CDnnn7FhxxEsE921Oe\nAH4MWO0kkaZOpNdbiWqwf6ed3m6ybDvK0zyxOfTMxYtl+9IPhFy7gxudr2qCHZZn\nGbU008+uBZffSR0Bovu1+sX4\n-----END PRIVATE KEY-----\n",
+   "private_key_id": "fake_key_id",
+   "project_id": "test-project",
+   "token_uri": "https://oauth2.googleapis.com/token",
