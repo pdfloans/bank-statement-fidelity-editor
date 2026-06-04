@@ -10,6 +10,8 @@ jobs:
   build-mac-silicon:
     name: Build Release (Mac Silicon)
     runs-on: macos-14 # GitHub's native M1 Apple Silicon runner
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     
     steps:
       - uses: actions/checkout@v4
