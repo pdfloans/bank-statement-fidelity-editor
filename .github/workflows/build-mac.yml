@@ -70,9 +70,89 @@ jobs:
           echo "All $MAX_ATTEMPTS build attempts failed."
           exit 1
 
-      - name: Upload Mac Binary Artifact
+      # ── Package as .app bundle ──────────────────────────────────
+      - name: Create .app bundle
+        run: |
+          APP_NAME="DualCorePdfPipeline"
+          APP_DIR="${APP_NAME}.app/Contents"
+          BINARY="target/aarch64-apple-darwin/release/dual-core-pdf-pipeline"
+
+          mkdir -p "${APP_DIR}/MacOS"
+          mkdir -p "${APP_DIR}/Resources"
+
+          # Copy the compiled binary
+          cp "$BINARY" "${APP_DIR}/MacOS/${APP_NAME}"
+          chmod +x "${APP_DIR}/MacOS/${APP_NAME}"
+
+          # Create Info.plist
+          cat > "${APP_DIR}/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Dual Core PDF Pipeline</string>
+            <key>CFBundleDisplayName</key>
+            <string>Dual Core PDF Pipeline</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.pdfloans.dual-core-pdf-pipeline</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0.0</string>
+            <key>CFBundleExecutable</key>
+            <string>DualCorePdfPipeline</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSArchitecturePriority</key>
+            <array>
+              <string>arm64</string>
+            </array>
+          </dict>
+          </plist>
+          EOF
+
+          echo "✅ .app bundle created at ${APP_NAME}.app"
+          ls -la "${APP_NAME}.app/Contents/MacOS/"
+
+      # ── Package as .dmg disk image ──────────────────────────────
+      - name: Create .dmg installer
+        run: |
+          APP_NAME="DualCorePdfPipeline"
+          DMG_NAME="${APP_NAME}-Mac-Silicon.dmg"
+          DMG_DIR="dmg_staging"
+
+          mkdir -p "${DMG_DIR}"
+          cp -R "${APP_NAME}.app" "${DMG_DIR}/"
+
+          # Create a symbolic link to /Applications for drag-and-drop install
+          ln -s /Applications "${DMG_DIR}/Applications"
+
+          # Build the .dmg
+          hdiutil create -volname "${APP_NAME}" \
+            -srcfolder "${DMG_DIR}" \
+            -ov -format UDZO \
+            "${DMG_NAME}"
+
+          echo "✅ DMG created: ${DMG_NAME}"
+          ls -lh "${DMG_NAME}"
+
+      # ── Upload both artifacts ───────────────────────────────────
+      - name: Upload .app bundle (zip)
         uses: actions/upload-artifact@v4
         with:
-          name: dual-core-pdf-pipeline-mac-silicon
-          path: target/aarch64-apple-darwin/release/dual-core-pdf-pipeline
+          name: DualCorePdfPipeline-MacSilicon-app
+          path: DualCorePdfPipeline.app
+          if-no-files-found: error
+
+      - name: Upload .dmg installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualCorePdfPipeline-MacSilicon-dmg
+          path: DualCorePdfPipeline-Mac-Silicon.dmg
           if-no-files-found: error
