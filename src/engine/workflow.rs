@@ -297,24 +297,51 @@ impl WorkflowDraft {
         }
     }
 
-    /// Atomic-ish save (tmp + rename) so concurrent reads don't see a torn
-    /// file.
+    /// Atomic-ish delta-based save (tmp + rename). 
+    /// To optimize audit JSON writes and avoid blocking the GUI by rewriting 
+    /// multi-megabyte parsed transactions on every edit, we save the static base
+    /// once and only rewrite the `edits` delta on subsequent saves.
     pub fn save_to_file(&self, path: &std::path::Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
-        std::fs::rename(tmp, path)
+        
+        let base_path = path.with_extension("base.json");
+        let edits_path = path.with_extension("edits.json");
+
+        if !base_path.exists() {
+            let mut base = self.clone();
+            base.edits.clear(); // Base snapshot has no edits
+            let tmp = base_path.with_extension("tmp");
+            // Use buffered writer to speed up huge writes
+            let f = std::fs::File::create(&tmp)?;
+            let mut writer = std::io::BufWriter::new(f);
+            serde_json::to_writer(&mut writer, &base)?;
+            std::fs::rename(tmp, &base_path)?;
+        }
+
+        // Delta write: only save the edits array (extremely fast and small)
+        let tmp = edits_path.with_extension("tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&self.edits)?)?;
+        std::fs::rename(tmp, edits_path)?;
+
+        Ok(())
     }
 
-    /// Load a draft from disk. Errors when the file is missing or the
-    /// schema version doesn't match what we know how to read.
+    /// Load a draft from disk. Supports both the new delta-based schema (`base.json` + `edits.json`)
+    /// and the legacy monolithic schema for backwards compatibility.
     pub fn load_from_file(path: &std::path::Path) -> std::io::Result<Self> {
-        let raw = std::fs::read_to_string(path)?;
-        let draft: Self = serde_json::from_str(&raw).map_err(|e| {
+        let base_path = path.with_extension("base.json");
+        let edits_path = path.with_extension("edits.json");
+
+        // Try reading delta base first; fallback to legacy monolithic file
+        let raw = std::fs::read_to_string(&base_path)
+            .or_else(|_| std::fs::read_to_string(path))?;
+
+        let mut draft: Self = serde_json::from_str(&raw).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("draft decode: {e}"))
         })?;
+
         if draft.schema_version != WORKFLOW_DRAFT_SCHEMA {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -324,6 +351,14 @@ impl WorkflowDraft {
                 ),
             ));
         }
+
+        // Apply delta edits if present
+        if let Ok(raw_edits) = std::fs::read_to_string(&edits_path) {
+            if let Ok(edits) = serde_json::from_str::<Vec<UserEdit>>(&raw_edits) {
+                draft.edits = edits;
+            }
+        }
+
         Ok(draft)
     }
 

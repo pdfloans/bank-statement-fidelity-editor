@@ -22,6 +22,20 @@ pub struct GeminiBalancePlan {
     pub confidence: f32,
 }
 
+impl GeminiBalancePlan {
+    pub fn validate(&mut self) -> Result<(), GeminiError> {
+        if self.confidence < 0.0 || self.confidence > 1.0 {
+            return Err(GeminiError::Format(format!("BalancePlan confidence {} out of range", self.confidence)));
+        }
+        for adj in &mut self.adjustments {
+            if adj.confidence < 0.0 || adj.confidence > 1.0 {
+                return Err(GeminiError::Format(format!("Adjustment confidence {} out of range", adj.confidence)));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Result of asking Gemini "did Document AI capture every transaction on the
 /// page, and does the data look internally consistent?"
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +49,15 @@ pub struct GeminiCompletenessReport {
     /// True when the math (running balances, totals, opening/closing) is
     /// internally consistent.
     pub math_consistent: bool,
+}
+
+impl GeminiCompletenessReport {
+    pub fn validate(&mut self) -> Result<(), GeminiError> {
+        if self.completeness_score < 0.0 || self.completeness_score > 1.0 {
+            return Err(GeminiError::Format(format!("Completeness score {} out of range", self.completeness_score)));
+        }
+        Ok(())
+    }
 }
 
 /// Result of a vision-based anomaly check on a rendered page.
@@ -88,6 +111,18 @@ impl GeminiVisionReport {
         }
         false
     }
+
+    pub fn validate(&mut self) -> Result<(), GeminiError> {
+        if self.anomaly_score < 0.0 || self.anomaly_score > 1.0 {
+            return Err(GeminiError::Format(format!("Vision anomaly score {} out of range", self.anomaly_score)));
+        }
+        for h in &mut self.hotspots {
+            if h.confidence < 0.0 || h.confidence > 1.0 {
+                return Err(GeminiError::Format(format!("Hotspot confidence {} out of range", h.confidence)));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -106,6 +141,8 @@ pub enum GeminiError {
     InvalidResponse(String),
     #[error("Low Confidence: {0:.2}")]
     LowConfidence(f32),
+    #[error("Format error: {0}")]
+    Format(String),
 }
 
 pub struct GeminiClient {
@@ -235,18 +272,47 @@ impl GeminiClient {
         body: &serde_json::Value,
     ) -> Result<reqwest::Response, GeminiError> {
         let (url, bearer) = self.endpoint(model);
-        let mut req = self.http.post(&url).json(body);
-        match &self.auth {
-            GeminiAuth::ApiKey => {
-                req = req.header("X-goog-api-key", &self.api_key);
+        
+        let mut attempts = 0;
+        let max_attempts = 4; // 1 initial + 3 retries
+        loop {
+            attempts += 1;
+            let mut req = self.http.post(&url).json(body);
+            match &self.auth {
+                GeminiAuth::ApiKey => {
+                    req = req.header("X-goog-api-key", &self.api_key);
+                }
+                GeminiAuth::Vertex { .. } => {
+                    if let Some(ref token) = bearer {
+                        req = req.bearer_auth(token);
+                    }
+                }
             }
-            GeminiAuth::Vertex { .. } => {
-                if let Some(token) = bearer {
-                    req = req.bearer_auth(token);
+            
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_server_error() || status == 429 {
+                        if attempts < max_attempts {
+                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                            tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                    }
+                    return Ok(resp);
+                }
+                Err(e) => {
+                    if attempts < max_attempts {
+                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                        tracing::warn!("Gemini network error {}, retrying in {:?}...", e, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    return Err(e.into());
                 }
             }
         }
-        Ok(req.send().await?)
     }
 
     /// POST to the best available **Pro** model, with a graceful fallback
@@ -386,8 +452,9 @@ impl GeminiClient {
             .as_str()
             .ok_or_else(|| GeminiError::InvalidResponse("Missing or invalid text field".into()))?;
 
-        let plan: GeminiBalancePlan = serde_json::from_str(plan_text)
+        let mut plan: GeminiBalancePlan = serde_json::from_str(plan_text)
             .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {}", e)))?;
+        plan.validate()?;
 
         if plan.confidence < 0.7 {
             return Err(GeminiError::LowConfidence(plan.confidence));
@@ -510,8 +577,10 @@ impl GeminiClient {
         let plan_text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
             .ok_or_else(|| GeminiError::InvalidResponse("Missing or invalid text field".into()))?;
-        serde_json::from_str(plan_text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {}", e)))
+        let mut report: GeminiCompletenessReport = serde_json::from_str(plan_text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {}", e)))?;
+        report.validate()?;
+        Ok(report)
     }
 
     /// Double-checks the mathematics of the final transactions (Stage 2)
@@ -661,8 +730,10 @@ impl GeminiClient {
         let report_text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
             .ok_or_else(|| GeminiError::InvalidResponse("Missing vision text field".into()))?;
-        serde_json::from_str(report_text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("vision JSON parse: {}", e)))
+        let mut report: GeminiVisionReport = serde_json::from_str(report_text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("vision JSON parse: {}", e)))?;
+        report.validate()?;
+        Ok(report)
     }
 
     /// Plan how to transfer transactions from a source statement to a target

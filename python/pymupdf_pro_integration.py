@@ -2440,6 +2440,9 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
 
     doc.save(output_path, garbage=4, deflate=True, clean=True)
     doc.close()
+    del doc
+    import gc
+    gc.collect()
 
     return {
         "success": True,
@@ -2701,6 +2704,9 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
 
     doc.save(output_path, garbage=4, deflate=True, clean=True)
     doc.close()
+    del doc
+    import gc
+    gc.collect()
 
     return {
         "success": True,

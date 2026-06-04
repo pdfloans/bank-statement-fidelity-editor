@@ -610,6 +610,10 @@ pub async fn verify_edit_pages_with_padding(
             }
         }
     }
+    
+    // Eagerly release PyMuPDF/pdfium memory before proceeding to reporting
+    drop(original_doc);
+    drop(edited_doc);
 
     // Item #17: the gate is the worst localized tile OUTSIDE intended edits.
     let only_intended_changes = max_tile_score < VISUAL_DIFF_THRESHOLD;

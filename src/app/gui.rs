@@ -123,10 +123,7 @@ impl Theme {
 
         // Window shadows and rounding for a glassmorphism/modern feel
         visuals.window_rounding = egui::Rounding::same(12.0);
-        visuals.window_shadow = egui::epaint::Shadow {
-            extrusion: 32.0,
-            color: egui::Color32::from_black_alpha(96),
-        };
+        visuals.window_shadow.color = egui::Color32::from_black_alpha(96);
 
         visuals.panel_fill = p.panel;
         visuals.window_fill = p.panel;
@@ -3463,7 +3460,7 @@ impl MyApp {
                                                     bbox: block.bbox,
                                                     old_text: block.text.clone(),
                                                     new_text: self.new_text.clone(),
-                                                    field: crate::engine::workflow::EditField::Other("Manual Edit".into()),
+                                                    field: crate::engine::workflow::EditField::Description,
                                                 };
                                                 let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
                                                     input,

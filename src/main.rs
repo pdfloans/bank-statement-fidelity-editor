@@ -3,7 +3,7 @@
 
 use clap::Parser;
 use dual_core_pdf_pipeline::error::exit_code;
-use dual_core_pdf_pipeline::*;
+use dual_core_pdf_pipeline::{app, security};
 use std::sync::Arc;
 
 fn main() {

@@ -316,7 +316,40 @@ impl DocumentAiClient {
         if !self.config.api_key.is_empty() {
             let url = format!("{}?key={}", self.process_url_v1beta3(version), self.config.api_key);
             tracing::debug!("[doc_ai] trying v1beta3 API-key auth");
-            match self.http.post(&url).json(&body).send().await {
+            
+            let mut attempts = 0;
+            let max_attempts = 4;
+            let mut api_key_res = None;
+            loop {
+                attempts += 1;
+                match self.http.post(&url).json(&body).send().await {
+                    Ok(resp) => {
+                        let status = resp.status();
+                        if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
+                            if attempts < max_attempts {
+                                let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                                tracing::warn!("[doc_ai] API-key {} error, retrying in {:?}...", status, delay);
+                                tokio::time::sleep(delay).await;
+                                continue;
+                            }
+                        }
+                        api_key_res = Some(Ok(resp));
+                        break;
+                    }
+                    Err(e) => {
+                        if attempts < max_attempts {
+                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                            tracing::warn!("[doc_ai] API-key network error {}, retrying in {:?}...", e, delay);
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                        api_key_res = Some(Err(e));
+                        break;
+                    }
+                }
+            }
+            
+            match api_key_res.unwrap() {
                 Ok(resp) if resp.status().is_success() => {
                     let result: serde_json::Value = resp.json().await?;
                     let stmt = Self::parse_response_into_bank_statement(&result)?;
@@ -356,16 +389,44 @@ impl DocumentAiClient {
             ));
         }
 
-        let access_token = self.get_access_token().await?;
         let url = self.process_url_v1(version);
         tracing::debug!("[doc_ai] using v1 OAuth (ADC or service-account)");
-        let response = self
-            .http
-            .post(&url)
-            .bearer_auth(access_token)
-            .json(&body)
-            .send()
-            .await?;
+        
+        let mut attempts = 0;
+        let max_attempts = 4;
+        let mut response = None;
+        loop {
+            attempts += 1;
+            let access_token = self.get_access_token().await?;
+            let req = self.http.post(&url).bearer_auth(access_token).json(&body);
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
+                        if attempts < max_attempts {
+                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                            tracing::warn!("[doc_ai] OAuth {} error, retrying in {:?}...", status, delay);
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                    }
+                    response = Some(Ok(resp));
+                    break;
+                }
+                Err(e) => {
+                    if attempts < max_attempts {
+                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                        tracing::warn!("[doc_ai] OAuth network error {}, retrying in {:?}...", e, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    response = Some(Err(e));
+                    break;
+                }
+            }
+        }
+
+        let response = response.unwrap()?;
 
         if !response.status().is_success() {
             return Err(DocAiError::Api(

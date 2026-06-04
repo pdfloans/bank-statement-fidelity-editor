@@ -2467,7 +2467,47 @@ impl Runtime {
                         let map_opt = segment_map.clone();
                         let mgr_opt = segment_manager.as_ref().map(|m| m.temp_path().to_path_buf());
                         
+                        struct RollbackGuard {
+                            output: std::path::PathBuf,
+                            backup: std::path::PathBuf,
+                            had_existing: bool,
+                            success: bool,
+                        }
+                        impl RollbackGuard {
+                            fn new(output: &std::path::Path) -> Self {
+                                let backup = output.with_extension("pdf.rollback.bak");
+                                let had_existing = output.exists();
+                                if had_existing {
+                                    let _ = std::fs::copy(output, &backup);
+                                }
+                                Self {
+                                    output: output.to_path_buf(),
+                                    backup,
+                                    had_existing,
+                                    success: false,
+                                }
+                            }
+                            fn commit(mut self) {
+                                self.success = true;
+                            }
+                        }
+                        impl Drop for RollbackGuard {
+                            fn drop(&mut self) {
+                                if !self.success {
+                                    tracing::warn!("Workflow failed. Rolling back {:?} using backup {:?}", self.output, self.backup);
+                                    if self.had_existing {
+                                        let _ = std::fs::rename(&self.backup, &self.output);
+                                    } else {
+                                        let _ = std::fs::remove_file(&self.output);
+                                    }
+                                } else if self.had_existing {
+                                    let _ = std::fs::remove_file(&self.backup);
+                                }
+                            }
+                        }
+
                         tokio::spawn(async move {
+                            let mut rollback = RollbackGuard::new(&output);
                             let mut attempt: u32 = 1;
                             let mut visual_attempts: u32 = 0;
                             // Stage 13 / Item #5: per-workflow timestamp so
@@ -2477,6 +2517,7 @@ impl Runtime {
                             let workflow_stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
                             let mut last_score: f64 = 1.0;
                             let mut last_intended = false;
+                            let mut math_verified_ok = false;
                             let _ = (&last_score, &last_intended); // initial values used below the loop on early exit
                             let intended_bboxes: Vec<(usize, [f32; 4])> = edits.iter().map(|e| (e.page, e.bbox)).collect();
 
@@ -2924,6 +2965,10 @@ impl Runtime {
 
                                 // Stage 5: visual validation against the original.
                                 visual_attempts += 1;
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!("Visual & Math Verification (Attempt {})", attempt),
+                                    fraction: 0.3 + (attempt as f32 * 0.1).min(0.6),
+                                });
                                 let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                     stage: crate::engine::workflow::WorkflowStage::Validating(crate::engine::workflow::VisualAttempt {
                                         attempt,
@@ -2949,18 +2994,61 @@ impl Runtime {
                                     edits.iter().map(|e| e.page).collect();
                                 changed_pages.sort_unstable();
                                 changed_pages.dedup();
-                                let report = match crate::engine::verification::verify_edit_pages_with_padding(
-                                    &input,
-                                    &output,
-                                    &out_dir,
-                                    &intended_bboxes,
-                                    math_inputs,
-                                    false,
-                                    None,
-                                    Some(&changed_pages),
-                                    crate::engine::workflow::mask_padding_for_attempt(attempt),
-                                )
-                                .await {
+
+                                let visual_future = async {
+                                    crate::engine::verification::verify_edit_pages_with_padding(
+                                        &input,
+                                        &output,
+                                        &out_dir,
+                                        &intended_bboxes,
+                                        math_inputs,
+                                        false,
+                                        None,
+                                        Some(&changed_pages),
+                                        crate::engine::workflow::mask_padding_for_attempt(attempt),
+                                    )
+                                    .await
+                                };
+
+                                let cfg_math = cfg.clone();
+                                let out_math = output.clone();
+                                let is_math_ok = math_verified_ok;
+                                let math_future = async move {
+                                    if is_math_ok {
+                                        return Some(Ok(()));
+                                    }
+                                    if let (Ok(doc_ai), Ok(gemini)) = (
+                                        crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg_math),
+                                        crate::ai::gemini_client::GeminiClient::from_app_config(&cfg_math)
+                                    ) {
+                                        match doc_ai.parse_entire_statement(&out_math, None).await {
+                                            Ok(stmt) => {
+                                                let json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
+                                                match gemini.verify_statement_mathematics(&json).await {
+                                                    Ok(true) => Some(Ok(())),
+                                                    Ok(false) => Some(Err("Math verification failed: Gemini found inconsistencies.".to_string())),
+                                                    Err(e) => Some(Err(format!("Gemini math check failed: {e}"))),
+                                                }
+                                            }
+                                            Err(e) => Some(Err(format!("DocAI parse failed during math check: {e}"))),
+                                        }
+                                    } else {
+                                        Some(Ok(())) // Bypass if API keys not set
+                                    }
+                                };
+
+                                let (visual_res, math_res) = tokio::join!(visual_future, math_future);
+
+                                match math_res {
+                                    Some(Ok(())) => math_verified_ok = true,
+                                    Some(Err(e)) => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(e)));
+                                        return;
+                                    }
+                                    None => {}
+                                }
+
+                                let report = match visual_res {
                                     Ok(r) => r,
                                     Err(e) => {
                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::Other(format!("visual verify failed: {e}"))));
@@ -3168,6 +3256,7 @@ impl Runtime {
                                     last_score, last_intended, math_valid
                                 ),
                             };
+                            rollback.commit();
                             let _ = res_tx.send(JobResult::WorkflowComplete(outcome.clone()));
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                 stage: crate::engine::workflow::WorkflowStage::Complete(outcome),
