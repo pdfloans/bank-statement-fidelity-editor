@@ -208,8 +208,8 @@ impl GeminiClient {
         match &self.auth {
             GeminiAuth::ApiKey => (
                 format!(
-                    "{}/v1beta/models/{}:generateContent?key={}",
-                    self.base_url, model, self.api_key
+                    "{}/v1beta/models/{}:generateContent",
+                    self.base_url, model
                 ),
                 None,
             ),
@@ -228,7 +228,7 @@ impl GeminiClient {
     }
 
     /// POST `body` to `model`'s endpoint, attaching the right auth for the
-    /// active mode (query-param API key or bearer token).
+    /// active mode (`X-goog-api-key` header or bearer token).
     async fn post_generate(
         &self,
         model: &str,
@@ -236,8 +236,15 @@ impl GeminiClient {
     ) -> Result<reqwest::Response, GeminiError> {
         let (url, bearer) = self.endpoint(model);
         let mut req = self.http.post(&url).json(body);
-        if let Some(token) = bearer {
-            req = req.bearer_auth(token);
+        match &self.auth {
+            GeminiAuth::ApiKey => {
+                req = req.header("X-goog-api-key", &self.api_key);
+            }
+            GeminiAuth::Vertex { .. } => {
+                if let Some(token) = bearer {
+                    req = req.bearer_auth(token);
+                }
+            }
         }
         Ok(req.send().await?)
     }
