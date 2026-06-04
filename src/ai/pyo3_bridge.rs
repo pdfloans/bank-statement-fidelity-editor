@@ -51,12 +51,15 @@ impl PyEngine {
         })
     }
 
-    fn call_json(
+    fn call_json<'py, N>(
         &self,
-        py: Python,
+        py: Python<'py>,
         fn_name: &str,
-        args: impl IntoPy<Py<PyTuple>>,
-    ) -> Result<String, String> {
+        args: N,
+    ) -> Result<String, String>
+    where
+        N: pyo3::IntoPyObject<'py, Target = pyo3::types::PyTuple>,
+    {
         let func = self
             .module
             .getattr(py, fn_name)

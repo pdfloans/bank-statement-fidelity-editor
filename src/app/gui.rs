@@ -1538,6 +1538,18 @@ impl MyApp {
                         }
                         ui.close_menu();
                     }
+                    if ui.button("🔑 Import .env key").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Environment File", &["env", "txt"])
+                            .pick_file()
+                        {
+                            match dotenvy::from_path(&path) {
+                                Ok(_) => self.toast(ToastKind::Success, "Loaded .env file successfully"),
+                                Err(e) => self.toast(ToastKind::Error, format!("Failed to load .env: {}", e)),
+                            }
+                        }
+                        ui.close_menu();
+                    }
                     if ui.button("⏯ Resume last session").clicked() {
                         let auto = std::path::PathBuf::from("audit").join("history.json");
                         if auto.exists() {

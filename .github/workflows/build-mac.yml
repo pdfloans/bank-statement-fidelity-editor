@@ -1,0 +1,41 @@
+name: Build Mac Apple Silicon App
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-mac-silicon:
+    name: Build Release (Mac Silicon)
+    runs-on: macos-14 # GitHub's native M1 Apple Silicon runner
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: aarch64-apple-darwin
+
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Python dependencies
+        run: pip install pymupdf
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Release Binary
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Upload Mac Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dual-core-pdf-pipeline-mac-silicon
+          path: target/aarch64-apple-darwin/release/dual-core-pdf-pipeline
+          if-no-files-found: error
