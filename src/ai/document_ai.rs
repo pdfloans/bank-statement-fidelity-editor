@@ -100,18 +100,26 @@ impl DocumentAiClient {
         })
     }
 
-    fn process_url_v1beta3(&self) -> String {
-        format!(
-            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}:process",
+    fn process_url_v1beta3(&self, version: Option<&str>) -> String {
+        let base = format!(
+            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}",
             self.config.location, self.config.project_id, self.config.location, self.config.processor_id
-        )
+        );
+        match version {
+            Some(v) => format!("{}/processorVersions/{}:process", base, v),
+            None => format!("{}:process", base),
+        }
     }
 
-    fn process_url_v1(&self) -> String {
-        format!(
-            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}:process",
+    fn process_url_v1(&self, version: Option<&str>) -> String {
+        let base = format!(
+            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
             self.config.location, self.config.project_id, self.config.location, self.config.processor_id
-        )
+        );
+        match version {
+            Some(v) => format!("{}/processorVersions/{}:process", base, v),
+            None => format!("{}:process", base),
+        }
     }
 
     async fn get_access_token(&self) -> Result<String, DocAiError> {
@@ -264,6 +272,7 @@ impl DocumentAiClient {
     pub async fn parse_entire_statement(
         &self,
         pdf_path: &Path,
+        version: Option<&str>,
     ) -> Result<BankStatement, DocAiError> {
         // ----- Cache lookup --------------------------------------------------
         // Document AI is billed per page; if we've parsed this exact PDF
@@ -281,7 +290,7 @@ impl DocumentAiClient {
                 &self.config.project_id,
                 &self.config.location,
                 &self.config.processor_id,
-                "default", // we don't currently route to a specific version
+                version.unwrap_or("default"),
             )
             .ok()
         } else {
@@ -305,7 +314,7 @@ impl DocumentAiClient {
 
         // 1. Primary: API key → v1beta3.
         if !self.config.api_key.is_empty() {
-            let url = format!("{}?key={}", self.process_url_v1beta3(), self.config.api_key);
+            let url = format!("{}?key={}", self.process_url_v1beta3(version), self.config.api_key);
             tracing::debug!("[doc_ai] trying v1beta3 API-key auth");
             match self.http.post(&url).json(&body).send().await {
                 Ok(resp) if resp.status().is_success() => {
@@ -348,7 +357,7 @@ impl DocumentAiClient {
         }
 
         let access_token = self.get_access_token().await?;
-        let url = self.process_url_v1();
+        let url = self.process_url_v1(version);
         tracing::debug!("[doc_ai] using v1 OAuth (ADC or service-account)");
         let response = self
             .http
@@ -387,6 +396,7 @@ impl DocumentAiClient {
         &self,
         chunks: &[(std::path::PathBuf, usize)],
         max_concurrency: usize,
+        version: Option<&str>,
     ) -> Result<BankStatement, DocAiError> {
         use futures_util::stream::{FuturesUnordered, StreamExt};
         use std::future::Future;
@@ -408,7 +418,7 @@ impl DocumentAiClient {
             let (path, offset) = chunks[next_idx].clone();
             let idx = next_idx;
             in_flight.push(Box::pin(async move {
-                let r = self.parse_entire_statement(&path).await;
+                let r = self.parse_entire_statement(&path, version).await;
                 (idx, offset, r)
             }));
             next_idx += 1;
@@ -438,7 +448,7 @@ impl DocumentAiClient {
                 let (path, offset) = chunks[next_idx].clone();
                 let i = next_idx;
                 in_flight.push(Box::pin(async move {
-                    let r = self.parse_entire_statement(&path).await;
+                    let r = self.parse_entire_statement(&path, version).await;
                     (i, offset, r)
                 }));
                 next_idx += 1;

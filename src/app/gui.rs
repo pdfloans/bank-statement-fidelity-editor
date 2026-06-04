@@ -264,6 +264,13 @@ pub struct TextBlock {
 // App state
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
+pub struct ProgressState {
+    pub label: String,
+    pub fraction: f32,
+    pub started_at: std::time::Instant,
+}
+
 #[derive(PartialEq)]
 pub enum AppView {
     SingleDocument,
@@ -308,7 +315,7 @@ pub struct MyApp {
 
     // App / job state
     status: String,
-    progress: Option<(String, f32)>,
+    progress: Option<ProgressState>,
     last_warning: Option<String>,
     last_verification: Option<VerificationReport>,
     proposed_changes: Vec<(crate::engine::model::ProposedChange, bool)>,
@@ -679,6 +686,32 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // theme
         self.settings.theme.apply(ctx);
+
+        if let Some(p) = &self.progress {
+            egui::Window::new("Working…")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(&p.label);
+                    let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
+                    let mut text = format!("{}%", pct);
+                    
+                    if p.fraction > 0.0 {
+                        let elapsed = p.started_at.elapsed().as_secs_f32();
+                        let eta = (elapsed / p.fraction) * (1.0 - p.fraction);
+                        if eta > 0.0 && eta.is_finite() {
+                            text = format!("{}% (ETA: {:.0}s)", pct, eta);
+                        }
+                    }
+                    
+                    ui.add(
+                        egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
+                            .desired_width(300.0)
+                            .text(text),
+                    );
+                });
+        }
 
         // Stage 13 / Item #6: workflow shortcuts.
         //   Ctrl+1 → Parse + AI validate
@@ -1102,7 +1135,15 @@ impl MyApp {
                 if fraction >= 1.0 {
                     self.progress = None;
                 } else {
-                    self.progress = Some((label, fraction));
+                    let started_at = match &self.progress {
+                        Some(p) if p.label == label => p.started_at,
+                        _ => std::time::Instant::now(),
+                    };
+                    self.progress = Some(ProgressState {
+                        label,
+                        fraction,
+                        started_at,
+                    });
                 }
             }
             JobResult::Error { job_label, message } => {
@@ -1368,10 +1409,10 @@ impl MyApp {
                                 ui.selectable_value(&mut self.settings.theme, t, t.label());
                             }
                         });
-                    if let Some((label, fraction)) = &self.progress {
+                    if let Some(p) = &self.progress {
                         ui.add(
-                            egui::ProgressBar::new(*fraction)
-                                .text(label)
+                            egui::ProgressBar::new(p.fraction)
+                                .text(&p.label)
                                 .desired_width(220.0),
                         );
                     } else if self.in_flight > 0 {
@@ -1388,12 +1429,12 @@ impl MyApp {
             // Global progress: a labeled bar with percentage shown whenever a
             // job is running (explicit Progress updates) or any job is in
             // flight (spinner fallback for jobs that don't stream progress).
-            if let Some((label, fraction)) = self.progress.clone() {
-                let pct = (fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
+            if let Some(p) = self.progress.clone() {
+                let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
                 ui.add(
-                    egui::ProgressBar::new(fraction.clamp(0.0, 1.0))
+                    egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
                         .desired_width(ui.available_width())
-                        .text(format!("{label} — {pct}%")),
+                        .text(format!("{} — {}%", p.label, pct)),
                 );
                 ui.add_space(2.0);
             } else if self.in_flight > 0 {
@@ -2845,10 +2886,8 @@ impl MyApp {
                     self.fit_to_view = false;
                 }
 
-                // Pan — middle mouse, or shift+drag
-                if response.dragged_by(egui::PointerButton::Middle)
-                    || (response.dragged() && ui.input(|i| i.modifiers.shift))
-                {
+                // Pan — any drag (primary, middle, etc.)
+                if response.dragged() {
                     self.pan_offset += response.drag_delta();
                     self.fit_to_view = false;
                 }

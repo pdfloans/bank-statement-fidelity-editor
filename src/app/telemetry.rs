@@ -4,7 +4,7 @@ use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace;
 use opentelemetry_sdk::Resource;
 use std::sync::Once;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 static PANIC_HOOK: Once = Once::new();
 
@@ -68,10 +68,19 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
         .with_thread_ids(true)
         .with_thread_names(true);
 
+    let error_appender = tracing_appender::rolling::never("audit", "error_report.log");
+    let error_layer = tracing_subscriber::fmt::layer()
+        .with_writer(error_appender)
+        .with_ansi(false)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_filter(EnvFilter::new("warn"));
+
     let subscriber = tracing_subscriber::registry()
         .with(env_filter)
         .with(stdout_layer)
-        .with(file_layer);
+        .with(file_layer)
+        .with(error_layer);
 
     if let Some(endpoint) = &cfg.otel_endpoint {
         // OTLP requires a running tokio runtime — gracefully degrade if absent.
