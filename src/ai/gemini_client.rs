@@ -394,9 +394,14 @@ impl GeminiClient {
     ) -> Result<GeminiBalancePlan, GeminiError> {
         let scrubbed = scrub_pii(transactions);
         let prompt = format!(
-            "You are an expert financial auditor.\n\
-             A bank statement has a mathematical imbalance of ${:.2}.\n\
-             Analyze the transactions and propose the minimal cascading adjustments to the running balances to fix it.\n\
+            "You are an expert financial forensic auditor.\n\
+             A bank statement has a mathematical imbalance of ${:.2} between its running ledger and its closing balance.\n\
+             Your task is to propose the STRICTLY MINIMAL cascading adjustments to the running balances to fix this.\n\
+             CRITICAL RULES:\n\
+             1. ONLY alter the 'new_running_balance' values. Do NOT invent new deposits or withdrawals.\n\
+             2. Ensure the math perfectly bridges the imbalance to the end of the statement.\n\
+             3. Maintain strict JSON schema adherence with no markdown wrapping outside the JSON.\n\
+             \n\
              Transactions: {}\n\
              Document layout summary: {} pages.",
             imbalance,

@@ -123,7 +123,13 @@ impl Theme {
 
         // Window shadows and rounding for a glassmorphism/modern feel
         visuals.window_rounding = egui::Rounding::same(12.0);
-        visuals.window_shadow.color = egui::Color32::from_black_alpha(96);
+        visuals.menu_rounding = egui::Rounding::same(8.0);
+        visuals.window_shadow.color = egui::Color32::from_black_alpha(150);
+        visuals.window_shadow.spread = 4.0;
+        visuals.window_shadow.blur = 32.0;
+        visuals.popup_shadow.color = egui::Color32::from_black_alpha(120);
+        visuals.popup_shadow.spread = 2.0;
+        visuals.popup_shadow.blur = 16.0;
 
         visuals.panel_fill = p.panel;
         visuals.window_fill = p.panel;
@@ -131,9 +137,9 @@ impl Theme {
         visuals.faint_bg_color = p.surface;
         visuals.widgets.noninteractive.bg_fill = p.surface;
         visuals.widgets.inactive.bg_fill = p.surface;
-        visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
-        visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
-        visuals.widgets.active.rounding = egui::Rounding::same(6.0);
+        visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
+        visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
+        visuals.widgets.active.rounding = egui::Rounding::same(8.0);
         visuals.hyperlink_color = p.accent;
         visuals.selection.bg_fill = p.accent.linear_multiply(0.3);
         visuals.selection.stroke.color = p.accent;
@@ -1376,6 +1382,25 @@ impl MyApp {
                 let output_path = result.output_path.clone();
                 if output_path.exists() {
                     self.open_pdf(output_path);
+
+                    // Auto-load the source PDF as a side-by-side (Curtain Diff) layer
+                    if !self.transfer_source_path.is_empty() {
+                        if self
+                            .job_tx
+                            .send(Job::RenderPage {
+                                path: std::path::PathBuf::from(self.transfer_source_path.clone()),
+                                page: 0,
+                                dpi: self.settings.default_dpi,
+                                tag: "after".to_string(), // Reuse 'after' texture slot for side-by-side
+                            })
+                            .is_ok()
+                        {
+                            self.in_flight += 1;
+                            self.show_curtain = true;
+                            self.curtain_ratio = 0.5; // Split 50/50 down the middle
+                            self.toast(ToastKind::Info, "Loading side-by-side comparison...");
+                        }
+                    }
                 }
             }
             JobResult::TransferFailed { stage, message } => {

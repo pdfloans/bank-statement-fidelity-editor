@@ -1076,8 +1076,16 @@ impl Runtime {
                             };
 
                             // Write audit report
-                            if let Err(e) = write_transfer_audit(&result, &source_pdf, &target_pdf) {
-                                tracing::warn!("[TRANSFER] Failed to write audit report: {}", e);
+                            match write_transfer_audit(&result, &source_pdf, &target_pdf) {
+                                Ok(audit_path) => {
+                                    // Step 4: Append the Audit Report JSON to the edited PDF
+                                    let _ = std::process::Command::new("python")
+                                        .arg("python/append_audit_report.py")
+                                        .arg(&result.output_path)
+                                        .arg(&audit_path)
+                                        .status();
+                                }
+                                Err(e) => tracing::warn!("[TRANSFER] Failed to write audit report: {}", e),
                             }
 
                             tracing::info!(
