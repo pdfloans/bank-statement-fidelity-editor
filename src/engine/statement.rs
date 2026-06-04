@@ -115,7 +115,7 @@ impl SmartDocumentEngine {
         // 1. Document AI Extraction
         let bank_stmt = self
             .doc_ai
-            .parse_entire_statement(current_pdf_path)
+            .parse_entire_statement(current_pdf_path, None)
             .await
             .map_err(|e| EngineError::AiPlanFailed(format!("Document AI failed: {}", e)))?;
 

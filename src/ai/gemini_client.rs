@@ -396,6 +396,64 @@ impl GeminiClient {
         Ok(plan)
     }
 
+    pub async fn detect_docai_version(
+        &self,
+        page_png: &[u8],
+    ) -> Result<String, GeminiError> {
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(page_png);
+
+        let prompt = "You are an expert at analyzing bank statements. Examine this bank statement page and determine the optimal Google Cloud Document AI bank statement parser version to use (v1, v2, v3, v4, or v5) based on its layout and complexity. Return ONLY a JSON object with a single string field 'version' containing your choice (e.g., 'v1').";
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "version": { "type": "string" }
+            },
+            "required": ["version"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "parts": [
+                    { "text": prompt },
+                    {
+                        "inline_data": {
+                            "mime_type": "image/png",
+                            "data": b64,
+                        }
+                    }
+                ]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let json_resp: serde_json::Value = response.json().await?;
+        let text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing text field".into()))?;
+
+        let parsed: serde_json::Value = serde_json::from_str(text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse: {}", e)))?;
+
+        parsed["version"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing version field".into()))
+    }
+
     /// Ask Gemini to validate that Document AI captured every transaction on
     /// the page and that the resulting numbers are internally consistent.
     /// This is stage 1 of the user-facing workflow.
@@ -454,6 +512,62 @@ impl GeminiClient {
             .ok_or_else(|| GeminiError::InvalidResponse("Missing or invalid text field".into()))?;
         serde_json::from_str(plan_text)
             .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {}", e)))
+    }
+
+    /// Double-checks the mathematics of the final transactions (Stage 2)
+    pub async fn verify_statement_mathematics(
+        &self,
+        transactions_json: &str,
+    ) -> Result<bool, GeminiError> {
+        let prompt = format!(
+            "You are a forensic accountant. You must double-check the mathematics of the following \
+             bank statement transactions. Specifically, you must ensure that:\n\
+             Opening Balance + Sum of Credits - Sum of Debits = Closing Balance.\n\n\
+             Transactions (JSON format):\n{}\n\n\
+             Respond in JSON with a single boolean field `is_mathematically_sound`.",
+            transactions_json
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "is_mathematically_sound": { "type": "boolean" }
+            },
+            "required": ["is_mathematically_sound"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "parts": [{ "text": prompt }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let resp_json: serde_json::Value = response.json().await.map_err(GeminiError::Http)?;
+        let content = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or("{}");
+
+        #[derive(serde::Deserialize)]
+        struct MathCheck {
+            is_mathematically_sound: bool,
+        }
+
+        match serde_json::from_str::<MathCheck>(content) {
+            Ok(check) => Ok(check.is_mathematically_sound),
+            Err(e) => Err(GeminiError::InvalidResponse(e.to_string())),
+        }
     }
 
     /// Vision-based anomaly check on a rendered page.

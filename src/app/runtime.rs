@@ -250,6 +250,7 @@ pub enum Job {
     /// Stage 1: parse with Document AI then validate completeness with Gemini.
     WorkflowParseAndValidate {
         input: PathBuf,
+        version: Option<String>,
     },
     /// Stage 3: build a balance preview from edits without writing the PDF.
     WorkflowPreview {
@@ -267,6 +268,11 @@ pub enum Job {
         deep_font_replication: bool,
         max_visual_attempts: u32,
         visual_threshold: f64,
+    },
+    /// Use AI to fix text box issues and visual fidelity differences
+    AiFixVisualFidelity {
+        input: PathBuf,
+        page: usize,
     },
 }
 
@@ -693,6 +699,12 @@ impl Runtime {
                             }
                         });
                     }
+                    Job::AiFixVisualFidelity { input: _, page: _ } => {
+                        let _ = result_tx_clone.send(JobResult::Progress {
+                            label: "AI Visual Fidelity Fix (Stub)".to_string(),
+                            fraction: 1.0,
+                        });
+                    }
                     Job::AnalyzeFonts { path } => {
                         let res_tx = result_tx_clone.clone();
                         let py_tx = python_tx_clone.clone();
@@ -976,7 +988,7 @@ impl Runtime {
                                 }
                             };
                             
-                            let bank_stmt = match doc_ai.parse_entire_statement(&path).await {
+                            let bank_stmt = match doc_ai.parse_entire_statement(&path, None).await {
                                 Ok(stmt) => stmt,
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Document AI failed: {}", e) });
@@ -1400,10 +1412,22 @@ impl Runtime {
                                     if auto_apply && !changes.is_empty() {
                                         // Chain straight into applying every proposed
                                         // change to the PDF (reuses the tested path).
-                                        let _ = job_tx_ref.send(Job::ApplyProposedChanges {
+                                        let edits = changes.into_iter().map(|c| crate::engine::workflow::UserEdit {
+                                            page: c.page,
+                                            line_on_page: 0,
+                                            bbox: c.bbox.unwrap_or([0.0, 0.0, 0.0, 0.0]),
+                                            old_text: c.old_text,
+                                            new_text: c.new_text,
+                                            field: crate::engine::workflow::EditField::RunningBalance,
+                                        }).collect();
+                                        
+                                        let _ = job_tx_ref.send(Job::WorkflowConfirmAndRender {
                                             input: input.clone(),
                                             output: output.clone(),
-                                            changes,
+                                            edits,
+                                            deep_font_replication: true, // as per unified cascade
+                                            max_visual_attempts: 5,
+                                            visual_threshold: 0.02,
                                         });
                                     } else if changes.is_empty() {
                                         let _ = res_tx.send(JobResult::Progress { label: "Already balanced — nothing to apply".to_string(), fraction: 1.0 });
@@ -1529,7 +1553,7 @@ impl Runtime {
                     // -----------------------------------------------------------------
                     // Stage 1: Document AI parse + Gemini completeness validate.
                     // -----------------------------------------------------------------
-                    Job::WorkflowParseAndValidate { input } => {
+                    Job::WorkflowParseAndValidate { input, version } => {
                         let res_tx = result_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
@@ -1547,6 +1571,24 @@ impl Runtime {
                                     return;
                                 }
                             };
+
+                            let mut final_version = version;
+                            if final_version.is_none() {
+                                let _ = res_tx.send(JobResult::Progress { label: "Detecting optimal parser version via Gemini".into(), fraction: 0.1 });
+                                if let Ok(gemini) = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                    let eng_for_render = engine_for_tokio.clone();
+                                    let input_for_render = input.clone();
+                                    if let Ok(Ok(png)) = tokio::task::spawn_blocking(move || {
+                                        eng_for_render.render_page(&input_for_render, 0, 150.0)
+                                    }).await {
+                                        if let Ok(detected) = gemini.detect_docai_version(&png.png_bytes).await {
+                                            tracing::info!("[workflow] Gemini detected optimal parser version: {}", detected);
+                                            final_version = Some(detected);
+                                        }
+                                    }
+                                }
+                            }
+                            let final_version = final_version;
 
                             // Stage 3 / Item #16: page count first; if it
                             // exceeds the processor's online sync cap (15
@@ -1634,7 +1676,7 @@ impl Runtime {
                                     label: format!("Parsing {} chunks in parallel", chunks.len()),
                                     fraction: 0.5,
                                 });
-                                match doc_ai.parse_chunked_statement(&chunks, 4).await {
+                                match doc_ai.parse_chunked_statement(&chunks, 4, final_version.as_deref()).await {
                                     Ok(s) => s,
                                     Err(e) => {
                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
@@ -1642,7 +1684,7 @@ impl Runtime {
                                     }
                                 }
                             } else {
-                                match doc_ai.parse_entire_statement(&input).await {
+                                match doc_ai.parse_entire_statement(&input, final_version.as_deref()).await {
                                     Ok(s) => s,
                                     Err(e) => {
                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
@@ -2392,7 +2434,7 @@ impl Runtime {
                             let re_parsed_count;
                             match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                 Ok(client) => {
-                                    match client.parse_entire_statement(&output).await {
+                                    match client.parse_entire_statement(&output, None).await {
                                         Ok(stmt) => {
                                             re_parsed_count = stmt.transactions.len();
                                             let opening = stmt.opening_balance;
@@ -2400,7 +2442,25 @@ impl Runtime {
                                             match crate::engine::workflow::build_preview(&stmt.transactions, &[], opening, expected_close) {
                                                 Ok(p) => {
                                                     final_imbalance = p.final_imbalance;
-                                                    math_valid = p.balanced;
+                                                    let mut is_valid = p.balanced;
+                                                    
+                                                    // Double-verify with Gemini
+                                                    if is_valid {
+                                                        if let Ok(gemini) = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                                            let tx_json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
+                                                            let _ = res_tx.send(JobResult::Progress {
+                                                                label: "Double-verifying math with Gemini…".into(),
+                                                                fraction: 0.98,
+                                                            });
+                                                            if let Ok(is_sound) = gemini.verify_statement_mathematics(&tx_json).await {
+                                                                if !is_sound {
+                                                                    tracing::warn!("Gemini flagged mathematics as unsound even though engine approved it.");
+                                                                    is_valid = false;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    math_valid = is_valid;
                                                 }
                                                 Err(_) => {
                                                     final_imbalance = rust_decimal::Decimal::ZERO;

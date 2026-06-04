@@ -119,13 +119,27 @@ impl Theme {
             Theme::Light | Theme::Solarized => egui::Visuals::light(),
             _ => egui::Visuals::dark(),
         };
-        visuals.window_rounding = 10.0.into();
-        visuals.menu_rounding = 8.0.into();
-        visuals.widgets.noninteractive.rounding = 6.0.into();
-        visuals.widgets.inactive.rounding = 6.0.into();
-        visuals.widgets.hovered.rounding = 6.0.into();
-        visuals.widgets.active.rounding = 6.0.into();
-        visuals.widgets.open.rounding = 6.0.into();
+        visuals.window_rounding = 12.0.into();
+        visuals.menu_rounding = 10.0.into();
+        visuals.widgets.noninteractive.rounding = 8.0.into();
+        visuals.widgets.inactive.rounding = 8.0.into();
+        visuals.widgets.hovered.rounding = 8.0.into();
+        visuals.widgets.active.rounding = 8.0.into();
+        visuals.widgets.open.rounding = 8.0.into();
+        
+        visuals.window_shadow = egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 16.0),
+            blur: 32.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(96),
+        };
+        visuals.popup_shadow = egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 8.0),
+            blur: 16.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(64),
+        };
+
         visuals.panel_fill = p.panel;
         visuals.window_fill = p.panel;
         visuals.extreme_bg_color = p.bg;
@@ -141,25 +155,25 @@ impl Theme {
 
         // global style tweaks
         let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style.spacing.button_padding = egui::vec2(10.0, 4.0);
-        style.spacing.window_margin = egui::Margin::same(10.0);
-        style.spacing.menu_margin = egui::Margin::same(6.0);
+        style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+        style.spacing.window_margin = egui::Margin::same(12.0);
+        style.spacing.menu_margin = egui::Margin::same(8.0);
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(18.0, egui::FontFamily::Proportional),
+            egui::FontId::new(20.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(13.0, egui::FontFamily::Proportional),
+            egui::FontId::new(14.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
-            egui::FontId::new(13.0, egui::FontFamily::Proportional),
+            egui::FontId::new(14.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Small,
-            egui::FontId::new(11.5, egui::FontFamily::Proportional),
+            egui::FontId::new(12.0, egui::FontFamily::Proportional),
         );
         ctx.set_style(style);
     }
@@ -348,6 +362,7 @@ pub struct MyApp {
     /// Stage 13 / Item #12: pending modal confirmations. Each entry is
     /// (title, body, on_confirm action).
     show_discard_draft_confirm: bool,
+    show_settings_modal: bool,
     /// Stage 12 / Item #3: history of cascade invocations during the
     /// current workflow attempt. Reset on a new workflow start; appended
     /// to whenever the runtime reports `JobResult::FontCascadeUsed`.
@@ -460,6 +475,7 @@ impl MyApp {
             font_analysis: None,
             font_cascade_reports: Vec::new(),
             show_discard_draft_confirm: false,
+            show_settings_modal: false,
             workflow_dirty: false,
             workflow_last_save: None,
             workflow_input_hash: None,
@@ -688,6 +704,15 @@ impl eframe::App for MyApp {
         self.settings.theme.apply(ctx);
 
         if let Some(p) = &self.progress {
+            egui::Area::new(egui::Id::new("modal_overlay"))
+                .order(egui::Order::Foreground)
+                .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    let rect = ctx.screen_rect();
+                    ui.allocate_rect(rect, egui::Sense::click());
+                    ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(150));
+                });
+
             egui::Window::new("Working…")
                 .collapsible(false)
                 .resizable(false)
@@ -729,6 +754,7 @@ impl eframe::App for MyApp {
         if want_parse && !self.input_path.is_empty() {
             let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
                 input: PathBuf::from(&self.input_path),
+                version: None,
             });
             self.in_flight += 1;
             self.workflow_edits.clear();
@@ -935,7 +961,6 @@ impl eframe::App for MyApp {
         match self.current_view {
             AppView::SingleDocument => {
                 self.draw_left_panel(ctx);
-                self.draw_right_panel(ctx);
                 self.draw_central_panel(ctx);
             }
             AppView::BatchProcessing => {
@@ -978,6 +1003,17 @@ impl MyApp {
                 self.status = format!("Loaded {total_pages} page(s)");
                 self.toast(ToastKind::Success, format!("Loaded {total_pages} pages"));
                 self.request_render("current");
+                self.in_flight += 1;
+                self.workflow_edits.clear();
+                self.workflow_preview = None;
+                self.workflow_visual = None;
+                self.workflow_outcome = None;
+                self.font_cascade_reports.clear();
+                self.workflow_dirty = true;
+                let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+                    input: PathBuf::from(&self.input_path),
+                    version: None,
+                });
             }
             JobResult::HistoryUpdated { history } => {
                 self.history_state = history;
@@ -1147,9 +1183,23 @@ impl MyApp {
                 }
             }
             JobResult::Error { job_label, message } => {
+                self.progress = None;
                 self.status = format!("❌ [{job_label}] {message}");
                 self.toast(ToastKind::Error, format!("[{job_label}] {message}"));
                 tracing::error!("[gui] runtime error in '{}': {}", job_label, message);
+                
+                // Write comprehensive error sink
+                let dir = std::path::PathBuf::from("audit/error_reports");
+                let _ = std::fs::create_dir_all(&dir);
+                let filename = format!("report_{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S"));
+                let report = serde_json::json!({
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "kind": "JobError",
+                    "job_label": job_label,
+                    "message": message,
+                    "input_path": self.input_path,
+                });
+                let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
             }
             JobResult::Pong => {
                 self.toast(ToastKind::Info, "pong");
@@ -1240,6 +1290,7 @@ impl MyApp {
                 self.workflow_visual = Some(attempt);
             }
             JobResult::WorkflowComplete(outcome) => {
+                self.progress = None;
                 self.toast(ToastKind::Success, outcome.completion_summary.clone());
                 self.workflow_outcome = Some(outcome);
                 // Stage 6: workflow finished cleanly — clear the in-flight
@@ -1252,6 +1303,7 @@ impl MyApp {
                 Self::discard_workflow_draft_quiet();
             }
             JobResult::WorkflowFailed(failure) => {
+                self.progress = None;
                 let msg = match &failure {
                     crate::engine::workflow::WorkflowFailure::ParseFailed(s) => {
                         format!("Parse failed: {s}")
@@ -1278,8 +1330,19 @@ impl MyApp {
                     }
                     crate::engine::workflow::WorkflowFailure::Other(s) => s.clone(),
                 };
-                self.toast(ToastKind::Error, msg);
+                self.toast(ToastKind::Error, &msg);
                 self.workflow_stage = crate::engine::workflow::WorkflowStage::Failed(failure);
+                
+                let dir = std::path::PathBuf::from("audit/error_reports");
+                let _ = std::fs::create_dir_all(&dir);
+                let filename = format!("report_{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S"));
+                let report = serde_json::json!({
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "kind": "WorkflowFailed",
+                    "message": msg,
+                    "input_path": self.input_path,
+                });
+                let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
             }
         }
     }
@@ -1382,6 +1445,9 @@ impl MyApp {
                 ui.selectable_value(&mut self.current_view, AppView::BatchProcessing, "Batch Processing");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("⚙️ Settings & Tools").clicked() {
+                        self.show_settings_modal = true;
+                    }
                     if self.settings.advanced_mode {
                         if ui.button("🌐 Remote Engine").clicked() {
                             // Stub for remote engine connect
@@ -1394,25 +1460,10 @@ impl MyApp {
                             }
                         }
                     }
-                    if ui.checkbox(&mut self.settings.advanced_mode, "Advanced Mode").changed() {
-                        if let Err(e) = confy::store("bank-statement-modifier", None, &self.settings) {
-                            tracing::warn!("[gui] failed to persist advanced_mode: {}", e);
-                        }
-                    }
-                    ui.separator();
-                    egui::ComboBox::from_id_source("theme_picker")
-                        .selected_text(self.settings.theme.label())
-                        .width(100.0)
-                        .show_ui(ui, |ui| {
-                            for t in [Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized]
-                            {
-                                ui.selectable_value(&mut self.settings.theme, t, t.label());
-                            }
-                        });
+                    
                     if let Some(p) = &self.progress {
                         ui.add(
-                            egui::ProgressBar::new(p.fraction)
-                                .text(&p.label)
+                            egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
                                 .desired_width(220.0),
                         );
                     } else if self.in_flight > 0 {
@@ -1513,154 +1564,19 @@ impl MyApp {
                     if self.settings.advanced_mode {
                         ui.checkbox(&mut self.settings.deep_font_replication, "Deep Font Replication (AI)");
                     }
-                    ui.horizontal(|ui| {
-                        if ui.button("🎯 Apply Edit")
-                            .on_hover_text("Replace the selected text directly (single-step path)")
-                            .clicked() {
-                            let input = if self.current_pdf_path.exists() {
-                                self.current_pdf_path.clone()
-                            } else {
-                                PathBuf::from(&self.input_path)
-                            };
-                            let _ = self.job_tx.send(Job::ApplyChange {
-                                input,
-                                output: PathBuf::from(&self.output_path),
-                                page: self.current_page,
-                                bbox: block.bbox,
-                                new_text: self.new_text.clone(),
-                                old_text: block.text.clone(),
-                                description: "Manual edit".into(),
-                                deep_font_replication: self.settings.deep_font_replication,
-                            });
-                            self.in_flight += 1;
-                        }
-                        let in_workflow = self.workflow_validation.is_some();
-                        if ui.add_enabled(in_workflow, egui::Button::new("📋 Queue for Preview"))
-                            .on_hover_text("Add this edit to the workflow queue (use 'Balance Out Preview' next)")
-                            .clicked()
-                        {
-                            // Try to map the edit to a known transaction row.
-                            let line_on_page = self.workflow_transactions
-                                .iter()
-                                .filter(|t| t.page == self.current_page)
-                                .min_by(|a, b| {
-                                    let by_a = a.bbox.unwrap_or([0.0; 4])[1];
-                                    let by_b = b.bbox.unwrap_or([0.0; 4])[1];
-                                    let ba = (by_a - block.bbox[1]).abs();
-                                    let bb = (by_b - block.bbox[1]).abs();
-                                    ba.partial_cmp(&bb).unwrap_or(std::cmp::Ordering::Equal)
-                                })
-                                .map(|t| t.line_on_page)
-                                .unwrap_or(0);
-                            // Heuristic: numeric edit -> credit/debit/balance based on font column.
-                            let trimmed = self.new_text.trim();
-                            let field = if trimmed.replace([',', '$', '.', '-'], "").chars().all(|c| c.is_ascii_digit()) {
-                                crate::engine::workflow::EditField::RunningBalance
-                            } else {
-                                crate::engine::workflow::EditField::Description
-                            };
-                            self.workflow_edits.push(crate::engine::workflow::UserEdit {
-                                page: self.current_page,
-                                line_on_page,
-                                bbox: block.bbox,
-                                old_text: block.text.clone(),
-                                new_text: self.new_text.clone(),
-                                field,
-                            });
-                            self.workflow_dirty = true;
-                            self.toast(ToastKind::Info, format!("Queued edit ({} pending)", self.workflow_edits.len()));
-                        }
-                    });
-
-                    // "Adjust entire bank statement accordingly and apply all
-                    // edits": run the Smart Balance Engine over the whole
-                    // document and auto-apply every proposed adjustment so the
-                    // running balances stay internally consistent after edits.
-                    ui.add_space(4.0);
-                    let adjust_btn = ui.add_sized(
-                        [ui.available_width(), 28.0],
-                        egui::Button::new("⚖ Adjust entire bank statement accordingly and apply all edits"),
-                    );
-                    if adjust_btn
-                        .on_hover_text(
-                            "Runs Document AI + Gemini across the whole statement, computes the minimal set of balancing adjustments, and applies them all to the PDF in one pass.",
-                        )
-                        .clicked()
-                    {
-                        let input = if self.current_pdf_path.exists() {
-                            self.current_pdf_path.clone()
-                        } else {
-                            PathBuf::from(&self.input_path)
-                        };
-                        if input.as_os_str().is_empty() || !input.exists() {
-                            self.toast(ToastKind::Error, "Open a PDF first.");
-                        } else {
-                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
-                                input,
-                                output: PathBuf::from(&self.output_path),
-                                auto_apply: true,
-                            });
-                            self.in_flight += 1;
-                            self.status = "Adjusting entire statement and applying all edits…".into();
-                            self.toast(ToastKind::Info, "Adjusting entire statement…");
-                        }
-                    }
-
-                    // "Preview Balance-Out Adjustments": same cascade engine,
-                    // but STOPS at the proposal stage so the user can review
-                    // every cascaded change (which can span many pages — often
-                    // more than 3 pages from the edited row) before committing.
-                    // Editing one amount recomputes every subsequent running
-                    // balance, so this surfaces the full set of downstream
-                    // changes for approval. Results appear in the
-                    // "⚖ Smart Balance Engine" panel as a checklist with an
-                    // "Apply approved" button.
-                    ui.add_space(2.0);
-                    let preview_btn = ui.add_sized(
-                        [ui.available_width(), 26.0],
-                        egui::Button::new("🔍 Preview Balance-Out Adjustments"),
-                    );
-                    if preview_btn
-                        .on_hover_text(
-                            "Recompute the whole statement after your edits and PREVIEW every cascaded balance change (may span many pages) before applying. Review the list in the Smart Balance Engine panel, then 'Apply approved'.",
-                        )
-                        .clicked()
-                    {
-                        let input = if self.current_pdf_path.exists() {
-                            self.current_pdf_path.clone()
-                        } else {
-                            PathBuf::from(&self.input_path)
-                        };
-                        if input.as_os_str().is_empty() || !input.exists() {
-                            self.toast(ToastKind::Error, "Open a PDF first.");
-                        } else {
-                            // auto_apply: false → emits BalanceProposed only;
-                            // proposals render as an approve-then-apply checklist.
-                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
-                                input,
-                                output: PathBuf::from(&self.output_path),
-                                auto_apply: false,
-                            });
-                            self.in_flight += 1;
-                            self.status = "Previewing balance-out adjustments…".into();
-                            self.toast(
-                                ToastKind::Info,
-                                "Computing balance-out preview — review proposals in the Smart Balance Engine panel.",
-                            );
-                        }
-                    }
                 } else {
                     ui.weak("Click any text on the canvas to edit.");
                 }
             });
     }
 
-    fn draw_right_panel(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::right("right_panel")
-            .width_range(280.0..=380.0)
+    fn draw_settings_modal(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_settings_modal;
+        egui::Window::new("⚙️ Settings & Tools")
+            .open(&mut open)
+            .default_size(egui::vec2(380.0, 500.0))
+            .vscroll(true)
             .show(ctx, |ui| {
-                ui.heading("Analysis & Tools");
-                egui::ScrollArea::vertical().show(ui, |ui| {
                     self.draw_font_analysis_section(ui);
                     self.draw_workflow_section(ui);
 
@@ -1843,8 +1759,8 @@ impl MyApp {
                         ui.add_space(10.0);
                         self.draw_api_keys_editor(ui);
                     });
-                });
             });
+        self.show_settings_modal = open;
     }
 
     /// Settings → API keys & credentials editor.
@@ -2566,24 +2482,7 @@ impl MyApp {
 
             ui.separator();
 
-            // Stage 1 button: parse + AI validate
-            let parse_enabled = !PathBuf::from(&self.input_path).as_os_str().is_empty();
-            if ui
-                .add_enabled(parse_enabled, egui::Button::new("① Parse + AI validate"))
-                .on_hover_text("Run Document AI on the file, then ask Gemini if anything was missed")
-                .clicked()
-            {
-                let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
-                    input: PathBuf::from(&self.input_path),
-                });
-                self.in_flight += 1;
-                self.workflow_edits.clear();
-                self.workflow_preview = None;
-                self.workflow_visual = None;
-                self.workflow_outcome = None;
-                self.font_cascade_reports.clear();
-                self.workflow_dirty = true;
-            }
+
 
             if let Some(v) = &self.workflow_validation {
                 ui.label(format!(
@@ -3059,6 +2958,87 @@ impl MyApp {
                     self.draw_empty_canvas(ui, response.rect, &painter);
                 }
             });
+            egui::Area::new(egui::Id::new("floating_action_dock"))
+                .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    if self.selected_block.is_some() || !self.proposed_changes.is_empty() {
+                        egui::Frame::window(ui.style())
+                            .fill(self.settings.theme.palette().panel)
+                            .shadow(ctx.style().visuals.popup_shadow)
+                            .rounding(ctx.style().visuals.window_rounding)
+                            .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button("🎯 Apply Edit").on_hover_text("Replace the selected text directly").clicked() {
+                                        if let Some(block) = self.selected_block.clone() {
+                                            let input = if self.current_pdf_path.exists() {
+                                                self.current_pdf_path.clone()
+                                            } else {
+                                                std::path::PathBuf::from(&self.input_path)
+                                            };
+                                            let _ = self.job_tx.send(Job::ApplyChange {
+                                                input,
+                                                output: std::path::PathBuf::from(&self.output_path),
+                                                page: self.current_page,
+                                                bbox: block.bbox,
+                                                new_text: self.new_text.clone(),
+                                                old_text: block.text.clone(),
+                                                description: "Manual edit".into(),
+                                                deep_font_replication: self.settings.deep_font_replication,
+                                            });
+                                            self.in_flight += 1;
+                                        }
+                                    }
+                                    
+                                    ui.add_space(8.0);
+                                    
+                                    if ui.button("✨ Use AI to fix fidelity").on_hover_text("Fix visual fidelity for the current page").clicked() {
+                                        let input = if self.current_pdf_path.exists() {
+                                            self.current_pdf_path.clone()
+                                        } else {
+                                            std::path::PathBuf::from(&self.input_path)
+                                        };
+                                        let _ = self.job_tx.send(Job::AiFixVisualFidelity {
+                                            input,
+                                            page: self.current_page,
+                                        });
+                                        self.toast(ToastKind::Info, "Requesting AI visual fidelity fix…");
+                                        self.in_flight += 1;
+                                    }
+                                    
+                                    ui.add_space(8.0);
+
+                                    let adjust_btn = ui.add(
+                                        egui::Button::new(
+                                            egui::RichText::new("⚖ Adjust entire bank statement…")
+                                                .color(self.settings.theme.palette().bg)
+                                        )
+                                        .fill(self.settings.theme.palette().accent)
+                                    );
+                                    if adjust_btn.on_hover_text("Runs Document AI + Gemini across the whole statement, computes minimal balancing adjustments, and applies them all.").clicked() {
+                                        let input = if self.current_pdf_path.exists() {
+                                            self.current_pdf_path.clone()
+                                        } else {
+                                            std::path::PathBuf::from(&self.input_path)
+                                        };
+                                        if input.as_os_str().is_empty() || !input.exists() {
+                                            self.toast(ToastKind::Error, "Open a PDF first.");
+                                        } else {
+                                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+                                                input,
+                                                output: std::path::PathBuf::from(&self.output_path),
+                                                auto_apply: true,
+                                            });
+                                            self.in_flight += 1;
+                                            self.status = "Adjusting entire statement and applying all edits…".into();
+                                            self.toast(ToastKind::Info, "Adjusting entire statement…");
+                                        }
+                                    }
+                                });
+                            });
+                    }
+                });
         });
     }
 
@@ -3162,6 +3142,9 @@ impl MyApp {
 
     /// Stage 13 / Item #12: confirmation modals.
     fn draw_modals(&mut self, ctx: &egui::Context) {
+        if self.show_settings_modal {
+            self.draw_settings_modal(ctx);
+        }
         if self.show_discard_draft_confirm {
             let mut keep_open = true;
             let mut confirm = false;
