@@ -80,6 +80,21 @@ jobs:
           mkdir -p "${APP_DIR}/MacOS"
           mkdir -p "${APP_DIR}/Resources"
 
+          # Convert icon to ICNS
+          mkdir AppIcon.iconset
+          sips -z 16 16     assets/icon.png --out AppIcon.iconset/icon_16x16.png
+          sips -z 32 32     assets/icon.png --out AppIcon.iconset/icon_16x16@2x.png
+          sips -z 32 32     assets/icon.png --out AppIcon.iconset/icon_32x32.png
+          sips -z 64 64     assets/icon.png --out AppIcon.iconset/icon_32x32@2x.png
+          sips -z 128 128   assets/icon.png --out AppIcon.iconset/icon_128x128.png
+          sips -z 256 256   assets/icon.png --out AppIcon.iconset/icon_128x128@2x.png
+          sips -z 256 256   assets/icon.png --out AppIcon.iconset/icon_256x256.png
+          sips -z 512 512   assets/icon.png --out AppIcon.iconset/icon_256x256@2x.png
+          sips -z 512 512   assets/icon.png --out AppIcon.iconset/icon_512x512.png
+          sips -z 1024 1024 assets/icon.png --out AppIcon.iconset/icon_512x512@2x.png
+          iconutil -c icns AppIcon.iconset
+          cp AppIcon.icns "${APP_DIR}/Resources/"
+
           # Copy the compiled binary
           cp "$BINARY" "${APP_DIR}/MacOS/${APP_NAME}"
           chmod +x "${APP_DIR}/MacOS/${APP_NAME}"
@@ -103,6 +118,8 @@ jobs:
             <string>1.0.0</string>
             <key>CFBundleExecutable</key>
             <string>DualCorePdfPipeline</string>
+            <key>CFBundleIconFile</key>
+            <string>AppIcon</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>LSMinimumSystemVersion</key>

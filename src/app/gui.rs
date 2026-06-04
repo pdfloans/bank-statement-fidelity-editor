@@ -4289,6 +4289,18 @@ fn upsert_env_file(path: &std::path::Path, pairs: &[(&str, String)]) -> std::io:
 // Entry point
 // ---------------------------------------------------------------------------
 
+fn load_icon() -> egui::IconData {
+    let image = image::load_from_memory(include_bytes!("../../../assets/icon.png"))
+        .expect("Failed to open icon path")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    }
+}
+
 pub fn run_gui(
     job_tx: std::sync::mpsc::Sender<Job>,
     job_rx: std::sync::mpsc::Receiver<JobResult>,
@@ -4298,7 +4310,8 @@ pub fn run_gui(
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 820.0])
             .with_min_inner_size([960.0, 640.0])
-            .with_title("Bank Statement Fidelity Editor v0.4.0"),
+            .with_title("Bank Statement Fidelity Editor v0.4.0")
+            .with_icon(load_icon()),
         ..Default::default()
     };
 
