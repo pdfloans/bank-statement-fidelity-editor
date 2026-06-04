@@ -947,7 +947,7 @@ impl eframe::App for MyApp {
         loop {
             match self.job_rx.try_recv() {
                 Ok(res) => {
-                    if self.in_flight > 0 {
+                    if res.is_terminal() && self.in_flight > 0 {
                         self.in_flight -= 1;
                     }
                     self.handle_job_result(ctx, res);
@@ -955,6 +955,7 @@ impl eframe::App for MyApp {
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.status = "❌ Runtime worker disconnected".into();
+                    self.in_flight = 0; // Bulletproof fix: reset on disconnect
                     break;
                 }
             }
@@ -1437,9 +1438,12 @@ impl MyApp {
                 });
                 let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
             }
+            JobResult::JobCompleted(label) => {
+                self.in_flight = self.in_flight.checked_sub(1).unwrap_or(0);
+            }
             JobResult::TransferComplete(result) => {
                 self.progress = None;
-                self.in_flight = self.in_flight.saturating_sub(1);
+                self.in_flight = self.in_flight.checked_sub(1).unwrap_or(0);
                 let msg = format!(
                     "✅ Transfer complete: {} txns → output, math: {}, visual: {} ({:.1}s)",
                     result.source_tx_count,
@@ -1477,7 +1481,6 @@ impl MyApp {
             }
             JobResult::TransferFailed { stage, message } => {
                 self.progress = None;
-                self.in_flight = self.in_flight.saturating_sub(1);
                 let msg = format!("Transfer failed at {}: {}", stage, message);
                 self.status = msg.clone();
                 self.toast(ToastKind::Error, &msg);
@@ -1497,7 +1500,6 @@ impl MyApp {
             }
             JobResult::DatesAdjusted { records, output_path } => {
                 self.progress = None;
-                self.in_flight = self.in_flight.saturating_sub(1);
                 let msg = format!("📅 Adjusted {} dates → {}", records.len(), output_path.display());
                 self.status = msg.clone();
                 self.toast(ToastKind::Success, &msg);
@@ -1511,7 +1513,6 @@ impl MyApp {
             }
             JobResult::TransferTestsComplete(report) => {
                 self.progress = None;
-                self.in_flight = self.in_flight.saturating_sub(1);
                 let msg = report.summary();
                 self.status = msg.clone();
                 if report.all_passed() {

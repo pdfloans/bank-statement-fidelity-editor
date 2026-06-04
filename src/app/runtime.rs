@@ -400,6 +400,58 @@ pub enum JobResult {
 
     // ----- Transfer Test Harness -------------------------------------------
     TransferTestsComplete(crate::engine::transfer_test_harness::TestHarnessReport),
+
+    // ----- General Lifecycle -----------------------------------------------
+    JobCompleted(String),
+}
+
+impl JobResult {
+    pub fn is_terminal(&self) -> bool {
+        match self {
+            Self::Progress { .. }
+            | Self::WorkflowStageChanged { .. }
+            | Self::WorkflowParseValidated { .. }
+            | Self::FontCascadeUsed(_) => false,
+            _ => true,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct TerminalTracker(std::sync::Arc<TerminalTrackerInner>);
+
+struct TerminalTrackerInner {
+    tx: std::sync::mpsc::Sender<JobResult>,
+    label: String,
+    terminal_sent: std::sync::atomic::AtomicBool,
+}
+
+impl TerminalTracker {
+    pub fn new(tx: std::sync::mpsc::Sender<JobResult>, label: impl Into<String>) -> Self {
+        Self(std::sync::Arc::new(TerminalTrackerInner {
+            tx,
+            label: label.into(),
+            terminal_sent: std::sync::atomic::AtomicBool::new(false),
+        }))
+    }
+
+    pub fn send(&self, res: JobResult) -> Result<(), std::sync::mpsc::SendError<JobResult>> {
+        if res.is_terminal() {
+            self.0.terminal_sent.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.0.tx.send(res)
+    }
+}
+
+impl Drop for TerminalTrackerInner {
+    fn drop(&mut self) {
+        if !self.terminal_sent.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = self.tx.send(JobResult::Error {
+                job_label: self.label.clone(),
+                message: "Background task panicked or exited silently without a terminal result.".into(),
+            });
+        }
+    }
 }
 
 pub struct Runtime {
@@ -2041,7 +2093,7 @@ impl Runtime {
                         });
                     }
                     Job::BalanceAndApplyAll { input, output, auto_apply } => {
-                        let res_tx = result_tx_clone.clone();
+                        let res_tx = TerminalTracker::new(result_tx_clone.clone(), "BalanceAndApplyAll");
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
                         let job_tx_ref = tokio_job_tx_clone.clone();
@@ -2235,7 +2287,7 @@ impl Runtime {
                     // Stage 1: Document AI parse + Gemini completeness validate.
                     // -----------------------------------------------------------------
                     Job::WorkflowParseAndValidate { input, version } => {
-                        let res_tx = result_tx_clone.clone();
+                        let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowParseAndValidate");
                         let cfg = config_for_tokio.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
                         let python_tx_clone = python_tx_clone.clone();
@@ -2440,7 +2492,8 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                 stage: crate::engine::workflow::WorkflowStage::Editing(validation),
                             });
-                            let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
+                            // Must send a terminal result since we removed JobGuard's manual complete.
+                            let _ = res_tx.send(JobResult::JobCompleted("WorkflowParseAndValidate".into()));
                         });
                     }
 
@@ -2469,7 +2522,7 @@ impl Runtime {
                     // then do a final Document AI math sanity pass.
                     // -----------------------------------------------------------------
                     Job::WorkflowConfirmAndRender { input, output, edits, deep_font_replication, max_visual_attempts, visual_threshold } => {
-                        let res_tx = result_tx_clone.clone();
+                        let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowConfirmAndRender");
                         let eng = engine_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
