@@ -450,6 +450,9 @@ pub struct MyApp {
     /// True once the buffers have been seeded from the environment.
     #[allow(dead_code)]
     api_keys_seeded: bool,
+
+    /// Proposed auto-fix for the last encountered error
+    pub(crate) pending_autofix: Option<crate::app::error::AppError>,
 }
 
 impl MyApp {
@@ -553,6 +556,7 @@ impl MyApp {
             config_status: None,
             credential_validation_status: None,
             api_keys_seeded: true,
+            pending_autofix: None,
         }
     }
 
@@ -1259,6 +1263,14 @@ impl MyApp {
                 self.progress = None;
                 self.status = format!("❌ [{job_label}] {message}");
                 self.toast(ToastKind::Error, format!("[{job_label}] {message}"));
+                
+                // Autofix interception
+                if let Some(err) = crate::app::error::AppError::from_str(&message) {
+                    if err.suggested_action().is_some() {
+                        self.pending_autofix = Some(err);
+                    }
+                }
+                
                 tracing::error!("[gui] runtime error in '{}': {}", job_label, message);
                 
                 // Write comprehensive error sink
@@ -1403,6 +1415,14 @@ impl MyApp {
                     }
                     crate::engine::workflow::WorkflowFailure::Other(s) => s.clone(),
                 };
+                
+                // Autofix interception
+                if let Some(err) = crate::app::error::AppError::from_str(&msg) {
+                    if err.suggested_action().is_some() {
+                        self.pending_autofix = Some(err);
+                    }
+                }
+
                 self.toast(ToastKind::Error, &msg);
                 self.workflow_stage = crate::engine::workflow::WorkflowStage::Failed(failure);
                 

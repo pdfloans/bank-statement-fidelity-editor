@@ -1,0 +1,13 @@
+{
+  "math_valid": true,
+  "visual_diff_score": 0.43241149237472765,
+  "only_intended_changes": false,
+  "report_files": [
+    "out\\original_p1_300dpi.png",
+    "out\\edited_p1_300dpi.png",
+    "out\\visual_diff_p1_300dpi.png"
+  ],
+  "message": "Verification Result:\nMath: ✅\nVisual (tile-max): 0.4324 (Threshold: 0.02)\nOnly Intended: ❌\nEdit-region fidelity (max residual): 0.0102\n➖ Math check not applicable (no transaction/balance data found); visual-only verification.",
+  "max_tile_score": 0.43241149237472765,
+  "max_edit_region_score": 0.010168816149896542
+}

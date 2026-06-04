@@ -174,6 +174,64 @@ pub enum Commands {
         #[arg(long)]
         dir: Option<std::path::PathBuf>,
     },
+
+    /// Stage 8.5: Standalone font analysis trigger
+    #[command(name = "analyze-fonts")]
+    AnalyzeFonts {
+        #[arg(short, long)]
+        input: PathBuf,
+    },
+
+    /// Run the Smart Balance Engine and apply all proposed adjustments
+    #[command(name = "auto-balance")]
+    AutoBalance {
+        #[arg(short, long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
+    /// Use AI to fix text box issues and visual fidelity differences
+    #[command(name = "ai-fix-visual")]
+    AiFixVisual {
+        #[arg(short, long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        page: usize,
+    },
+
+    /// Transfer transactions from one bank statement to another
+    #[command(name = "transfer-transactions")]
+    TransferTransactions {
+        #[arg(long)]
+        source_pdf: PathBuf,
+        #[arg(long)]
+        target_pdf: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
+    /// Bulk-shift or remap all transaction dates
+    #[command(name = "adjust-dates")]
+    AdjustDates {
+        #[arg(short, long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Mode (e.g., 'shift-forward-1-month', 'randomize-days')
+        #[arg(long)]
+        mode: String,
+    },
+
+    /// Run cross-statement transfer tests on a set of PDFs
+    #[command(name = "run-transfer-tests")]
+    RunTransferTests {
+        /// List of PDFs to test transfer matrix
+        #[arg(long, value_delimiter = ',')]
+        statements: Vec<PathBuf>,
+        #[arg(long, default_value_t = 10)]
+        max_iterations: u32,
+    },
 }
 
 /// Parses a bounding box string in the format "x0,y0,x1,y1".
@@ -623,7 +681,11 @@ pub fn run(
         | Commands::Balance { input, .. }
         | Commands::Extract { input, .. }
         | Commands::Render { input, .. }
-        | Commands::FontComplete { input, .. } => Some(input.clone()),
+        | Commands::FontComplete { input, .. }
+        | Commands::AnalyzeFonts { input, .. }
+        | Commands::AutoBalance { input, .. }
+        | Commands::AiFixVisual { input, .. }
+        | Commands::AdjustDates { input, .. } => Some(input.clone()),
         Commands::Verify {
             original, edited, ..
         } => {
@@ -641,6 +703,26 @@ pub fn run(
             if !from_log.exists() {
                 eprintln!("❌ Audit log not found: {}", from_log.display());
                 return exit_code::NOT_FOUND;
+            }
+            None
+        }
+        Commands::TransferTransactions { source_pdf, target_pdf, .. } => {
+            if !source_pdf.exists() {
+                eprintln!("❌ Source PDF not found: {}", source_pdf.display());
+                return exit_code::NOT_FOUND;
+            }
+            if !target_pdf.exists() {
+                eprintln!("❌ Target PDF not found: {}", target_pdf.display());
+                return exit_code::NOT_FOUND;
+            }
+            None
+        }
+        Commands::RunTransferTests { statements, .. } => {
+            for stmt in statements {
+                if !stmt.exists() {
+                    eprintln!("❌ Statement PDF not found: {}", stmt.display());
+                    return exit_code::NOT_FOUND;
+                }
             }
             None
         }
@@ -1109,6 +1191,115 @@ pub fn run(
                     eprintln!("❌ bootstrap failed: {e}");
                     1
                 }
+            }
+        }
+        Commands::AnalyzeFonts { input } => {
+            let _ = job_tx.send(Job::AnalyzeFonts { path: input });
+            loop {
+                match job_rx.recv() {
+                    Ok(JobResult::FontAnalysisReady(report)) => {
+                        println!("✅ Font Analysis Ready:\n{}", report.one_line_summary());
+                        return 0;
+                    }
+                    Ok(JobResult::Error { job_label, message }) => {
+                        eprintln!("❌ [{job_label}] {message}");
+                        return 1;
+                    }
+                    Err(_) => return 1,
+                    _ => {}
+                }
+            }
+        }
+        Commands::AutoBalance { input, output } => {
+            let _ = job_tx.send(Job::BalanceAndApplyAll {
+                input,
+                output: output.clone(),
+                auto_apply: true,
+            });
+            match wait_for_terminal_result(&job_rx) {
+                Ok(JobResult::ProposedChangesApplied { changes_applied, failures }) => {
+                    println!("✅ Applied {changes_applied} changes to {output:?}");
+                    if !failures.is_empty() {
+                        eprintln!("⚠️ {} failure(s)", failures.len());
+                        return 1;
+                    }
+                    0
+                }
+                Err((lbl, msg)) => {
+                    eprintln!("❌ [{lbl}] {msg}");
+                    1
+                }
+                _ => 1,
+            }
+        }
+        Commands::AiFixVisual { input, page } => {
+            let _ = job_tx.send(Job::AiFixVisualFidelity { input, page });
+            println!("AiFixVisualFidelity is a stub.");
+            0
+        }
+        Commands::TransferTransactions { source_pdf, target_pdf, output } => {
+            let _ = job_tx.send(Job::TransferTransactions {
+                source_pdf,
+                target_pdf,
+                output_pdf: output,
+            });
+            match wait_for_terminal_result(&job_rx) {
+                Ok(JobResult::TransferComplete(result)) => {
+                    println!("✅ Transfer complete. Target has {} transactions.", result.target_tx_count);
+                    0
+                }
+                Ok(JobResult::TransferFailed { stage, message }) => {
+                    eprintln!("❌ Transfer failed at {stage}: {message}");
+                    1
+                }
+                Err((lbl, msg)) => {
+                    eprintln!("❌ [{lbl}] {msg}");
+                    1
+                }
+                _ => 1,
+            }
+        }
+        Commands::AdjustDates { input, output, mode } => {
+            let parsed_mode = if mode == "remap" {
+                crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
+                    from_start: chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+                    to_start: chrono::NaiveDate::from_ymd_opt(2025, 2, 1).unwrap(),
+                }
+            } else {
+                crate::engine::date_adjust::DateAdjustMode::ShiftDays(30)
+            };
+            let _ = job_tx.send(Job::AdjustDatePeriods {
+                input,
+                output,
+                mode: parsed_mode,
+            });
+            match wait_for_terminal_result(&job_rx) {
+                Ok(JobResult::DatesAdjusted { records, .. }) => {
+                    println!("✅ Adjusted {} dates.", records.len());
+                    0
+                }
+                Err((lbl, msg)) => {
+                    eprintln!("❌ [{lbl}] {msg}");
+                    1
+                }
+                _ => 1,
+            }
+        }
+        Commands::RunTransferTests { statements, max_iterations } => {
+            let _ = job_tx.send(Job::RunTransferTests {
+                statements,
+                max_iterations,
+            });
+            match wait_for_terminal_result(&job_rx) {
+                Ok(JobResult::TransferTestsComplete(report)) => {
+                    println!("✅ Transfer Tests Complete:\n{report:?}");
+                    0
+                }
+                Err((lbl, msg)) => {
+                    eprintln!("❌ [{lbl}] {msg}");
+                    1
+                }
+                _ => 1,
             }
         }
     }

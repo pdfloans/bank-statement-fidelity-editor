@@ -61,6 +61,8 @@ rsa = "0.9.10"
 rand_core = "0.6"
 rand = "0.8"
 proptest = "1.0"
+assert_cmd = "2.0"
+predicates = "3.1"
 
 # PyMuPDF Pro is called via reliable Python subprocess (trial key embedded)
 
@@ -78,8 +80,9 @@ split-debuginfo = "packed"
 incremental = true
 
 [profile.test]
-debug = "limited"
+debug = false
 split-debuginfo = "packed"
+opt-level = 1
 
 [profile.release]
 debug = false
