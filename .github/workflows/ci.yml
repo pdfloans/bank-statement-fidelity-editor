@@ -10,6 +10,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Required at compile time by AppConfig::from_env(). The CI doesn't run the
   # binary, but `cargo test` runs unit tests that may indirectly depend on
   # env presence.
@@ -71,6 +72,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Ensure rustfmt is installed (fallback)
+        run: rustup component add rustfmt || true
 
       - name: Install system dependencies
         run: |
