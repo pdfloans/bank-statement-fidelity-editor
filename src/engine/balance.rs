@@ -161,9 +161,8 @@ pub fn auto_correct_final_balance(
     transactions[last_index].running_balance = Some(expected_final_balance);
 
     let correction_message = format!(
-        "✅ AUTO-CORRECTED: Final balance was ${:.2}. Changed to ${:.2} (difference of ${:.2}).\n\
-         All previous running balances remain unchanged. The statement now adds up perfectly.",
-        current_final, expected_final_balance, discrepancy
+        "✅ AUTO-CORRECTED: Final balance was ${current_final:.2}. Changed to ${expected_final_balance:.2} (difference of ${discrepancy:.2}).\n\
+         All previous running balances remain unchanged. The statement now adds up perfectly."
     );
 
     Ok((transactions, correction_message))

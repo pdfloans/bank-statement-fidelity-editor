@@ -62,6 +62,10 @@ pub enum AppError {
     #[error("AI error: {0}")]
     AI(#[from] AIError),
 
+    /// Lipi AI errors
+    #[error("Lipi AI error: {0}")]
+    LipiAI(#[from] LipiAIError),
+
     /// Document AI errors
     #[error("Document AI error: {0}")]
     DocumentAI(#[from] DocumentAIError),
@@ -132,12 +136,12 @@ impl AppError {
     /// Returns a user-friendly message for display in CLI/GUI.
     pub fn user_message(&self) -> String {
         match self {
-            Self::Config(e) => format!("Configuration problem: {}", e),
-            Self::Validation(e) => format!("Invalid input: {}", e),
-            Self::NotFound(e) => format!("Required item not found: {}", e),
-            Self::Io(e) => format!("File operation failed: {}", e),
-            Self::Runtime(e) => format!("Unexpected error: {}", e),
-            Self::Json(e) => format!("Data format error: {}", e),
+            Self::Config(e) => format!("Configuration problem: {e}"),
+            Self::Validation(e) => format!("Invalid input: {e}"),
+            Self::NotFound(e) => format!("Required item not found: {e}"),
+            Self::Io(e) => format!("File operation failed: {e}"),
+            Self::Runtime(e) => format!("Unexpected error: {e}"),
+            Self::Json(e) => format!("Data format error: {e}"),
             // For wrapped errors, use the Display implementation
             _ => self.to_string(),
         }
@@ -297,6 +301,22 @@ pub enum AIError {
     RateLimited,
 }
 
+/// Lipi AI errors
+#[derive(Error, Debug)]
+pub enum LipiAIError {
+    #[error("Missing API key: {0}")]
+    MissingApiKey(String),
+
+    #[error("Network error: {0}")]
+    Network(String),
+
+    #[error("API error: {0}")]
+    ApiError(String),
+
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+}
+
 /// Document AI errors
 #[derive(Error, Debug)]
 pub enum DocumentAIError {
@@ -418,6 +438,9 @@ pub type TextEditResult<T> = std::result::Result<T, TextEditError>;
 
 /// Result type for AI operations
 pub type AIResult<T> = std::result::Result<T, AIError>;
+
+/// Result type for Lipi AI operations
+pub type LipiAIResult<T> = std::result::Result<T, LipiAIError>;
 
 /// Result type for Document AI operations
 pub type DocumentAIResult<T> = std::result::Result<T, DocumentAIError>;

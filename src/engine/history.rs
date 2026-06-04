@@ -37,6 +37,12 @@ impl Clone for ChangeHistory {
     }
 }
 
+impl Default for ChangeHistory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChangeHistory {
     pub fn new() -> Self {
         Self {

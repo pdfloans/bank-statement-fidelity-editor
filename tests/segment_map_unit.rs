@@ -26,7 +26,7 @@ fn build_map(page_counts: &[usize]) -> SegmentMap {
     for (i, &count) in page_counts.iter().enumerate() {
         segments.push(SegmentInfo {
             index: i,
-            path: PathBuf::from(format!("segment_{:03}.pdf", i)),
+            path: PathBuf::from(format!("segment_{i:03}.pdf")),
             page_offset: offset,
             page_count: count,
             edited: false,

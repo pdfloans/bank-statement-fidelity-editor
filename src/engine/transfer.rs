@@ -220,9 +220,9 @@ pub fn convert_date(date_str: &str, from_format: &str, to_format: &str) -> Strin
     let sep = if to_format.contains('/') { "/" } else { "-" };
 
     match to_format {
-        "DD/MM/YYYY" | "DD-MM-YYYY" => format!("{}{}{}{}{}", day, sep, month, sep, year),
-        "MM/DD/YYYY" | "MM-DD-YYYY" => format!("{}{}{}{}{}", month, sep, day, sep, year),
-        "YYYY-MM-DD" | "YYYY/MM/DD" => format!("{}{}{}{}{}", year, sep, month, sep, day),
+        "DD/MM/YYYY" | "DD-MM-YYYY" => format!("{day}{sep}{month}{sep}{year}"),
+        "MM/DD/YYYY" | "MM-DD-YYYY" => format!("{month}{sep}{day}{sep}{year}"),
+        "YYYY-MM-DD" | "YYYY/MM/DD" => format!("{year}{sep}{month}{sep}{day}"),
         _ => date_str.to_string(),
     }
 }
@@ -237,7 +237,7 @@ pub fn write_transfer_audit(
     std::fs::create_dir_all(&audit_dir)?;
 
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-    let audit_path = audit_dir.join(format!("transfer_{}.json", timestamp));
+    let audit_path = audit_dir.join(format!("transfer_{timestamp}.json"));
 
     let report = serde_json::json!({
         "timestamp": chrono::Utc::now().to_rfc3339(),

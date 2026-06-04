@@ -11,7 +11,7 @@ fn main() {
 
     let config = Arc::new(app::config::AppConfig::from_env().unwrap_or_else(|e| {
         eprintln!("\n❌ Configuration Error\n");
-        eprintln!("{}", e);
+        eprintln!("{e}");
         eprintln!("\n💡 Tip: run `dual-core-pdf-pipeline doctor` to check your full setup,");
         eprintln!("   or copy .env.example to .env and fill in the required values.\n");
         std::process::exit(exit_code::CONFIG);

@@ -279,7 +279,7 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
                 return Err((job_label, message));
             }
             Ok(res) => return Ok(res),
-            Err(e) => return Err(("runtime".into(), format!("Disconnected: {}", e))),
+            Err(e) => return Err(("runtime".into(), format!("Disconnected: {e}"))),
         }
     }
 }
@@ -444,7 +444,7 @@ fn print_status(status: &CheckStatus, name: &str, detail: &str) {
         CheckStatus::Warn => "⚠️ ",
         CheckStatus::Fail => "❌",
     };
-    println!("  {}  {:34}  {}", icon, name, detail);
+    println!("  {icon}  {name:34}  {detail}");
 }
 
 /// Runs the `doctor` diagnostics command.
@@ -535,7 +535,7 @@ fn run_doctor(
             &CheckStatus::Warn
         },
         "Bank templates",
-        &format!("{} template(s) found", templates),
+        &format!("{templates} template(s) found"),
     );
 
     // ---- Runtime check ---------------------------------------------------
@@ -606,7 +606,7 @@ fn is_env_present(name: &str, config: &crate::app::config::AppConfig) -> bool {
 /// Indents every line of a multi-line block by two spaces for display.
 fn indent_block(text: &str) -> String {
     text.lines()
-        .map(|l| format!("  {}", l))
+        .map(|l| format!("  {l}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -687,7 +687,7 @@ pub fn run(
         } => {
             // Validate input file first
             if let Err(e) = validate_pdf_path(&input, "Input PDF") {
-                eprintln!("❌ {}", e);
+                eprintln!("❌ {e}");
                 return exit_code::VALIDATION;
             }
 
@@ -695,7 +695,7 @@ pub fn run(
             let coords = match parse_bbox(&bbox) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("❌ [cli_text] Invalid bbox: {}", e);
+                    eprintln!("❌ [cli_text] Invalid bbox: {e}");
                     return exit_code::VALIDATION;
                 }
             };
@@ -772,7 +772,7 @@ pub fn run(
                                 changes_applied,
                                 failures,
                             }) => {
-                                println!("✅ Successfully applied {} changes.", changes_applied);
+                                println!("✅ Successfully applied {changes_applied} changes.");
                                 if !failures.is_empty() {
                                     eprintln!("⚠️ {} change(s) failed:", failures.len());
                                     for (i, f) in failures.iter().enumerate() {
@@ -780,7 +780,7 @@ pub fn run(
                                     }
                                     return 1;
                                 }
-                                println!("Output saved to: {:?}", output);
+                                println!("Output saved to: {output:?}");
                                 0
                             }
                             Err((lbl, msg)) => {
@@ -819,7 +819,7 @@ pub fn run(
                         Ok(JobResult::TransactionsExtracted(transactions)) => {
                             let json = serde_json::to_string_pretty(&transactions).unwrap();
                             if std::fs::write(&output, json).is_ok() {
-                                println!("✅ Data extraction successful. Saved to: {:?}", output);
+                                println!("✅ Data extraction successful. Saved to: {output:?}");
                                 0
                             } else {
                                 tracing::error!("❌ Failed to write output file");
@@ -881,7 +881,7 @@ pub fn run(
                     let json = serde_json::to_string_pretty(&report).unwrap();
                     let _ = std::fs::write(&json_path, json);
                     println!("{}", report.message);
-                    println!("Report saved to: {:?}", json_path);
+                    println!("Report saved to: {json_path:?}");
                     0
                 }
                 Err((lbl, msg)) => {
@@ -922,7 +922,7 @@ pub fn run(
                     let path = output_dir.join(filename);
                     let _ = std::fs::create_dir_all(&output_dir);
                     if std::fs::write(&path, png_bytes).is_ok() {
-                        println!("✅ Rendered to: {:?}", path);
+                        println!("✅ Rendered to: {path:?}");
                         0
                     } else {
                         tracing::error!("❌ Failed to write output file");
@@ -946,7 +946,7 @@ pub fn run(
             });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::FontCompleted(json)) => {
-                    println!("{}", json);
+                    println!("{json}");
                     0
                 }
                 Err((lbl, msg)) => {
@@ -967,7 +967,7 @@ pub fn run(
                         history.push_record(rec);
                     }
                     if std::fs::write(&output, history.to_json_pretty_string()).is_ok() {
-                        println!("✅ Reconstructed history exported to: {:?}", output);
+                        println!("✅ Reconstructed history exported to: {output:?}");
                         0
                     } else {
                         tracing::error!("❌ Failed to write output file");

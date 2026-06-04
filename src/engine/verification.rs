@@ -386,8 +386,7 @@ pub async fn verify_edit_pages_with_padding(
                         _ => "API Error",
                     };
                     pdfrest_warning = Some(format!(
-                        "⚠️ pdfRest unavailable ({}); using local rendering.",
-                        label
+                        "⚠️ pdfRest unavailable ({label}); using local rendering."
                     ));
                 }
             }
@@ -642,13 +641,13 @@ pub async fn verify_edit_pages_with_padding(
             math_inputs.expected_final_balance,
         ) {
             Ok((_, None)) => (true, "✅ Mathematical integrity verified.".to_string()),
-            Ok((_, Some(msg))) => (false, format!("⚠️ Mathematical mismatch: {}", msg)),
+            Ok((_, Some(msg))) => (false, format!("⚠️ Mathematical mismatch: {msg}")),
             // A genuine engine error on a doc that *did* have balance data.
             Err(crate::engine::balance::BalanceError::MissingOpeningBalance) => (
                 true,
                 "➖ Math check skipped (opening balance could not be determined); visual-only verification.".to_string(),
             ),
-            Err(e) => (false, format!("❌ Balance Engine error: {}", e)),
+            Err(e) => (false, format!("❌ Balance Engine error: {e}")),
         }
     };
 
@@ -660,13 +659,12 @@ pub async fn verify_edit_pages_with_padding(
         if only_intended_changes { "✅" } else { "❌" }
     );
     final_message.push_str(&format!(
-        "\nEdit-region fidelity (max residual): {:.4}",
-        max_edit_region_score
+        "\nEdit-region fidelity (max residual): {max_edit_region_score:.4}"
     ));
-    final_message.push_str(&format!("\n{}", math_message));
+    final_message.push_str(&format!("\n{math_message}"));
 
     if let Some(warn) = pdfrest_warning {
-        final_message.push_str(&format!("\n{}", warn));
+        final_message.push_str(&format!("\n{warn}"));
     }
 
     Ok(VerificationReport {

@@ -169,7 +169,7 @@ pub fn format_decimal(value: Decimal, fmt: &NumberFormat) -> String {
 
     // Build integer / fractional parts via string surgery on Decimal's Display.
     // (Decimal::to_string() honours scale, so we trim/extend as needed.)
-    let raw = format!("{}", scaled);
+    let raw = format!("{scaled}");
     let (int_part, frac_part) = match raw.split_once('.') {
         Some((i, f)) => (i.to_string(), f.to_string()),
         None => (raw, String::new()),
@@ -184,8 +184,8 @@ pub fn format_decimal(value: Decimal, fmt: &NumberFormat) -> String {
             .chunks(3)
             .map(|c| c.iter().rev().collect::<String>())
             .collect();
-        let joined = chunks.into_iter().rev().collect::<Vec<_>>().join(&fmt.thousand_sep);
-        joined
+        
+        chunks.into_iter().rev().collect::<Vec<_>>().join(&fmt.thousand_sep)
     };
 
     // Pad / trim fractional part to fmt.decimals.
@@ -217,9 +217,9 @@ pub fn format_decimal(value: Decimal, fmt: &NumberFormat) -> String {
         return body;
     }
     match fmt.negative_style {
-        NegativeStyle::Minus => format!("-{}", body),
-        NegativeStyle::Paren => format!("({})", body),
-        NegativeStyle::TrailingMinus => format!("{}-", body),
+        NegativeStyle::Minus => format!("-{body}"),
+        NegativeStyle::Paren => format!("({body})"),
+        NegativeStyle::TrailingMinus => format!("{body}-"),
     }
 }
 

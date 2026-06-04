@@ -133,7 +133,7 @@ pub fn cross_validate_with_template(
         validation.completeness_notes.push_str(&note);
         validation
             .missing_rows
-            .push(format!("template detected {} additional row(s)", delta));
+            .push(format!("template detected {delta} additional row(s)"));
     }
     validation
 }
@@ -380,7 +380,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let digest = hasher.finalize();
     let mut s = String::with_capacity(digest.len() * 2);
     for b in digest {
-        s.push_str(&format!("{:02x}", b));
+        s.push_str(&format!("{b:02x}"));
     }
     s
 }
@@ -578,7 +578,7 @@ pub fn edit_set_hash(input_pdf_sha256: &str, edits: &[UserEdit]) -> String {
     let digest = h.finalize();
     let mut s = String::with_capacity(digest.len() * 2);
     for b in digest {
-        s.push_str(&format!("{:02x}", b));
+        s.push_str(&format!("{b:02x}"));
     }
     s
 }

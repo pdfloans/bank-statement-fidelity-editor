@@ -115,6 +115,7 @@ impl Default for ConnectionMode {
 pub struct AppConfig {
     pub gemini_api_key: Option<String>,
     pub pdfrest_api_key: Option<String>,
+    pub lipi_api_key: Option<String>,
     pub document_ai: Option<DocumentAiConfig>,
     pub pymupdf_pro_key: Option<String>, // Changed to Option - must come from env
     pub passphrase: String,
@@ -137,6 +138,7 @@ impl Default for AppConfig {
         Self {
             gemini_api_key: None,
             pdfrest_api_key: None,
+            lipi_api_key: None,
             document_ai: None,
             pymupdf_pro_key: None,
             passphrase: "DEV_PASSPHRASE".into(),
@@ -162,6 +164,7 @@ impl AppConfig {
         // Optional API keys
         let gemini_api_key = env::var("GEMINI_API_KEY").ok().filter(|s| !s.is_empty());
         let pdfrest_api_key = env::var("PDFREST_API_KEY").ok().filter(|s| !s.is_empty());
+        let lipi_api_key = env::var("LIPI_API_KEY").ok().filter(|s| !s.is_empty());
         let webhook_url = env::var("WEBHOOK_URL").ok().filter(|s| !s.is_empty());
 
         // Document AI configuration
@@ -251,13 +254,14 @@ impl AppConfig {
         if let Err(e) = std::fs::create_dir_all(&log_dir) {
             return Err(ConfigError::invalid_value(
                 "LOG_DIR",
-                format!("cannot create directory: {}", e),
+                format!("cannot create directory: {e}"),
             ));
         }
 
         Ok(Self {
             gemini_api_key,
             pdfrest_api_key,
+            lipi_api_key,
             document_ai,
             pymupdf_pro_key,
             passphrase,
@@ -281,8 +285,7 @@ impl AppConfig {
 
         if self.passphrase.len() < MIN_PASSPHRASE_LENGTH && !self.is_dev_mode {
             errors.push(format!(
-                "DUAL_CORE_PASSPHRASE must be at least {} characters",
-                MIN_PASSPHRASE_LENGTH
+                "DUAL_CORE_PASSPHRASE must be at least {MIN_PASSPHRASE_LENGTH} characters"
             ));
         }
 

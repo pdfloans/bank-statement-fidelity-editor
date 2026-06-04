@@ -72,7 +72,7 @@ fn end_to_end_workflow_against_au_statement() {
 
     eprintln!("[e2e] Stage 1: parse + validate");
     job_tx
-        .send(Job::WorkflowParseAndValidate { input: pdf.clone() })
+        .send(Job::WorkflowParseAndValidate { input: pdf.clone(), version: None })
         .unwrap();
     let parse = drain_until(
         &job_rx,

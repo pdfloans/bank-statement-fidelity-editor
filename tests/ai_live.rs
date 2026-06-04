@@ -88,7 +88,7 @@ async fn document_ai_can_parse_a_real_statement() {
     }
 
     let client = DocumentAiClient::from_app_config(&cfg).expect("ctor");
-    match client.parse_entire_statement(&pdf).await {
+    match client.parse_entire_statement(&pdf, None).await {
         Ok(stmt) => {
             println!("✅ Document AI parsed sample.pdf");
             println!("   pages: {}", stmt.total_pages);

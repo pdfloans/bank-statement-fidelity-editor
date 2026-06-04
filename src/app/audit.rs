@@ -28,7 +28,7 @@ impl AuditLog {
 
         // ISO-8601-utc-with-no-colons for Windows compatibility
         let timestamp = Utc::now().format("%Y%m%dt%H%M%SZ").to_string();
-        let log_path = audit_dir.join(format!("{}.log", timestamp));
+        let log_path = audit_dir.join(format!("{timestamp}.log"));
 
         Ok(Self {
             log_file: None,
@@ -122,7 +122,7 @@ impl AuditLog {
     /// Returns the path where a snapshot for a specific change ID should be stored.
     pub fn snapshot_path_for(&self, change_id: u64) -> PathBuf {
         // We use .pdf for snapshots per Approach §4.4
-        self.snapshots_dir.join(format!("{}.pdf", change_id))
+        self.snapshots_dir.join(format!("{change_id}.pdf"))
     }
 }
 

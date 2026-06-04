@@ -211,8 +211,7 @@ fn download_one(
     let is_truetype = matches!(magic, b"\x00\x01\x00\x00" | b"true" | b"OTTO" | b"ttcf");
     if !is_truetype {
         return Err(format!(
-            "downloaded data does not look like a TTF/OTF (first 4 bytes: {:02x?})",
-            magic
+            "downloaded data does not look like a TTF/OTF (first 4 bytes: {magic:02x?})"
         ));
     }
     std::fs::write(&tmp, &bytes).map_err(|e| format!("write tmp: {e}"))?;

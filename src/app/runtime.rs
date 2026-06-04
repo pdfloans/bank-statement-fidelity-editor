@@ -77,6 +77,10 @@ impl CancellationRegistry {
     pub fn len(&self) -> usize {
         self.inner.lock().map(|g| g.len()).unwrap_or(0)
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -551,7 +555,7 @@ impl Runtime {
                                 } else {
                                     "Unknown panic in Python actor".to_string()
                                 };
-                                PythonJobResult::Error(format!("PyO3 panic: {}", msg))
+                                PythonJobResult::Error(format!("PyO3 panic: {msg}"))
                             }
                         };
                         let _ = reply_tx.send(final_res);
@@ -560,8 +564,7 @@ impl Runtime {
                     }
                     Err(e) => {
                         let _ = reply_tx.send(PythonJobResult::Error(format!(
-                            "Python Engine not initialized: {}",
-                            e
+                            "Python Engine not initialized: {e}"
                         )));
                     }
                 }
@@ -794,7 +797,7 @@ impl Runtime {
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::TransferFailed {
                                         stage: "AnalyzeSource".into(),
-                                        message: format!("Failed to parse source statement: {}", e),
+                                        message: format!("Failed to parse source statement: {e}"),
                                     });
                                     return;
                                 }
@@ -816,7 +819,7 @@ impl Runtime {
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::TransferFailed {
                                         stage: "AnalyzeTarget".into(),
-                                        message: format!("Failed to parse target statement: {}", e),
+                                        message: format!("Failed to parse target statement: {e}"),
                                     });
                                     return;
                                 }
@@ -841,7 +844,7 @@ impl Runtime {
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::TransferFailed {
                                         stage: "AiFormatMapping".into(),
-                                        message: format!("Gemini format mapping failed: {}", e),
+                                        message: format!("Gemini format mapping failed: {e}"),
                                     });
                                     return;
                                 }
@@ -896,7 +899,7 @@ impl Runtime {
                             if let Err(e) = std::fs::copy(&target_pdf, &output_pdf) {
                                 let _ = res_tx.send(JobResult::TransferFailed {
                                     stage: "PdfSurgery".into(),
-                                    message: format!("Failed to copy target PDF: {}", e),
+                                    message: format!("Failed to copy target PDF: {e}"),
                                 });
                                 return;
                             }
@@ -964,7 +967,7 @@ impl Runtime {
                                 &intended_bboxes,
                                 crate::engine::verification::MathInputs {
                                     transactions: vec![],
-                                    opening_balance: opening_balance,
+                                    opening_balance,
                                     expected_final_balance: None,
                                 },
                                 false,
@@ -980,7 +983,7 @@ impl Runtime {
                             };
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: format!("Visual check ✓ (score: {:.4})", visual_score),
+                                label: format!("Visual check ✓ (score: {visual_score:.4})"),
                                 fraction: 0.75,
                             });
 
@@ -1121,7 +1124,7 @@ impl Runtime {
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::Error {
                                         job_label: "adjust_dates".into(),
-                                        message: format!("Parse failed: {}", e),
+                                        message: format!("Parse failed: {e}"),
                                     });
                                     return;
                                 }
@@ -1146,7 +1149,7 @@ impl Runtime {
                             if let Err(e) = std::fs::copy(&input, &output) {
                                 let _ = res_tx.send(JobResult::Error {
                                     job_label: "adjust_dates".into(),
-                                    message: format!("Failed to clone PDF: {}", e),
+                                    message: format!("Failed to clone PDF: {e}"),
                                 });
                                 return;
                             }
@@ -1220,7 +1223,7 @@ impl Runtime {
                             let total_pairs = pairs.len();
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: format!("Running {} transfer test pairs…", total_pairs),
+                                label: format!("Running {total_pairs} transfer test pairs…"),
                                 fraction: 0.0,
                             });
 
@@ -1270,7 +1273,7 @@ impl Runtime {
                                 let source_stmt = match doc_ai.parse_entire_statement(source, None).await {
                                     Ok(s) => s,
                                     Err(e) => {
-                                        corrections.push(format!("Source parse failed: {}", e));
+                                        corrections.push(format!("Source parse failed: {e}"));
                                         results.push(TransferTestResult {
                                             source: source.clone(), target: target.clone(),
                                             output: output.clone(), iterations: 0,
@@ -1284,7 +1287,7 @@ impl Runtime {
                                 let target_stmt = match doc_ai.parse_entire_statement(target, None).await {
                                     Ok(s) => s,
                                     Err(e) => {
-                                        corrections.push(format!("Target parse failed: {}", e));
+                                        corrections.push(format!("Target parse failed: {e}"));
                                         results.push(TransferTestResult {
                                             source: source.clone(), target: target.clone(),
                                             output: output.clone(), iterations: 0,
@@ -1307,7 +1310,7 @@ impl Runtime {
                                     ).await {
                                         Ok(p) => p,
                                         Err(e) => {
-                                            corrections.push(format!("Iter {}: plan failed: {}", iterations, e));
+                                            corrections.push(format!("Iter {iterations}: plan failed: {e}"));
                                             continue;
                                         }
                                     };
@@ -1342,7 +1345,7 @@ impl Runtime {
                                     if math_ok {
                                         converged = true;
                                     } else {
-                                        corrections.push(format!("Iter {}: math verification failed, retrying", iterations));
+                                        corrections.push(format!("Iter {iterations}: math verification failed, retrying"));
                                     }
                                 }
 
@@ -1495,7 +1498,7 @@ impl Runtime {
                             let outcome = tokio::task::spawn_blocking(move || {
                                 if let (Some(map), Some(temp_dir)) = (map_opt, mgr_opt) {
                                     let (seg_idx, local_page) = map.resolve(page)
-                                        .ok_or_else(|| crate::pdf::EngineError::ApplyFailed(format!("Global page {} not found in segment map", page)))?;
+                                        .ok_or_else(|| crate::pdf::EngineError::ApplyFailed(format!("Global page {page} not found in segment map")))?;
                                     
                                     let seg_path = &map.segments[seg_idx].path;
                                     let temp_seg_out = temp_dir.join(format!("seg_{}_edited_{}.pdf", seg_idx, Uuid::new_v4()));
@@ -1512,12 +1515,12 @@ impl Runtime {
                                     
                                     // 2. Overwrite segment file
                                     std::fs::rename(&temp_seg_out, seg_path)
-                                        .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to update segment file: {}", e)))?;
+                                        .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to update segment file: {e}")))?;
                                     
                                     // 3. Merge all segments to final output
                                     let ordered_paths = map.ordered_merge_paths();
                                     crate::engine::pdf_split_merge::merge_pdfs(&ordered_paths, &output_for_blocking)
-                                        .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to merge segments: {}", e)))?;
+                                        .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to merge segments: {e}")))?;
                                     
                                     Ok(ReplaceOutcome { success: true, font_used: "Helvetica".into(), overflow: false })
                                 } else {
@@ -1532,7 +1535,7 @@ impl Runtime {
                                 }
                             })
                             .await
-                            .unwrap_or_else(|e| Err(crate::pdf::EngineError::ApplyFailed(format!("blocking task panicked: {}", e))));
+                            .unwrap_or_else(|e| Err(crate::pdf::EngineError::ApplyFailed(format!("blocking task panicked: {e}"))));
 
                             match outcome {
                                 Ok(o) => {
@@ -1540,14 +1543,14 @@ impl Runtime {
                                     let mut h = match history_clone.lock() {
                                         Ok(g) => g,
                                         Err(e) => {
-                                            let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("History lock poisoned: {}", e) });
+                                            let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("History lock poisoned: {e}") });
                                             return;
                                         }
                                     };
                                     let mut a = match audit_log_clone.lock() {
                                         Ok(g) => g,
                                         Err(e) => {
-                                            let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Audit lock poisoned: {}", e) });
+                                            let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Audit lock poisoned: {e}") });
                                             return;
                                         }
                                     };
@@ -1559,13 +1562,13 @@ impl Runtime {
                                     // so applying many edits doesn't multiply disk usage by
                                     // the PDF size. Falls back to a full copy on cross-FS.
                                     if let Err(e) = crate::app::audit::snapshot_link_or_copy(&output, &snap_path) {
-                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Snapshot failed: {}", e) });
+                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Snapshot failed: {e}") });
                                         return;
                                     }
 
                                     final_record.snapshot_path = Some(snap_path);
                                     if let Err(e) = a.write(&final_record, &input, &output, "manual", requires_visual_review) {
-                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Audit write failed: {}", e) });
+                                        let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: format!("Audit write failed: {e}") });
                                         return;
                                     }
 
@@ -1661,7 +1664,7 @@ impl Runtime {
                             let bank_stmt = match doc_ai.parse_entire_statement(&path, None).await {
                                 Ok(stmt) => stmt,
                                 Err(e) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Document AI failed: {}", e) });
+                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Document AI failed: {e}") });
                                     return;
                                 }
                             };
@@ -1729,7 +1732,7 @@ impl Runtime {
                             
                             let (dummy_tx, _) = std::sync::mpsc::channel();
                             if let Err(e) = smart_engine.load_full_document(&dummy_tx, &path).await {
-                                let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Failed to load document: {}", e) });
+                                let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Failed to load document: {e}") });
                                 return;
                             }
                             
@@ -1742,7 +1745,7 @@ impl Runtime {
                                     let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
                                 }
                                 Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Gemini confidence {:.2} below 0.7 threshold; not enough certainty to propose adjustments.", c) });
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Gemini confidence {c:.2} below 0.7 threshold; not enough certainty to propose adjustments.") });
                                 }
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: e.to_string() });
@@ -1860,7 +1863,7 @@ impl Runtime {
                                         })
                                     }).collect();
                                     let json_str = serde_json::to_string(&edits_json).unwrap_or_else(|_| "[]".into());
-                                    let edited_out = tmp.path().join(format!("segment_{:03}_edited.pdf", si));
+                                    let edited_out = tmp.path().join(format!("segment_{si:03}_edited.pdf"));
 
                                     let (rtx, rrx) = oneshot::channel();
                                     let _ = py_tx.send((PythonJob::ApplyManyEdits {
@@ -1939,7 +1942,7 @@ impl Runtime {
                         tokio::task::spawn_blocking(move || {
                             let h = history_clone.lock().map_err(|e| e.to_string())?;
                             h.save_to_file(&output_clone).map_err(|e| e.to_string())
-                        }).await.unwrap_or_else(|e| Err(format!("blocking task panicked: {}", e))).map(|_| {
+                        }).await.unwrap_or_else(|e| Err(format!("blocking task panicked: {e}"))).map(|_| {
                             let _ = res_tx.send(JobResult::ChangeHistoryExported { path: output });
                         }).unwrap_or_else(|e| {
                             let _ = res_tx.send(JobResult::Error { job_label: "export_history".into(), message: e });
@@ -2069,7 +2072,7 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Loading document".to_string(), fraction: 0.3 });
                             let (dummy_tx, _) = std::sync::mpsc::channel();
                             if let Err(e) = smart_engine.load_full_document(&dummy_tx, &input).await {
-                                let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Failed to load document: {}", e) });
+                                let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Failed to load document: {e}") });
                                 return;
                             }
 
@@ -2104,7 +2107,7 @@ impl Runtime {
                                     }
                                 }
                                 Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Gemini confidence {:.2} below 0.7 threshold; not enough certainty to auto-apply adjustments.", c) });
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Gemini confidence {c:.2} below 0.7 threshold; not enough certainty to auto-apply adjustments.") });
                                 }
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: e.to_string() });
@@ -2284,8 +2287,7 @@ impl Runtime {
                             let stmt = if page_count > 15 {
                                 let _ = res_tx.send(JobResult::Progress {
                                     label: format!(
-                                        "Document is {} pages — chunking for Document AI",
-                                        page_count
+                                        "Document is {page_count} pages — chunking for Document AI"
                                     ),
                                     fraction: 0.3,
                                 });
@@ -2507,7 +2509,7 @@ impl Runtime {
                         }
 
                         tokio::spawn(async move {
-                            let mut rollback = RollbackGuard::new(&output);
+                            let rollback = RollbackGuard::new(&output);
                             let mut attempt: u32 = 1;
                             let mut visual_attempts: u32 = 0;
                             // Stage 13 / Item #5: per-workflow timestamp so
@@ -2783,7 +2785,7 @@ impl Runtime {
 
                                     if ok {
                                         if let Err(e) = crate::engine::pdf_split_merge::merge_pdfs(&final_paths, &scratch) {
-                                            apply_result = Ok(PythonJobResult::Error(format!("Merge failed: {}", e)));
+                                            apply_result = Ok(PythonJobResult::Error(format!("Merge failed: {e}")));
                                         } else {
                                             apply_result = Ok(PythonJobResult::Json("{\"success\":true}".into()));
                                         }
@@ -2966,7 +2968,7 @@ impl Runtime {
                                 // Stage 5: visual validation against the original.
                                 visual_attempts += 1;
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Visual & Math Verification (Attempt {})", attempt),
+                                    label: format!("Visual & Math Verification (Attempt {attempt})"),
                                     fraction: 0.3 + (attempt as f32 * 0.1).min(0.6),
                                 });
                                 let _ = res_tx.send(JobResult::WorkflowStageChanged {
@@ -3252,8 +3254,7 @@ impl Runtime {
                                 math_valid,
                                 visual_attempts,
                                 completion_summary: format!(
-                                    "Bank statement confirmed. Visual diff {:.4}, intended-only={}, math valid={}.",
-                                    last_score, last_intended, math_valid
+                                    "Bank statement confirmed. Visual diff {last_score:.4}, intended-only={last_intended}, math valid={math_valid}."
                                 ),
                             };
                             rollback.commit();

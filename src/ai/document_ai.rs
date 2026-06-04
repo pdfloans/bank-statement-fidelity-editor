@@ -106,8 +106,8 @@ impl DocumentAiClient {
             self.config.location, self.config.project_id, self.config.location, self.config.processor_id
         );
         match version {
-            Some(v) => format!("{}/processorVersions/{}:process", base, v),
-            None => format!("{}:process", base),
+            Some(v) => format!("{base}/processorVersions/{v}:process"),
+            None => format!("{base}:process"),
         }
     }
 
@@ -117,8 +117,8 @@ impl DocumentAiClient {
             self.config.location, self.config.project_id, self.config.location, self.config.processor_id
         );
         match version {
-            Some(v) => format!("{}/processorVersions/{}:process", base, v),
-            None => format!("{}:process", base),
+            Some(v) => format!("{base}/processorVersions/{v}:process"),
+            None => format!("{base}:process"),
         }
     }
 
@@ -218,8 +218,7 @@ impl DocumentAiClient {
         let kind = adc["type"].as_str().unwrap_or("");
         if kind != "authorized_user" {
             return Err(DocAiError::Parse(serde::de::Error::custom(format!(
-                "ADC file is not an authorized_user (got type={:?})",
-                kind
+                "ADC file is not an authorized_user (got type={kind:?})"
             ))));
         }
         let client_id = adc["client_id"]
@@ -325,14 +324,13 @@ impl DocumentAiClient {
                 match self.http.post(&url).json(&body).send().await {
                     Ok(resp) => {
                         let status = resp.status();
-                        if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
-                            if attempts < max_attempts {
+                        if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
+                            && attempts < max_attempts {
                                 let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
                                 tracing::warn!("[doc_ai] API-key {} error, retrying in {:?}...", status, delay);
                                 tokio::time::sleep(delay).await;
                                 continue;
                             }
-                        }
                         api_key_res = Some(Ok(resp));
                         break;
                     }
@@ -402,14 +400,13 @@ impl DocumentAiClient {
             match req.send().await {
                 Ok(resp) => {
                     let status = resp.status();
-                    if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
-                        if attempts < max_attempts {
+                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
+                        && attempts < max_attempts {
                             let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
                             tracing::warn!("[doc_ai] OAuth {} error, retrying in {:?}...", status, delay);
                             tokio::time::sleep(delay).await;
                             continue;
                         }
-                    }
                     response = Some(Ok(resp));
                     break;
                 }

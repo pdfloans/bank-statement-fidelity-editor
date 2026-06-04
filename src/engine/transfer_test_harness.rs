@@ -69,7 +69,7 @@ pub fn test_output_path(source: &std::path::Path, target: &std::path::Path) -> P
     let _ = std::fs::create_dir_all(&dir);
     let source_stem = source.file_stem().unwrap_or_default().to_string_lossy();
     let target_stem = target.file_stem().unwrap_or_default().to_string_lossy();
-    dir.join(format!("{}__to__{}.pdf", source_stem, target_stem))
+    dir.join(format!("{source_stem}__to__{target_stem}.pdf"))
 }
 
 /// Write the harness report to disk.
@@ -77,7 +77,7 @@ pub fn write_harness_report(report: &TestHarnessReport) -> std::io::Result<PathB
     let dir = PathBuf::from("audit/transfer_tests");
     std::fs::create_dir_all(&dir)?;
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-    let path = dir.join(format!("harness_{}.json", timestamp));
+    let path = dir.join(format!("harness_{timestamp}.json"));
     std::fs::write(&path, serde_json::to_string_pretty(report)?)?;
     Ok(path)
 }

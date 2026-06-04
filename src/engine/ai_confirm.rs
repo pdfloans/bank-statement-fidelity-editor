@@ -85,7 +85,7 @@ pub fn format_uncertain(
             "No, let me specify the format".to_string(),
             "Skip format detection".to_string(),
         ],
-        context: format!("Detected format: {}", detected_format),
+        context: format!("Detected format: {detected_format}"),
         confidence,
         default_answer: Some(0),
     }

@@ -86,7 +86,7 @@ impl SmartDocumentEngine {
         let layout = self
             .pdf_engine
             .analyze_layout(pdf_path)
-            .map_err(|e| EngineError::AiPlanFailed(format!("Layout analysis failed: {}", e)))?;
+            .map_err(|e| EngineError::AiPlanFailed(format!("Layout analysis failed: {e}")))?;
 
         self.total_pages = layout.total_pages;
         self.layout = Some(layout.clone());
@@ -117,7 +117,7 @@ impl SmartDocumentEngine {
             .doc_ai
             .parse_entire_statement(current_pdf_path, None)
             .await
-            .map_err(|e| EngineError::AiPlanFailed(format!("Document AI failed: {}", e)))?;
+            .map_err(|e| EngineError::AiPlanFailed(format!("Document AI failed: {e}")))?;
 
         // 2. Geometry Extraction
         let mut geometries = Vec::new();
@@ -159,7 +159,7 @@ impl SmartDocumentEngine {
                 if let crate::ai::gemini_client::GeminiError::LowConfidence(c) = e {
                     EngineError::LowConfidence(c)
                 } else {
-                    EngineError::AiPlanFailed(format!("Gemini failed: {}", e))
+                    EngineError::AiPlanFailed(format!("Gemini failed: {e}"))
                 }
             })?;
 

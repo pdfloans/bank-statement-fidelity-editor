@@ -56,7 +56,7 @@ fn test_three_page_mode_transparency() {
     let res = drain_until(&job_rx, |r| matches!(r, JobResult::ChangeApplied { .. } | JobResult::Error { .. }), Duration::from_secs(10));
     match res {
         Some(JobResult::ChangeApplied { .. }) => println!("✅ Change applied successfully in 3-page mode"),
-        Some(JobResult::Error { message, .. }) => panic!("Change failed to apply in 3-page mode: {}", message),
+        Some(JobResult::Error { message, .. }) => panic!("Change failed to apply in 3-page mode: {message}"),
         _ => panic!("Change application timed out in 3-page mode"),
     }
     assert!(output.exists(), "Output PDF not created in 3-page mode");
@@ -99,7 +99,7 @@ fn test_standard_mode_transparency() {
     let res = drain_until(&job_rx, |r| matches!(r, JobResult::ChangeApplied { .. } | JobResult::Error { .. }), Duration::from_secs(10));
     match res {
         Some(JobResult::ChangeApplied { .. }) => println!("✅ Change applied successfully in standard mode"),
-        Some(JobResult::Error { message, .. }) => panic!("Change failed to apply in standard mode: {}", message),
+        Some(JobResult::Error { message, .. }) => panic!("Change failed to apply in standard mode: {message}"),
         _ => panic!("Change application timed out in standard mode"),
     }
     assert!(output.exists(), "Output PDF not created in standard mode");
@@ -154,7 +154,7 @@ fn test_batch_edit_transparency() {
     match res {
         Some(JobResult::WorkflowStageChanged { stage: dual_core_pdf_pipeline::engine::workflow::WorkflowStage::Rendering { .. } }) => println!("✅ Batch reached Rendering stage"),
         Some(JobResult::WorkflowFailed(..)) => println!("✅ Batch edit triggered (failed as expected due to missing validation environment)"),
-        Some(JobResult::Error { message, .. }) => panic!("Batch edit errored: {}", message),
+        Some(JobResult::Error { message, .. }) => panic!("Batch edit errored: {message}"),
         _ => {}
     }
 }

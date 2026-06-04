@@ -25,8 +25,7 @@ pub fn require_software_attestation() -> Result<(), String> {
 
     if passphrase.len() < MIN_PASSPHRASE_LEN {
         return Err(format!(
-            "Passphrase too short! Minimum {} characters required for production security.",
-            MIN_PASSPHRASE_LEN
+            "Passphrase too short! Minimum {MIN_PASSPHRASE_LEN} characters required for production security."
         ));
     }
 

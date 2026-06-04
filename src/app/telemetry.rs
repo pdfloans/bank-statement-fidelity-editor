@@ -87,8 +87,7 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
         let in_tokio = tokio::runtime::Handle::try_current().is_ok();
         if !in_tokio {
             eprintln!(
-                "⚠️ OTLP endpoint '{}' configured but no Tokio runtime is available; skipping OTLP install.",
-                endpoint
+                "⚠️ OTLP endpoint '{endpoint}' configured but no Tokio runtime is available; skipping OTLP install."
             );
             subscriber.init();
             return TelemetryGuard {};
@@ -115,8 +114,7 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
             }
             Ok(Err(e)) => {
                 eprintln!(
-                    "⚠️ Failed to initialize OTLP tracer at {}: {}. Continuing without OTLP.",
-                    endpoint, e
+                    "⚠️ Failed to initialize OTLP tracer at {endpoint}: {e}. Continuing without OTLP."
                 );
                 subscriber.init();
             }

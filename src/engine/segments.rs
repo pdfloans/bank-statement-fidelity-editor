@@ -315,9 +315,9 @@ impl SegmentManager {
             let segment_edits = grouped.get(&i).cloned().unwrap_or_default();
 
             if !segment_edits.is_empty() {
-                let edited_path = self.temp_path().join(format!("segment_{:03}_edited.pdf", i));
+                let edited_path = self.temp_path().join(format!("segment_{i:03}_edited.pdf"));
                 apply_fn(&seg.path, &edited_path, segment_edits)
-                    .map_err(|e| crate::engine::pdf_split_merge::SplitMergeError::Structure(format!("Failed to apply edits to segment {}: {}", i, e)))?;
+                    .map_err(|e| crate::engine::pdf_split_merge::SplitMergeError::Structure(format!("Failed to apply edits to segment {i}: {e}")))?;
                 final_paths.push(edited_path);
             } else {
                 final_paths.push(seg.path.clone());

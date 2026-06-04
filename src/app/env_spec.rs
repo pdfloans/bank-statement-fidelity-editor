@@ -197,7 +197,7 @@ pub fn guidance_for(name: &str) -> String {
             spec.name,
             spec.example,
         ),
-        None => format!("{}: no setup guidance available.", name),
+        None => format!("{name}: no setup guidance available."),
     }
 }
 

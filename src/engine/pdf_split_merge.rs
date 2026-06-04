@@ -73,7 +73,7 @@ pub fn split_pdf(
         // confirm its referenced resources/content survived the import.
         normalize_pages(&mut segment_doc)?;
 
-        let out_path = out_dir.join(format!("segment_{:03}.pdf", idx));
+        let out_path = out_dir.join(format!("segment_{idx:03}.pdf"));
         segment_doc
             .save(&out_path)
             .map_err(|e| SplitMergeError::Save {

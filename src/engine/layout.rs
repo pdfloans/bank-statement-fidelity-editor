@@ -27,8 +27,8 @@ pub struct DocumentLayout {
     pub layout_confidence: f32,
 }
 
-impl DocumentLayout {
-    pub fn new() -> Self {
+impl Default for DocumentLayout {
+    fn default() -> Self {
         Self {
             total_pages: 0,
             pages: vec![],
