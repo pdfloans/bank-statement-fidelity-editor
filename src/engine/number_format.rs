@@ -17,7 +17,7 @@
 
 use rust_decimal::Decimal;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum NegativeStyle {
     /// `-50.00`
     Minus,
@@ -27,7 +27,7 @@ pub enum NegativeStyle {
     TrailingMinus,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CurrencyPosition {
     /// `$1,234.56` (default).
     Leading,
@@ -35,7 +35,7 @@ pub enum CurrencyPosition {
     Trailing,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NumberFormat {
     pub currency: String,
     pub currency_position: CurrencyPosition,

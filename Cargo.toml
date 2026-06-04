@@ -28,7 +28,7 @@ base64 = "0.22"
 pdfium-render = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
 pyo3 = { version = "0.22", features = ["auto-initialize"] }
 image = "0.25"
 image_hasher = "3"

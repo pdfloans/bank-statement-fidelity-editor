@@ -664,6 +664,186 @@ impl GeminiClient {
         serde_json::from_str(report_text)
             .map_err(|e| GeminiError::InvalidResponse(format!("vision JSON parse: {}", e)))
     }
+
+    /// Plan how to transfer transactions from a source statement to a target
+    /// statement. Gemini analyses the formats of both and produces a mapping
+    /// plan including date conversion, description adaptation, and page layout.
+    pub async fn plan_transaction_transfer(
+        &self,
+        source_transactions: &[Transaction],
+        target_transactions: &[Transaction],
+    ) -> Result<crate::engine::transfer::TransferPlan, GeminiError> {
+        let scrubbed_source = scrub_pii(source_transactions);
+        let scrubbed_target = scrub_pii(target_transactions);
+
+        let prompt = format!(
+            "You are an expert financial document analyst. You need to plan how to transfer \
+             transactions from a SOURCE bank statement to a TARGET bank statement.\n\n\
+             SOURCE statement transactions ({} rows):\n{}\n\n\
+             TARGET statement transactions ({} rows):\n{}\n\n\
+             Analyze both formats (date style, number format, description conventions, \
+             column layout) and produce a transfer plan. For each source transaction, \
+             specify which target page and line it should land on. Convert dates to the \
+             target's format. Adapt descriptions to match the target's style. \
+             If the source has more transactions than the target's pages can hold, \
+             specify pages_to_clone (which target page to duplicate for overflow). \
+             If the source has fewer, specify pages_to_remove. \
+             Each mapping must reference a source_index (0-based into the source list).",
+            source_transactions.len(),
+            serde_json::to_string(&scrubbed_source).unwrap_or_default(),
+            target_transactions.len(),
+            serde_json::to_string(&scrubbed_target).unwrap_or_default(),
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "mappings": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source_index": { "type": "integer" },
+                            "target_page": { "type": "integer" },
+                            "target_line": { "type": "integer" },
+                            "converted_date": { "type": "string" },
+                            "adapted_description": { "type": "string" }
+                        },
+                        "required": ["source_index", "target_page", "target_line", "converted_date", "adapted_description"]
+                    }
+                },
+                "output_page_count": { "type": "integer" },
+                "pages_to_clone": {
+                    "type": "array",
+                    "items": { "type": "integer" }
+                },
+                "pages_to_remove": {
+                    "type": "array",
+                    "items": { "type": "integer" }
+                },
+                "strategy": { "type": "string" },
+                "confidence": { "type": "number" }
+            },
+            "required": ["mappings", "output_page_count", "pages_to_clone", "pages_to_remove", "strategy", "confidence"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "parts": [{ "text": prompt }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let json_resp: serde_json::Value = response.json().await?;
+        let plan_text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing transfer plan text".into()))?;
+
+        let plan: crate::engine::transfer::TransferPlan = serde_json::from_str(plan_text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("Transfer plan JSON parse: {}", e)))?;
+
+        if plan.confidence < 0.5 {
+            return Err(GeminiError::LowConfidence(plan.confidence));
+        }
+
+        Ok(plan)
+    }
+
+    /// Forensic accountant verification of a transferred statement's math.
+    /// Gemini independently checks: Opening + ∑Debits − ∑Credits = Final Balance.
+    pub async fn verify_transfer_math(
+        &self,
+        mapped_transactions: &[crate::engine::transfer::MappedTransaction],
+        opening_balance: rust_decimal::Decimal,
+    ) -> Result<bool, GeminiError> {
+        use crate::engine::model::dec_to_f64;
+
+        let tx_summary: Vec<serde_json::Value> = mapped_transactions.iter().enumerate().map(|(i, tx)| {
+            json!({
+                "row": i,
+                "date": tx.date,
+                "description": tx.description,
+                "debit": tx.debit.map(dec_to_f64),
+                "credit": tx.credit.map(dec_to_f64),
+                "running_balance": dec_to_f64(tx.running_balance),
+            })
+        }).collect();
+
+        let prompt = format!(
+            "You are a forensic accountant verifying a bank statement after a transaction \
+             transfer operation. The opening balance is {}.\n\n\
+             Verify that for EVERY row: running_balance = previous_running_balance + debit - credit.\n\
+             (Opening balance is used as previous_running_balance for the first row.)\n\
+             Verify the final running_balance is mathematically consistent.\n\n\
+             Transactions: {}\n\n\
+             Return only the JSON with your verdict.",
+            dec_to_f64(opening_balance),
+            serde_json::to_string(&tx_summary).unwrap_or_default(),
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "math_valid": { "type": "boolean" },
+                "discrepancies": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "row": { "type": "integer" },
+                            "expected_balance": { "type": "number" },
+                            "actual_balance": { "type": "number" },
+                            "note": { "type": "string" }
+                        },
+                        "required": ["row", "expected_balance", "actual_balance", "note"]
+                    }
+                },
+                "summary": { "type": "string" }
+            },
+            "required": ["math_valid", "discrepancies", "summary"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "parts": [{ "text": prompt }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let json_resp: serde_json::Value = response.json().await?;
+        let text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing math verification text".into()))?;
+
+        let parsed: serde_json::Value = serde_json::from_str(text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("Math verify JSON: {}", e)))?;
+
+        Ok(parsed["math_valid"].as_bool().unwrap_or(false))
+    }
 }
 
 /// Mint a short-lived Google Cloud OAuth access token (scope

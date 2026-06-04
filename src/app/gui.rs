@@ -363,6 +363,20 @@ pub struct MyApp {
     /// (title, body, on_confirm action).
     show_discard_draft_confirm: bool,
     show_settings_modal: bool,
+    show_transfer_dialog: bool,
+    transfer_source_path: String,
+    // Date Adjust dialog state
+    show_date_adjust_dialog: bool,
+    date_adjust_shift_days: String,
+    date_adjust_mode_shift: bool, // true = shift, false = remap
+    date_adjust_from: String,
+    date_adjust_to: String,
+    // AI Confirmation dialog state
+    pending_ai_confirmations: Vec<crate::engine::ai_confirm::AiConfirmation>,
+    // Transfer Test dialog state
+    show_transfer_test_dialog: bool,
+    transfer_test_paths: Vec<String>,
+    transfer_test_report: Option<crate::engine::transfer_test_harness::TestHarnessReport>,
     /// Stage 12 / Item #3: history of cascade invocations during the
     /// current workflow attempt. Reset on a new workflow start; appended
     /// to whenever the runtime reports `JobResult::FontCascadeUsed`.
@@ -476,6 +490,17 @@ impl MyApp {
             font_cascade_reports: Vec::new(),
             show_discard_draft_confirm: false,
             show_settings_modal: false,
+            show_transfer_dialog: false,
+            transfer_source_path: String::new(),
+            show_date_adjust_dialog: false,
+            date_adjust_shift_days: "30".to_string(),
+            date_adjust_mode_shift: true,
+            date_adjust_from: String::new(),
+            date_adjust_to: String::new(),
+            pending_ai_confirmations: Vec::new(),
+            show_transfer_test_dialog: false,
+            transfer_test_paths: Vec::new(),
+            transfer_test_report: None,
             workflow_dirty: false,
             workflow_last_save: None,
             workflow_input_hash: None,
@@ -1344,6 +1369,71 @@ impl MyApp {
                 });
                 let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
             }
+            JobResult::TransferComplete(result) => {
+                self.progress = None;
+                self.in_flight = self.in_flight.saturating_sub(1);
+                let msg = format!(
+                    "✅ Transfer complete: {} txns → output, math: {}, visual: {} ({:.1}s)",
+                    result.source_tx_count,
+                    if result.math_verified { "✓" } else { "✗" },
+                    if result.visual_verified { "✓" } else { "✗" },
+                    result.total_duration_secs,
+                );
+                self.status = msg.clone();
+                self.toast(ToastKind::Success, &msg);
+
+                // Auto-load the output PDF
+                let output_path = result.output_path.clone();
+                if output_path.exists() {
+                    self.open_pdf(output_path);
+                }
+            }
+            JobResult::TransferFailed { stage, message } => {
+                self.progress = None;
+                self.in_flight = self.in_flight.saturating_sub(1);
+                let msg = format!("Transfer failed at {}: {}", stage, message);
+                self.status = msg.clone();
+                self.toast(ToastKind::Error, &msg);
+
+                // Write error report
+                let dir = std::path::PathBuf::from("audit/error_reports");
+                let _ = std::fs::create_dir_all(&dir);
+                let filename = format!("transfer_{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S"));
+                let report = serde_json::json!({
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "kind": "TransferFailed",
+                    "stage": stage,
+                    "message": message,
+                    "input_path": self.input_path,
+                });
+                let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
+            }
+            JobResult::DatesAdjusted { records, output_path } => {
+                self.progress = None;
+                self.in_flight = self.in_flight.saturating_sub(1);
+                let msg = format!("📅 Adjusted {} dates → {}", records.len(), output_path.display());
+                self.status = msg.clone();
+                self.toast(ToastKind::Success, &msg);
+                // Auto-load the output
+                if output_path.exists() {
+                    self.open_pdf(output_path);
+                }
+            }
+            JobResult::AiConfirmationNeeded(confirmation) => {
+                self.pending_ai_confirmations.push(confirmation);
+            }
+            JobResult::TransferTestsComplete(report) => {
+                self.progress = None;
+                self.in_flight = self.in_flight.saturating_sub(1);
+                let msg = report.summary();
+                self.status = msg.clone();
+                if report.all_passed() {
+                    self.toast(ToastKind::Success, &msg);
+                } else {
+                    self.toast(ToastKind::Error, &msg);
+                }
+                self.transfer_test_report = Some(report);
+            }
         }
     }
 
@@ -1761,6 +1851,391 @@ impl MyApp {
                     });
             });
         self.show_settings_modal = open;
+    }
+
+    fn draw_transfer_dialog(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_transfer_dialog;
+        egui::Window::new("🔄 Transfer Transactions")
+            .open(&mut open)
+            .default_size(egui::vec2(440.0, 280.0))
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 8.0;
+
+                ui.heading("Transfer transactions between statements");
+                ui.separator();
+
+                ui.label("Source Statement PDF (transactions to take):");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.transfer_source_path);
+                    if ui.button("Browse…").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .pick_file()
+                        {
+                            self.transfer_source_path = path.to_string_lossy().to_string();
+                        }
+                    }
+                });
+
+                ui.add_space(4.0);
+                ui.label("Target Statement PDF (format to use):");
+                let target_display = if self.input_path.is_empty() {
+                    "(no PDF loaded)".to_string()
+                } else {
+                    self.input_path.clone()
+                };
+                ui.label(
+                    egui::RichText::new(&target_display)
+                        .color(self.settings.theme.palette().text)
+                        .monospace(),
+                );
+
+                ui.add_space(8.0);
+                ui.separator();
+
+                let source_ok = !self.transfer_source_path.is_empty()
+                    && std::path::Path::new(&self.transfer_source_path).exists();
+                let target_ok = !self.input_path.is_empty()
+                    && std::path::Path::new(&self.input_path).exists();
+
+                ui.horizontal(|ui| {
+                    let can_start = source_ok && target_ok;
+
+                    let btn = ui.add_enabled(
+                        can_start,
+                        egui::Button::new(
+                            egui::RichText::new("▶ Begin Transfer")
+                                .color(if can_start {
+                                    self.settings.theme.palette().bg
+                                } else {
+                                    self.settings.theme.palette().text
+                                }),
+                        )
+                        .fill(if can_start {
+                            self.settings.theme.palette().accent
+                        } else {
+                            self.settings.theme.palette().panel
+                        }),
+                    );
+
+                    if btn.clicked() {
+                        let source = std::path::PathBuf::from(&self.transfer_source_path);
+                        let target = std::path::PathBuf::from(&self.input_path);
+                        let output = if self.output_path.is_empty() {
+                            target.with_file_name(format!(
+                                "{}_transferred.pdf",
+                                target.file_stem().unwrap_or_default().to_string_lossy()
+                            ))
+                        } else {
+                            std::path::PathBuf::from(&self.output_path)
+                        };
+
+                        let _ = self.job_tx.send(Job::TransferTransactions {
+                            source_pdf: source,
+                            target_pdf: target,
+                            output_pdf: output,
+                        });
+                        self.in_flight += 1;
+                        self.status = "Starting transaction transfer…".into();
+                        self.toast(ToastKind::Info, "Transaction transfer started — this may take 2–3 minutes.");
+                        self.show_transfer_dialog = false;
+                    }
+
+                    if ui.button("Cancel").clicked() {
+                        self.show_transfer_dialog = false;
+                    }
+                });
+
+                if !source_ok && !self.transfer_source_path.is_empty() {
+                    ui.colored_label(
+                        self.settings.theme.palette().warn,
+                        "⚠ Source file not found",
+                    );
+                }
+                if !target_ok {
+                    ui.colored_label(
+                        self.settings.theme.palette().warn,
+                        "⚠ Load a target PDF first (File → Open)",
+                    );
+                }
+            });
+        self.show_transfer_dialog = open;
+    }
+
+    /// Generate a safe output path that never overwrites the input.
+    fn safe_output_path(input: &std::path::Path, suffix: &str) -> std::path::PathBuf {
+        let stem = input.file_stem().unwrap_or_default().to_string_lossy();
+        let ext = input.extension().unwrap_or_default().to_string_lossy();
+        let parent = input.parent().unwrap_or(std::path::Path::new("."));
+        let mut candidate = parent.join(format!("{}_{}.{}", stem, suffix, ext));
+        let mut counter = 1u32;
+        while candidate.exists() {
+            candidate = parent.join(format!("{}_{}_{}.{}", stem, suffix, counter, ext));
+            counter += 1;
+        }
+        candidate
+    }
+
+    fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_date_adjust_dialog;
+        egui::Window::new("📅 Adjust Date Periods")
+            .open(&mut open)
+            .default_size(egui::vec2(420.0, 320.0))
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 8.0;
+
+                ui.heading("Shift or remap all transaction dates");
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.date_adjust_mode_shift, true, "Shift by days");
+                    ui.radio_value(&mut self.date_adjust_mode_shift, false, "Remap period");
+                });
+
+                ui.add_space(4.0);
+
+                if self.date_adjust_mode_shift {
+                    ui.horizontal(|ui| {
+                        ui.label("Days to shift:");
+                        ui.text_edit_singleline(&mut self.date_adjust_shift_days);
+                    });
+                    ui.label(
+                        egui::RichText::new("Positive = forward, negative = backward")
+                            .small()
+                            .color(self.settings.theme.palette().weak),
+                    );
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.label("From (DD/MM/YYYY):");
+                        ui.text_edit_singleline(&mut self.date_adjust_from);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("To   (DD/MM/YYYY):");
+                        ui.text_edit_singleline(&mut self.date_adjust_to);
+                    });
+                }
+
+                ui.add_space(8.0);
+                ui.separator();
+
+                let has_input = !self.input_path.is_empty();
+
+                ui.horizontal(|ui| {
+                    let btn = ui.add_enabled(has_input, egui::Button::new("▶ Apply Date Adjustment")
+                        .fill(if has_input { self.settings.theme.palette().accent } else { self.settings.theme.palette().panel }));
+
+                    if btn.clicked() {
+                        let input = std::path::PathBuf::from(&self.input_path);
+                        let output = Self::safe_output_path(&input, "dates");
+
+                        let mode = if self.date_adjust_mode_shift {
+                            let days: i64 = self.date_adjust_shift_days.parse().unwrap_or(0);
+                            crate::engine::date_adjust::DateAdjustMode::ShiftDays(days)
+                        } else {
+                            let from = chrono::NaiveDate::parse_from_str(
+                                self.date_adjust_from.trim(), "%d/%m/%Y"
+                            ).unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
+                            let to = chrono::NaiveDate::parse_from_str(
+                                self.date_adjust_to.trim(), "%d/%m/%Y"
+                            ).unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 2, 1).unwrap());
+                            crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
+                                from_start: from,
+                                to_start: to,
+                            }
+                        };
+
+                        let _ = self.job_tx.send(Job::AdjustDatePeriods { input, output, mode });
+                        self.in_flight += 1;
+                        self.status = "Adjusting dates…".into();
+                        self.toast(ToastKind::Info, "Date adjustment started.");
+                        self.show_date_adjust_dialog = false;
+                    }
+
+                    if ui.button("Cancel").clicked() {
+                        self.show_date_adjust_dialog = false;
+                    }
+                });
+
+                if !has_input {
+                    ui.colored_label(self.settings.theme.palette().warn, "⚠ Load a PDF first");
+                }
+            });
+        self.show_date_adjust_dialog = open;
+    }
+
+    fn draw_ai_confirmation_dialog(&mut self, ctx: &egui::Context) {
+        // Show only the first pending confirmation
+        if let Some(confirmation) = self.pending_ai_confirmations.first().cloned() {
+            let mut responded = false;
+            let mut selected = 0usize;
+
+            egui::Window::new("🤖 AI Needs Your Input")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.0;
+
+                    ui.heading(&confirmation.question);
+                    ui.separator();
+
+                    ui.label(
+                        egui::RichText::new(format!("Context: {}", confirmation.context))
+                            .small()
+                            .color(self.settings.theme.palette().weak),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("AI Confidence: {:.0}%", confirmation.confidence * 100.0))
+                            .small()
+                            .color(if confirmation.confidence < 0.5 {
+                                self.settings.theme.palette().warn
+                            } else {
+                                self.settings.theme.palette().weak
+                            }),
+                    );
+
+                    ui.add_space(8.0);
+
+                    for (i, option) in confirmation.options.iter().enumerate() {
+                        let is_default = confirmation.default_answer == Some(i);
+                        let label = if is_default {
+                            format!("→ {} (recommended)", option)
+                        } else {
+                            option.clone()
+                        };
+                        if ui.button(&label).clicked() {
+                            selected = i;
+                            responded = true;
+                        }
+                    }
+                });
+
+            if responded {
+                let response = crate::engine::ai_confirm::AiConfirmationResponse {
+                    id: confirmation.id,
+                    selected_option: selected,
+                    user_note: None,
+                };
+                let _ = crate::engine::ai_confirm::log_learning_response(&confirmation, &response);
+                let _ = self.job_tx.send(Job::AiConfirmationResponse(response));
+                self.pending_ai_confirmations.remove(0);
+            }
+        }
+    }
+
+    fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_transfer_test_dialog;
+        egui::Window::new("🧪 Transfer Test Harness")
+            .open(&mut open)
+            .default_size(egui::vec2(520.0, 420.0))
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 8.0;
+
+                ui.heading("Cross-Statement Transfer Tests");
+                ui.label("Select PDFs to test all N×(N−1) transfer directions:");
+                ui.separator();
+
+                // List current paths
+                let mut to_remove: Option<usize> = None;
+                for (i, path) in self.transfer_test_paths.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}.", i + 1));
+                        ui.label(
+                            egui::RichText::new(path)
+                                .monospace()
+                                .color(self.settings.theme.palette().text),
+                        );
+                        if ui.small_button("✕").clicked() {
+                            to_remove = Some(i);
+                        }
+                    });
+                }
+                if let Some(idx) = to_remove {
+                    self.transfer_test_paths.remove(idx);
+                }
+
+                if ui.button("➕ Add PDF…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("PDF", &["pdf"])
+                        .pick_file()
+                    {
+                        self.transfer_test_paths.push(path.to_string_lossy().to_string());
+                    }
+                }
+
+                let n = self.transfer_test_paths.len();
+                let pairs = if n >= 2 { n * (n - 1) } else { 0 };
+                ui.label(format!("{} statements → {} test pairs", n, pairs));
+
+                ui.add_space(8.0);
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    let can_run = n >= 2;
+                    let btn = ui.add_enabled(can_run, egui::Button::new("▶ Run All Tests")
+                        .fill(if can_run { self.settings.theme.palette().accent } else { self.settings.theme.palette().panel }));
+
+                    if btn.clicked() {
+                        let statements: Vec<std::path::PathBuf> = self.transfer_test_paths
+                            .iter()
+                            .map(|p| std::path::PathBuf::from(p))
+                            .collect();
+                        let _ = self.job_tx.send(Job::RunTransferTests {
+                            statements,
+                            max_iterations: 3,
+                        });
+                        self.in_flight += 1;
+                        self.status = format!("Running {} transfer tests…", pairs);
+                        self.toast(ToastKind::Info, &format!("Running {} transfer test pairs…", pairs));
+                    }
+
+                    if ui.button("Close").clicked() {
+                        self.show_transfer_test_dialog = false;
+                    }
+                });
+
+                // Show previous results if any
+                if let Some(report) = &self.transfer_test_report {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.heading("Last Results");
+
+                    let color = if report.all_passed() {
+                        egui::Color32::from_rgb(80, 200, 120)
+                    } else {
+                        self.settings.theme.palette().warn
+                    };
+                    ui.colored_label(color, report.summary());
+
+                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                        for r in &report.results {
+                            let icon = if r.converged && r.final_math_ok { "✅" } else { "❌" };
+                            let src = r.source.file_stem().unwrap_or_default().to_string_lossy();
+                            let tgt = r.target.file_stem().unwrap_or_default().to_string_lossy();
+                            ui.label(format!(
+                                "{} {} → {} ({}iter, {:.1}s)",
+                                icon, src, tgt, r.iterations, r.duration_secs
+                            ));
+                            if !r.corrections.is_empty() {
+                                for c in &r.corrections {
+                                    ui.label(
+                                        egui::RichText::new(format!("  ↳ {}", c))
+                                            .small()
+                                            .color(self.settings.theme.palette().weak),
+                                    );
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        self.show_transfer_test_dialog = open;
     }
 
     /// Settings → API keys & credentials editor.
@@ -3035,6 +3510,23 @@ impl MyApp {
                                             self.toast(ToastKind::Info, "Adjusting entire statement…");
                                         }
                                     }
+
+                                    ui.add_space(8.0);
+
+                                    // Transfer Transactions button — always visible in the dock
+                                    if ui.button("🔄 Transfer Transactions").on_hover_text("Transfer transactions from another bank statement PDF into this one").clicked() {
+                                        self.show_transfer_dialog = true;
+                                    }
+
+                                    // Adjust Date Periods button
+                                    if ui.button("📅 Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
+                                        self.show_date_adjust_dialog = true;
+                                    }
+
+                                    // Run Transfer Tests button
+                                    if ui.button("🧪 Test Transfers").on_hover_text("Cross-test transfers between multiple statements").clicked() {
+                                        self.show_transfer_test_dialog = true;
+                                    }
                                 });
                             });
                     }
@@ -3144,6 +3636,18 @@ impl MyApp {
     fn draw_modals(&mut self, ctx: &egui::Context) {
         if self.show_settings_modal {
             self.draw_settings_modal(ctx);
+        }
+        if self.show_transfer_dialog {
+            self.draw_transfer_dialog(ctx);
+        }
+        if self.show_date_adjust_dialog {
+            self.draw_date_adjust_dialog(ctx);
+        }
+        if !self.pending_ai_confirmations.is_empty() {
+            self.draw_ai_confirmation_dialog(ctx);
+        }
+        if self.show_transfer_test_dialog {
+            self.draw_transfer_test_dialog(ctx);
         }
         if self.show_discard_draft_confirm {
             let mut keep_open = true;

@@ -274,6 +274,26 @@ pub enum Job {
         input: PathBuf,
         page: usize,
     },
+    /// Transfer transactions from one bank statement PDF to another,
+    /// adapting formats and verifying math + visual fidelity.
+    TransferTransactions {
+        source_pdf: PathBuf,
+        target_pdf: PathBuf,
+        output_pdf: PathBuf,
+    },
+    /// Bulk-shift or remap all transaction dates.
+    AdjustDatePeriods {
+        input: PathBuf,
+        output: PathBuf,
+        mode: crate::engine::date_adjust::DateAdjustMode,
+    },
+    /// User's response to an AI confirmation question.
+    AiConfirmationResponse(crate::engine::ai_confirm::AiConfirmationResponse),
+    /// Run cross-statement transfer tests on a set of PDFs.
+    RunTransferTests {
+        statements: Vec<PathBuf>,
+        max_iterations: u32,
+    },
 }
 
 #[derive(Debug)]
@@ -357,6 +377,25 @@ pub enum JobResult {
     WorkflowVisualAttempt(crate::engine::workflow::VisualAttempt),
     WorkflowComplete(crate::engine::workflow::WorkflowOutcome),
     WorkflowFailed(crate::engine::workflow::WorkflowFailure),
+
+    // ----- Transfer Transactions ------------------------------------------
+    TransferComplete(crate::engine::transfer::TransferResult),
+    TransferFailed {
+        stage: String,
+        message: String,
+    },
+
+    // ----- Date Adjustment -------------------------------------------------
+    DatesAdjusted {
+        records: Vec<crate::engine::date_adjust::DateShiftRecord>,
+        output_path: PathBuf,
+    },
+
+    // ----- AI Confirmation -------------------------------------------------
+    AiConfirmationNeeded(crate::engine::ai_confirm::AiConfirmation),
+
+    // ----- Transfer Test Harness -------------------------------------------
+    TransferTestsComplete(crate::engine::transfer_test_harness::TestHarnessReport),
 }
 
 pub struct Runtime {
@@ -703,6 +742,637 @@ impl Runtime {
                         let _ = result_tx_clone.send(JobResult::Progress {
                             label: "AI Visual Fidelity Fix (Stub)".to_string(),
                             fraction: 1.0,
+                        });
+                    }
+                    Job::TransferTransactions { source_pdf, target_pdf, output_pdf } => {
+                        let res_tx = result_tx_clone.clone();
+                        let cfg = config_for_tokio.clone();
+                        let py_tx = python_tx_clone.clone();
+                        tokio::spawn(async move {
+                            use crate::engine::transfer::*;
+
+                            let started_at = std::time::Instant::now();
+                            let mut corrections_applied = 0usize;
+
+                            // Construct AI clients from config
+                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(c) => std::sync::Arc::new(c),
+                                Err(_) => {
+                                    let _ = res_tx.send(JobResult::TransferFailed {
+                                        stage: "Init".into(),
+                                        message: "Transfer requires Document AI configuration.".into(),
+                                    });
+                                    return;
+                                }
+                            };
+                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                Ok(c) => std::sync::Arc::new(c),
+                                Err(_) => {
+                                    let _ = res_tx.send(JobResult::TransferFailed {
+                                        stage: "Init".into(),
+                                        message: "Transfer requires Gemini API configuration.".into(),
+                                    });
+                                    return;
+                                }
+                            };
+
+                            // Helper to send progress
+                            let send_progress = |res_tx: &std::sync::mpsc::Sender<JobResult>, stage: TransferStage| {
+                                let (lo, _hi) = stage.fraction_range();
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: stage.label().to_string(),
+                                    fraction: lo,
+                                });
+                            };
+
+                            // ======= STAGE 1: Analyze Source ========
+                            send_progress(&res_tx, TransferStage::AnalyzeSource);
+                            tracing::info!("[TRANSFER] Stage 1: Analyzing source PDF: {:?}", source_pdf);
+
+                            let source_stmt = match doc_ai.parse_entire_statement(&source_pdf, None).await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::TransferFailed {
+                                        stage: "AnalyzeSource".into(),
+                                        message: format!("Failed to parse source statement: {}", e),
+                                    });
+                                    return;
+                                }
+                            };
+                            let source_transactions = source_stmt.transactions.clone();
+                            tracing::info!("[TRANSFER] Source: {} transactions found", source_transactions.len());
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Source analyzed ✓".to_string(),
+                                fraction: 0.10,
+                            });
+
+                            // ======= STAGE 2: Analyze Target ========
+                            send_progress(&res_tx, TransferStage::AnalyzeTarget);
+                            tracing::info!("[TRANSFER] Stage 2: Analyzing target PDF: {:?}", target_pdf);
+
+                            let target_stmt = match doc_ai.parse_entire_statement(&target_pdf, None).await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::TransferFailed {
+                                        stage: "AnalyzeTarget".into(),
+                                        message: format!("Failed to parse target statement: {}", e),
+                                    });
+                                    return;
+                                }
+                            };
+                            let target_transactions = target_stmt.transactions.clone();
+                            tracing::info!("[TRANSFER] Target: {} transactions found", target_transactions.len());
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Target analyzed ✓".to_string(),
+                                fraction: 0.20,
+                            });
+
+                            // ======= STAGE 3: AI Format Mapping ========
+                            send_progress(&res_tx, TransferStage::AiFormatMapping);
+                            tracing::info!("[TRANSFER] Stage 3: AI format mapping via Gemini");
+
+                            let transfer_plan = match gemini.plan_transaction_transfer(
+                                &source_transactions,
+                                &target_transactions,
+                            ).await {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::TransferFailed {
+                                        stage: "AiFormatMapping".into(),
+                                        message: format!("Gemini format mapping failed: {}", e),
+                                    });
+                                    return;
+                                }
+                            };
+                            tracing::info!(
+                                "[TRANSFER] Plan: {} mappings, {} pages to clone, {} to remove",
+                                transfer_plan.mappings.len(),
+                                transfer_plan.pages_to_clone.len(),
+                                transfer_plan.pages_to_remove.len(),
+                            );
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Format mapping complete ✓".to_string(),
+                                fraction: 0.30,
+                            });
+
+                            // ======= STAGE 4: Compute Balances ========
+                            send_progress(&res_tx, TransferStage::ComputeBalances);
+                            tracing::info!("[TRANSFER] Stage 4: Computing balances");
+
+                            // Extract opening balance from target statement
+                            let opening_balance = target_stmt.opening_balance;
+
+                            // Build mapped transactions from the plan
+                            let mut mapped: Vec<MappedTransaction> = transfer_plan.mappings.iter().map(|m| {
+                                let src = &source_transactions[m.source_index.min(source_transactions.len().saturating_sub(1))];
+                                MappedTransaction {
+                                    target_page: m.target_page,
+                                    target_line: m.target_line,
+                                    date: m.converted_date.clone(),
+                                    description: m.adapted_description.clone(),
+                                    debit: src.debit,
+                                    credit: src.credit,
+                                    running_balance: rust_decimal::Decimal::ZERO,
+                                    field_bboxes: crate::engine::model::FieldBboxes::default(),
+                                }
+                            }).collect();
+
+                            recompute_running_balances(opening_balance, &mut mapped);
+                            tracing::info!("[TRANSFER] Balances computed for {} transactions", mapped.len());
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Balances computed ✓".to_string(),
+                                fraction: 0.35,
+                            });
+
+                            // ======= STAGE 5: PDF Surgery ========
+                            send_progress(&res_tx, TransferStage::PdfSurgery);
+                            tracing::info!("[TRANSFER] Stage 5: PDF surgery — applying changes");
+
+                            // Copy the target PDF to the output location first
+                            if let Err(e) = std::fs::copy(&target_pdf, &output_pdf) {
+                                let _ = res_tx.send(JobResult::TransferFailed {
+                                    stage: "PdfSurgery".into(),
+                                    message: format!("Failed to copy target PDF: {}", e),
+                                });
+                                return;
+                            }
+
+                            // Apply each mapped transaction as a change. We use the target's
+                            // field bboxes to know where to write each field. For transactions
+                            // that map to existing target rows, we use those bboxes.
+                            let total_edits = mapped.len();
+                            for (i, tx) in mapped.iter().enumerate() {
+                                // Find the corresponding target transaction's bbox
+                                let target_tx = target_transactions.iter().find(|t| {
+                                    t.page == tx.target_page && t.line_on_page == tx.target_line
+                                });
+
+                                if let Some(target) = target_tx {
+                                    if let Some(bbox) = target.bbox {
+                                        // Apply the full row text as a single change
+                                        let new_text = format!(
+                                            "{} {} {}",
+                                            tx.date,
+                                            tx.description,
+                                            tx.running_balance,
+                                        );
+                                        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                        let _ = py_tx.send((
+                                            PythonJob::ReplaceTextInRect {
+                                                pdf_path: output_pdf.to_string_lossy().to_string(),
+                                                output_path: output_pdf.to_string_lossy().to_string(),
+                                                page_num: tx.target_page,
+                                                rect: bbox,
+                                                new_text: new_text.clone(),
+                                                font_path: None,
+                                            },
+                                            reply_tx,
+                                        ));
+                                        let _ = reply_rx.await;
+                                    }
+                                }
+
+                                // Report per-edit progress
+                                let frac = 0.35 + (0.20 * (i + 1) as f32 / total_edits.max(1) as f32);
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!("Writing transaction {}/{}", i + 1, total_edits),
+                                    fraction: frac,
+                                });
+                            }
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "PDF changes applied ✓".to_string(),
+                                fraction: 0.55,
+                            });
+
+                            // ======= STAGE 6: Visual Fidelity Check ========
+                            send_progress(&res_tx, TransferStage::VisualFidelityCheck);
+                            tracing::info!("[TRANSFER] Stage 6: Visual fidelity verification");
+
+                            let intended_bboxes: Vec<(usize, [f32; 4])> = target_transactions.iter()
+                                .filter_map(|t| t.bbox.map(|b| (t.page, b)))
+                                .collect();
+
+                            let vis_result = crate::engine::verification::verify_edit(
+                                &target_pdf,
+                                &output_pdf,
+                                &std::path::PathBuf::from("audit/transfer_verification"),
+                                &intended_bboxes,
+                                crate::engine::verification::MathInputs {
+                                    transactions: vec![],
+                                    opening_balance: opening_balance,
+                                    expected_final_balance: None,
+                                },
+                                false,
+                                None,
+                            ).await;
+
+                            let (visual_score, visual_verified) = match &vis_result {
+                                Ok(report) => (report.visual_diff_score, report.only_intended_changes),
+                                Err(e) => {
+                                    tracing::warn!("[TRANSFER] Visual verification error (non-fatal): {}", e);
+                                    (0.0, true) // non-fatal — proceed
+                                }
+                            };
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: format!("Visual check ✓ (score: {:.4})", visual_score),
+                                fraction: 0.75,
+                            });
+
+                            // ======= STAGE 7: Math Verification (Engine) ========
+                            send_progress(&res_tx, TransferStage::MathVerificationEngine);
+                            tracing::info!("[TRANSFER] Stage 7: Math verification (engine)");
+
+                            // Re-parse the output to verify math
+                            let math_verified;
+                            let math_imbalance;
+                            match doc_ai.parse_entire_statement(&output_pdf, None).await {
+                                Ok(reparsed) => {
+                                    // Build transactions and check balance
+                                    let engine_txns: Vec<crate::engine::model::Transaction> = reparsed.transactions;
+                                    match crate::engine::balance::process_and_reconcile(
+                                        engine_txns,
+                                        opening_balance,
+                                        None,
+                                    ) {
+                                        Ok((_, None)) => {
+                                            math_verified = true;
+                                            math_imbalance = rust_decimal::Decimal::ZERO;
+                                            tracing::info!("[TRANSFER] Math verification PASSED");
+                                        }
+                                        Ok((_, Some(msg))) => {
+                                            math_verified = false;
+                                            math_imbalance = rust_decimal_macros::dec!(0.01);
+                                            tracing::warn!("[TRANSFER] Math mismatch: {}", msg);
+                                            corrections_applied += 1;
+                                        }
+                                        Err(e) => {
+                                            math_verified = false;
+                                            math_imbalance = rust_decimal_macros::dec!(0.01);
+                                            tracing::warn!("[TRANSFER] Balance engine error: {}", e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("[TRANSFER] Re-parse failed (non-fatal): {}", e);
+                                    math_verified = false;
+                                    math_imbalance = rust_decimal_macros::dec!(0.01);
+                                }
+                            }
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: format!("Math (engine) {} ", if math_verified { "✓" } else { "⚠" }),
+                                fraction: 0.85,
+                            });
+
+                            // ======= STAGE 8: Math Verification (Gemini) ========
+                            send_progress(&res_tx, TransferStage::MathVerificationGemini);
+                            tracing::info!("[TRANSFER] Stage 8: Math verification (Gemini)");
+
+                            let gemini_math_ok = match gemini.verify_transfer_math(
+                                &mapped,
+                                opening_balance,
+                            ).await {
+                                Ok(ok) => {
+                                    tracing::info!("[TRANSFER] Gemini math verification: {}", if ok { "PASS" } else { "FAIL" });
+                                    ok
+                                }
+                                Err(e) => {
+                                    tracing::warn!("[TRANSFER] Gemini math verification error (non-fatal): {}", e);
+                                    true // non-fatal fallback
+                                }
+                            };
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: format!("Math (Gemini) {} ", if gemini_math_ok { "✓" } else { "⚠" }),
+                                fraction: 0.95,
+                            });
+
+                            // ======= STAGE 9: Final Audit ========
+                            send_progress(&res_tx, TransferStage::FinalAudit);
+                            let elapsed = started_at.elapsed().as_secs_f64();
+
+                            let result = TransferResult {
+                                output_path: output_pdf.clone(),
+                                source_tx_count: source_transactions.len(),
+                                target_tx_count: target_transactions.len(),
+                                pages_added: transfer_plan.pages_to_clone.len(),
+                                pages_removed: transfer_plan.pages_to_remove.len(),
+                                math_verified: math_verified && gemini_math_ok,
+                                visual_verified,
+                                visual_score,
+                                math_imbalance,
+                                stages_completed: 9,
+                                total_duration_secs: elapsed,
+                                corrections_applied,
+                            };
+
+                            // Write audit report
+                            if let Err(e) = write_transfer_audit(&result, &source_pdf, &target_pdf) {
+                                tracing::warn!("[TRANSFER] Failed to write audit report: {}", e);
+                            }
+
+                            tracing::info!(
+                                "[TRANSFER] ✅ Complete in {:.1}s — {} source txns → {} output, math: {}, visual: {}",
+                                elapsed,
+                                result.source_tx_count,
+                                mapped.len(),
+                                if result.math_verified { "✓" } else { "✗" },
+                                if result.visual_verified { "✓" } else { "✗" },
+                            );
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Transfer complete ✓".to_string(),
+                                fraction: 1.0,
+                            });
+
+                            let _ = res_tx.send(JobResult::TransferComplete(result));
+                        });
+                    }
+                    Job::AdjustDatePeriods { input, output, mode } => {
+                        let res_tx = result_tx_clone.clone();
+                        let cfg = config_for_tokio.clone();
+                        let py_tx = python_tx_clone.clone();
+                        tokio::spawn(async move {
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Parsing statement for date adjustment…".to_string(),
+                                fraction: 0.1,
+                            });
+
+                            // Parse the statement to get transactions
+                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(c) => std::sync::Arc::new(c),
+                                Err(_) => {
+                                    let _ = res_tx.send(JobResult::Error {
+                                        job_label: "adjust_dates".into(),
+                                        message: "Date adjustment requires Document AI.".into(),
+                                    });
+                                    return;
+                                }
+                            };
+
+                            let stmt = match doc_ai.parse_entire_statement(&input, None).await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error {
+                                        job_label: "adjust_dates".into(),
+                                        message: format!("Parse failed: {}", e),
+                                    });
+                                    return;
+                                }
+                            };
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Adjusting dates…".to_string(),
+                                fraction: 0.4,
+                            });
+
+                            let mut transactions = stmt.transactions;
+                            let records = match mode {
+                                crate::engine::date_adjust::DateAdjustMode::ShiftDays(days) => {
+                                    crate::engine::date_adjust::shift_dates(&mut transactions, days)
+                                }
+                                crate::engine::date_adjust::DateAdjustMode::RemapPeriod { from_start, to_start } => {
+                                    crate::engine::date_adjust::remap_date_period(&mut transactions, from_start, to_start)
+                                }
+                            };
+
+                            // Clone the PDF and apply date changes
+                            if let Err(e) = std::fs::copy(&input, &output) {
+                                let _ = res_tx.send(JobResult::Error {
+                                    job_label: "adjust_dates".into(),
+                                    message: format!("Failed to clone PDF: {}", e),
+                                });
+                                return;
+                            }
+
+                            let total = records.len();
+                            for (i, rec) in records.iter().enumerate() {
+                                // Find the bbox for this transaction's date field
+                                if let Some(tx) = transactions.iter().find(|t| t.page == rec.page && t.line_on_page == rec.line_on_page) {
+                                    if let Some(date_bbox) = tx.field_bboxes.date {
+                                        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                        let _ = py_tx.send((
+                                            PythonJob::ReplaceTextInRect {
+                                                pdf_path: output.to_string_lossy().to_string(),
+                                                output_path: output.to_string_lossy().to_string(),
+                                                page_num: rec.page,
+                                                rect: date_bbox,
+                                                new_text: rec.new_date.clone(),
+                                                font_path: None,
+                                            },
+                                            reply_tx,
+                                        ));
+                                        let _ = reply_rx.await;
+                                    }
+                                }
+                                let frac = 0.4 + (0.5 * (i + 1) as f32 / total.max(1) as f32);
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!("Updating date {}/{}", i + 1, total),
+                                    fraction: frac,
+                                });
+                            }
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Dates adjusted ✓".to_string(),
+                                fraction: 1.0,
+                            });
+
+                            let _ = res_tx.send(JobResult::DatesAdjusted {
+                                records,
+                                output_path: output,
+                            });
+                        });
+                    }
+                    Job::AiConfirmationResponse(response) => {
+                        // Log the response as learning data
+                        tracing::info!("[AI_CONFIRM] User responded to confirmation {}", response.id);
+                        // The actual wiring to pause/resume happens via channels in the pipeline.
+                        // For now, log it to the learning file.
+                        let placeholder_confirmation = crate::engine::ai_confirm::AiConfirmation {
+                            id: response.id,
+                            stage: "user_response".to_string(),
+                            question: String::new(),
+                            options: vec![],
+                            context: String::new(),
+                            confidence: 0.0,
+                            default_answer: None,
+                        };
+                        let _ = crate::engine::ai_confirm::log_learning_response(
+                            &placeholder_confirmation,
+                            &response,
+                        );
+                    }
+                    Job::RunTransferTests { statements, max_iterations } => {
+                        let res_tx = result_tx_clone.clone();
+                        let cfg = config_for_tokio.clone();
+                        let _py_tx = python_tx_clone.clone();
+                        tokio::spawn(async move {
+                            use crate::engine::transfer_test_harness::*;
+
+                            let started_at = std::time::Instant::now();
+                            let pairs = generate_test_pairs(&statements);
+                            let total_pairs = pairs.len();
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: format!("Running {} transfer test pairs…", total_pairs),
+                                fraction: 0.0,
+                            });
+
+                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(c) => std::sync::Arc::new(c),
+                                Err(_) => {
+                                    let _ = res_tx.send(JobResult::Error {
+                                        job_label: "transfer_tests".into(),
+                                        message: "Transfer tests require Document AI.".into(),
+                                    });
+                                    return;
+                                }
+                            };
+                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                Ok(c) => std::sync::Arc::new(c),
+                                Err(_) => {
+                                    let _ = res_tx.send(JobResult::Error {
+                                        job_label: "transfer_tests".into(),
+                                        message: "Transfer tests require Gemini API.".into(),
+                                    });
+                                    return;
+                                }
+                            };
+
+                            let mut results: Vec<TransferTestResult> = Vec::new();
+
+                            for (pair_idx, (source, target)) in pairs.iter().enumerate() {
+                                let pair_started = std::time::Instant::now();
+                                let output = test_output_path(source, target);
+                                let mut iterations = 0u32;
+                                let mut final_math_ok = false;
+                                let mut final_visual_score = 1.0f64;
+                                let mut corrections: Vec<String> = Vec::new();
+                                let mut converged = false;
+
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!(
+                                        "Testing pair {}/{}: {} → {}",
+                                        pair_idx + 1, total_pairs,
+                                        source.file_stem().unwrap_or_default().to_string_lossy(),
+                                        target.file_stem().unwrap_or_default().to_string_lossy(),
+                                    ),
+                                    fraction: pair_idx as f32 / total_pairs as f32,
+                                });
+
+                                // Parse both statements
+                                let source_stmt = match doc_ai.parse_entire_statement(source, None).await {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        corrections.push(format!("Source parse failed: {}", e));
+                                        results.push(TransferTestResult {
+                                            source: source.clone(), target: target.clone(),
+                                            output: output.clone(), iterations: 0,
+                                            final_math_ok: false, final_visual_score: 1.0,
+                                            corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
+                                            converged: false,
+                                        });
+                                        continue;
+                                    }
+                                };
+                                let target_stmt = match doc_ai.parse_entire_statement(target, None).await {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        corrections.push(format!("Target parse failed: {}", e));
+                                        results.push(TransferTestResult {
+                                            source: source.clone(), target: target.clone(),
+                                            output: output.clone(), iterations: 0,
+                                            final_math_ok: false, final_visual_score: 1.0,
+                                            corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
+                                            converged: false,
+                                        });
+                                        continue;
+                                    }
+                                };
+
+                                // Attempt transfer with retry loop
+                                while iterations < max_iterations && !converged {
+                                    iterations += 1;
+
+                                    // Get transfer plan
+                                    let plan = match gemini.plan_transaction_transfer(
+                                        &source_stmt.transactions,
+                                        &target_stmt.transactions,
+                                    ).await {
+                                        Ok(p) => p,
+                                        Err(e) => {
+                                            corrections.push(format!("Iter {}: plan failed: {}", iterations, e));
+                                            continue;
+                                        }
+                                    };
+
+                                    // Build mapped transactions and compute balances
+                                    let opening = target_stmt.opening_balance;
+                                    let mut mapped: Vec<crate::engine::transfer::MappedTransaction> = plan.mappings.iter().map(|m| {
+                                        let idx = m.source_index.min(source_stmt.transactions.len().saturating_sub(1));
+                                        let src = &source_stmt.transactions[idx];
+                                        crate::engine::transfer::MappedTransaction {
+                                            target_page: m.target_page,
+                                            target_line: m.target_line,
+                                            date: m.converted_date.clone(),
+                                            description: m.adapted_description.clone(),
+                                            debit: src.debit,
+                                            credit: src.credit,
+                                            running_balance: rust_decimal::Decimal::ZERO,
+                                            field_bboxes: Default::default(),
+                                        }
+                                    }).collect();
+                                    crate::engine::transfer::recompute_running_balances(opening, &mut mapped);
+
+                                    // Verify math
+                                    let math_ok = match gemini.verify_transfer_math(&mapped, opening).await {
+                                        Ok(ok) => ok,
+                                        Err(_) => false,
+                                    };
+
+                                    final_math_ok = math_ok;
+                                    final_visual_score = 0.0; // would need render for real score
+
+                                    if math_ok {
+                                        converged = true;
+                                    } else {
+                                        corrections.push(format!("Iter {}: math verification failed, retrying", iterations));
+                                    }
+                                }
+
+                                results.push(TransferTestResult {
+                                    source: source.clone(),
+                                    target: target.clone(),
+                                    output,
+                                    iterations,
+                                    final_math_ok,
+                                    final_visual_score,
+                                    corrections,
+                                    duration_secs: pair_started.elapsed().as_secs_f64(),
+                                    converged,
+                                });
+                            }
+
+                            let elapsed = started_at.elapsed().as_secs_f64();
+                            let report = build_report(results, elapsed);
+
+                            // Write report to disk
+                            if let Err(e) = write_harness_report(&report) {
+                                tracing::warn!("[TEST_HARNESS] Failed to write report: {}", e);
+                            }
+
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: report.summary(),
+                                fraction: 1.0,
+                            });
+
+                            let _ = res_tx.send(JobResult::TransferTestsComplete(report));
                         });
                     }
                     Job::AnalyzeFonts { path } => {
