@@ -78,16 +78,16 @@ impl Theme {
                 info: egui::Color32::from_rgb(50, 100, 200),
             },
             Theme::Midnight => Palette {
-                bg: egui::Color32::from_rgb(15, 17, 25),
-                panel: egui::Color32::from_rgb(22, 25, 36),
-                surface: egui::Color32::from_rgb(30, 34, 48),
-                text: egui::Color32::from_rgb(230, 232, 245),
-                weak: egui::Color32::from_rgb(130, 140, 170),
-                accent: egui::Color32::from_rgb(140, 170, 255),
-                success: egui::Color32::from_rgb(120, 220, 160),
-                warn: egui::Color32::from_rgb(245, 195, 100),
-                error: egui::Color32::from_rgb(245, 110, 110),
-                info: egui::Color32::from_rgb(140, 170, 255),
+                bg: egui::Color32::from_rgb(10, 10, 12),
+                panel: egui::Color32::from_rgb(18, 18, 22),
+                surface: egui::Color32::from_rgb(26, 26, 32),
+                text: egui::Color32::from_rgb(240, 240, 245),
+                weak: egui::Color32::from_rgb(150, 150, 160),
+                accent: egui::Color32::from_rgb(99, 102, 241), // Indigo 500
+                success: egui::Color32::from_rgb(34, 197, 94), // Green 500
+                warn: egui::Color32::from_rgb(245, 158, 11), // Amber 500
+                error: egui::Color32::from_rgb(239, 68, 68), // Red 500
+                info: egui::Color32::from_rgb(56, 189, 248), // Sky 400
             },
             Theme::Solarized => Palette {
                 bg: egui::Color32::from_rgb(253, 246, 227),
@@ -115,29 +115,17 @@ impl Theme {
 
     fn apply(self, ctx: &egui::Context) {
         let p = self.palette();
-        let mut visuals = match self {
-            Theme::Light | Theme::Solarized => egui::Visuals::light(),
-            _ => egui::Visuals::dark(),
+        let mut visuals = if matches!(self, Theme::Dark | Theme::Midnight) {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
         };
-        visuals.window_rounding = 12.0.into();
-        visuals.menu_rounding = 10.0.into();
-        visuals.widgets.noninteractive.rounding = 8.0.into();
-        visuals.widgets.inactive.rounding = 8.0.into();
-        visuals.widgets.hovered.rounding = 8.0.into();
-        visuals.widgets.active.rounding = 8.0.into();
-        visuals.widgets.open.rounding = 8.0.into();
-        
+
+        // Window shadows and rounding for a glassmorphism/modern feel
+        visuals.window_rounding = egui::Rounding::same(12.0);
         visuals.window_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 16.0),
-            blur: 32.0,
-            spread: 0.0,
+            extrusion: 32.0,
             color: egui::Color32::from_black_alpha(96),
-        };
-        visuals.popup_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 8.0),
-            blur: 16.0,
-            spread: 0.0,
-            color: egui::Color32::from_black_alpha(64),
         };
 
         visuals.panel_fill = p.panel;
@@ -146,8 +134,11 @@ impl Theme {
         visuals.faint_bg_color = p.surface;
         visuals.widgets.noninteractive.bg_fill = p.surface;
         visuals.widgets.inactive.bg_fill = p.surface;
+        visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
+        visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
+        visuals.widgets.active.rounding = egui::Rounding::same(6.0);
         visuals.hyperlink_color = p.accent;
-        visuals.selection.bg_fill = p.accent.linear_multiply(0.4);
+        visuals.selection.bg_fill = p.accent.linear_multiply(0.3);
         visuals.selection.stroke.color = p.accent;
         visuals.warn_fg_color = p.warn;
         visuals.error_fg_color = p.error;
@@ -155,25 +146,27 @@ impl Theme {
 
         // global style tweaks
         let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-        style.spacing.button_padding = egui::vec2(12.0, 6.0);
-        style.spacing.window_margin = egui::Margin::same(12.0);
+        style.spacing.item_spacing = egui::vec2(12.0, 10.0);
+        style.spacing.button_padding = egui::vec2(16.0, 8.0);
+        style.spacing.window_margin = egui::Margin::same(16.0);
         style.spacing.menu_margin = egui::Margin::same(8.0);
+        
+        // Modern typography sizing
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(20.0, egui::FontFamily::Proportional),
+            egui::FontId::new(24.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+            egui::FontId::new(15.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
-            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+            egui::FontId::new(15.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Small,
-            egui::FontId::new(12.0, egui::FontFamily::Proportional),
+            egui::FontId::new(13.0, egui::FontFamily::Proportional),
         );
         ctx.set_style(style);
     }
@@ -1709,74 +1702,76 @@ impl MyApp {
                         }
                     });
 
-                    ui.collapsing("📈 Edit Trend", |ui| {
-                        let pts = self.balance_trend_points();
-                        let line = Line::new(pts).name("Edits");
-                        Plot::new("trend")
-                            .height(120.0)
-                            .show_axes([false, true])
-                            .show(ui, |plot_ui| plot_ui.line(line));
-                    });
+                    ui.collapsing("📊 Advanced Analytics & History", |ui| {
+                        ui.collapsing("📈 Edit Trend", |ui| {
+                            let pts = self.balance_trend_points();
+                            let line = Line::new(pts).name("Edits");
+                            Plot::new("trend")
+                                .height(120.0)
+                                .show_axes([false, true])
+                                .show(ui, |plot_ui| plot_ui.line(line));
+                        });
 
-                    ui.collapsing("🔄 Edit History", |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.add_enabled(self.history_state.can_undo(), egui::Button::new("Undo")).clicked() {
-                                let _ = self.job_tx.send(Job::Undo);
-                            }
-                            if ui.add_enabled(self.history_state.can_redo(), egui::Button::new("Redo")).clicked() {
-                                let _ = self.job_tx.send(Job::Redo);
+                        ui.collapsing("🔄 Edit History", |ui| {
+                            ui.horizontal(|ui| {
+                                if ui.add_enabled(self.history_state.can_undo(), egui::Button::new("Undo")).clicked() {
+                                    let _ = self.job_tx.send(Job::Undo);
+                                }
+                                if ui.add_enabled(self.history_state.can_redo(), egui::Button::new("Redo")).clicked() {
+                                    let _ = self.job_tx.send(Job::Redo);
+                                }
+                            });
+                            let history = self.history_state.get_history();
+                            for (i, rec) in history.iter().enumerate() {
+                                ui.small(format!("[{}] P{} {} → {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
                             }
                         });
-                        let history = self.history_state.get_history();
-                        for (i, rec) in history.iter().enumerate() {
-                            ui.small(format!("[{}] P{} {} → {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
-                        }
-                    });
 
-                    ui.collapsing("🔍 Verification", |ui| {
-                        if self.settings.advanced_mode {
-                            ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
-                        }
-                        if ui.button("Run Full Audit")
-                            .on_hover_text("Render original vs edited at high DPI, perceptual + math diff")
-                            .clicked()
-                        {
-                            let intended_bboxes: Vec<(usize, [f32; 4])> = self
-                                .history_state
-                                .get_history()
-                                .iter()
-                                .map(|r| (r.page, r.bbox))
-                                .collect();
-                            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-                            let _ = self.job_tx.send(Job::Verify {
-                                original: PathBuf::from(&self.input_path),
-                                edited: self.current_pdf_path.clone(),
-                                output_dir: PathBuf::from("audit/verify").join(timestamp),
-                                intended_bboxes,
-                                use_pdfrest: self.settings.use_pdfrest,
-                                pdfrest_key: self.config.pdfrest_api_key.clone(),
-                            });
-                            self.in_flight += 1;
-                        }
-                        if let Some(report) = &self.last_verification {
-                            ui.label(format!(
-                                "Math {} / Visual {:.4}",
-                                if report.math_valid { "✅" } else { "❌" },
-                                report.visual_diff_score
-                            ));
-                        }
-                    });
+                        ui.collapsing("🔍 Verification", |ui| {
+                            if self.settings.advanced_mode {
+                                ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
+                            }
+                            if ui.button("Run Full Audit")
+                                .on_hover_text("Render original vs edited at high DPI, perceptual + math diff")
+                                .clicked()
+                            {
+                                let intended_bboxes: Vec<(usize, [f32; 4])> = self
+                                    .history_state
+                                    .get_history()
+                                    .iter()
+                                    .map(|r| (r.page, r.bbox))
+                                    .collect();
+                                let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+                                let _ = self.job_tx.send(Job::Verify {
+                                    original: PathBuf::from(&self.input_path),
+                                    edited: self.current_pdf_path.clone(),
+                                    output_dir: PathBuf::from("audit/verify").join(timestamp),
+                                    intended_bboxes,
+                                    use_pdfrest: self.settings.use_pdfrest,
+                                    pdfrest_key: self.config.pdfrest_api_key.clone(),
+                                });
+                                self.in_flight += 1;
+                            }
+                            if let Some(report) = &self.last_verification {
+                                ui.label(format!(
+                                    "Math {} / Visual {:.4}",
+                                    if report.math_valid { "✅" } else { "❌" },
+                                    report.visual_diff_score
+                                ));
+                            }
+                        });
 
-                    ui.collapsing("📤 Export", |ui| {
-                        if ui.button("Excel (.xlsx)").clicked() {
-                            self.export_to_excel();
-                        }
-                        if ui.button("Audit JSON").clicked() {
-                            let _ = self.job_tx.send(Job::ExportChangeHistory {
-                                output: PathBuf::from(&self.export_path),
-                            });
-                            self.in_flight += 1;
-                        }
+                        ui.collapsing("📤 Export", |ui| {
+                            if ui.button("Excel (.xlsx)").clicked() {
+                                self.export_to_excel();
+                            }
+                            if ui.button("Audit JSON").clicked() {
+                                let _ = self.job_tx.send(Job::ExportChangeHistory {
+                                    output: PathBuf::from(&self.export_path),
+                                });
+                                self.in_flight += 1;
+                            }
+                        });
                     });
 
                     ui.collapsing("⚙ Settings", |ui| {
@@ -3439,94 +3434,117 @@ impl MyApp {
                 .show(ctx, |ui| {
                     if self.selected_block.is_some() || !self.proposed_changes.is_empty() {
                         egui::Frame::window(ui.style())
-                            .fill(self.settings.theme.palette().panel)
-                            .shadow(ctx.style().visuals.popup_shadow)
+                            .fill(self.settings.theme.palette().panel.linear_multiply(0.95)) // Slight transparency
+                            .shadow(ctx.style().visuals.window_shadow)
                             .rounding(ctx.style().visuals.window_rounding)
-                            .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+                            .inner_margin(egui::Margin::symmetric(20.0, 16.0))
                             .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    if ui.button("🎯 Apply Edit").on_hover_text("Replace the selected text directly").clicked() {
-                                        if let Some(block) = self.selected_block.clone() {
+                                ui.vertical(|ui| {
+                                    // Primary Actions Row
+                                    ui.horizontal(|ui| {
+                                        let apply_btn = ui.add(
+                                            egui::Button::new(
+                                                egui::RichText::new("🎯 Apply Single Edit")
+                                                    .color(self.settings.theme.palette().bg)
+                                            )
+                                            .fill(self.settings.theme.palette().accent)
+                                        );
+                                        
+                                        if apply_btn.on_hover_text("Replace the selected text and instantly verify math + fidelity.").clicked() {
+                                            if let Some(block) = self.selected_block.clone() {
+                                                let input = if self.current_pdf_path.exists() {
+                                                    self.current_pdf_path.clone()
+                                                } else {
+                                                    std::path::PathBuf::from(&self.input_path)
+                                                };
+                                                let edit = crate::engine::workflow::UserEdit {
+                                                    page: self.current_page,
+                                                    line_on_page: 0, // Not strictly needed for standalone manual edit
+                                                    bbox: block.bbox,
+                                                    old_text: block.text.clone(),
+                                                    new_text: self.new_text.clone(),
+                                                    field: crate::engine::workflow::EditField::Other("Manual Edit".into()),
+                                                };
+                                                let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
+                                                    input,
+                                                    output: std::path::PathBuf::from(&self.output_path),
+                                                    edits: vec![edit],
+                                                    deep_font_replication: self.settings.deep_font_replication,
+                                                    max_visual_attempts: 3,
+                                                    visual_threshold: 0.05,
+                                                });
+                                                self.in_flight += 1;
+                                            }
+                                        }
+
+                                        ui.add_space(12.0);
+
+                                        let adjust_btn = ui.add(
+                                            egui::Button::new(
+                                                egui::RichText::new("⚖ Auto-Balance Entire Statement")
+                                                    .color(self.settings.theme.palette().panel)
+                                            )
+                                            .fill(self.settings.theme.palette().success)
+                                        );
+                                        if adjust_btn.on_hover_text("Computes minimal balancing adjustments for the entire statement and applies them automatically.").clicked() {
                                             let input = if self.current_pdf_path.exists() {
                                                 self.current_pdf_path.clone()
                                             } else {
                                                 std::path::PathBuf::from(&self.input_path)
                                             };
-                                            let _ = self.job_tx.send(Job::ApplyChange {
+                                            if input.as_os_str().is_empty() || !input.exists() {
+                                                self.toast(ToastKind::Error, "Open a PDF first.");
+                                            } else {
+                                                let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+                                                    input,
+                                                    output: std::path::PathBuf::from(&self.output_path),
+                                                    auto_apply: true,
+                                                });
+                                                self.in_flight += 1;
+                                                self.status = "Auto-balancing entire statement…".into();
+                                                self.toast(ToastKind::Info, "Auto-balancing entire statement…");
+                                            }
+                                        }
+                                    });
+
+                                    ui.add_space(12.0);
+                                    ui.separator();
+                                    ui.add_space(12.0);
+
+                                    // Secondary Tool Row
+                                    ui.horizontal(|ui| {
+                                        if ui.button("✨ AI Fix Text/Layout").on_hover_text("Use Gemini to automatically fix layout and text discrepancies on this page").clicked() {
+                                            let input = if self.current_pdf_path.exists() {
+                                                self.current_pdf_path.clone()
+                                            } else {
+                                                std::path::PathBuf::from(&self.input_path)
+                                            };
+                                            let _ = self.job_tx.send(Job::AiFixVisualFidelity {
                                                 input,
-                                                output: std::path::PathBuf::from(&self.output_path),
                                                 page: self.current_page,
-                                                bbox: block.bbox,
-                                                new_text: self.new_text.clone(),
-                                                old_text: block.text.clone(),
-                                                description: "Manual edit".into(),
-                                                deep_font_replication: self.settings.deep_font_replication,
                                             });
+                                            self.toast(ToastKind::Info, "Requesting AI Layout Fix…");
                                             self.in_flight += 1;
                                         }
-                                    }
-                                    
-                                    ui.add_space(8.0);
-                                    
-                                    if ui.button("✨ Use AI to fix fidelity").on_hover_text("Fix visual fidelity for the current page").clicked() {
-                                        let input = if self.current_pdf_path.exists() {
-                                            self.current_pdf_path.clone()
-                                        } else {
-                                            std::path::PathBuf::from(&self.input_path)
-                                        };
-                                        let _ = self.job_tx.send(Job::AiFixVisualFidelity {
-                                            input,
-                                            page: self.current_page,
-                                        });
-                                        self.toast(ToastKind::Info, "Requesting AI visual fidelity fix…");
-                                        self.in_flight += 1;
-                                    }
-                                    
-                                    ui.add_space(8.0);
-
-                                    let adjust_btn = ui.add(
-                                        egui::Button::new(
-                                            egui::RichText::new("⚖ Adjust entire bank statement…")
-                                                .color(self.settings.theme.palette().bg)
-                                        )
-                                        .fill(self.settings.theme.palette().accent)
-                                    );
-                                    if adjust_btn.on_hover_text("Runs Document AI + Gemini across the whole statement, computes minimal balancing adjustments, and applies them all.").clicked() {
-                                        let input = if self.current_pdf_path.exists() {
-                                            self.current_pdf_path.clone()
-                                        } else {
-                                            std::path::PathBuf::from(&self.input_path)
-                                        };
-                                        if input.as_os_str().is_empty() || !input.exists() {
-                                            self.toast(ToastKind::Error, "Open a PDF first.");
-                                        } else {
-                                            let _ = self.job_tx.send(Job::BalanceAndApplyAll {
-                                                input,
-                                                output: std::path::PathBuf::from(&self.output_path),
-                                                auto_apply: true,
-                                            });
-                                            self.in_flight += 1;
-                                            self.status = "Adjusting entire statement and applying all edits…".into();
-                                            self.toast(ToastKind::Info, "Adjusting entire statement…");
+                                        
+                                        ui.add_space(8.0);
+                                        
+                                        if ui.button("📅 Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
+                                            self.show_date_adjust_dialog = true;
                                         }
-                                    }
+                                        
+                                        ui.add_space(8.0);
 
-                                    ui.add_space(8.0);
+                                        if ui.button("🔄 Transfer Transactions").on_hover_text("Transfer transactions from another bank statement PDF into this one").clicked() {
+                                            self.show_transfer_dialog = true;
+                                        }
+                                        
+                                        ui.add_space(8.0);
 
-                                    // Transfer Transactions button — always visible in the dock
-                                    if ui.button("🔄 Transfer Transactions").on_hover_text("Transfer transactions from another bank statement PDF into this one").clicked() {
-                                        self.show_transfer_dialog = true;
-                                    }
-
-                                    // Adjust Date Periods button
-                                    if ui.button("📅 Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
-                                        self.show_date_adjust_dialog = true;
-                                    }
-
-                                    // Run Transfer Tests button
-                                    if ui.button("🧪 Test Transfers").on_hover_text("Cross-test transfers between multiple statements").clicked() {
-                                        self.show_transfer_test_dialog = true;
-                                    }
+                                        if ui.button("🧪 Test Transfers").on_hover_text("Cross-test transfers between multiple statements").clicked() {
+                                            self.show_transfer_test_dialog = true;
+                                        }
+                                    });
                                 });
                             });
                     }
