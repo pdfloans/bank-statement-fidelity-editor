@@ -5,35 +5,70 @@ on:
   push:
     tags:
       - 'v*'
+    branches: [main]
 
 jobs:
   build-mac-silicon:
     name: Build Release (Mac Silicon)
-    runs-on: macos-14 # GitHub's native M1 Apple Silicon runner
+    runs-on: macos-14
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          target: aarch64-apple-darwin
+          targets: aarch64-apple-darwin
+          components: rustfmt, clippy
+
+      - name: Ensure Rust components (fallback)
+        run: |
+          rustup component add rustfmt || true
+          rustup target add aarch64-apple-darwin || true
 
       - name: Install Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+
       - name: Install Python dependencies
         run: pip install pymupdf
+
+      - name: Set PYO3_PYTHON
+        run: echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
+
+      - name: Install system dependencies
+        run: |
+          brew install pkg-config || true
+          brew install openssl@3 || true
 
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
 
-      - name: Build Release Binary
-        run: cargo build --release --target aarch64-apple-darwin
+      - name: Build Release Binary (with retries)
+        run: |
+          MAX_ATTEMPTS=5
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "=========================================="
+            echo "Build attempt $ATTEMPT of $MAX_ATTEMPTS"
+            echo "=========================================="
+            if cargo build --release --target aarch64-apple-darwin 2>&1; then
+              echo "Build succeeded on attempt $ATTEMPT!"
+              exit 0
+            fi
+            echo "Build failed on attempt $ATTEMPT."
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Cleaning target and retrying in 10 seconds..."
+              cargo clean 2>/dev/null || true
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          echo "All $MAX_ATTEMPTS build attempts failed."
+          exit 1
 
       - name: Upload Mac Binary Artifact
         uses: actions/upload-artifact@v4
