@@ -252,6 +252,15 @@ impl DocumentAiClient {
         Ok(token_resp.access_token)
     }
 
+    /// Very lightweight test call to verify the configured credentials
+    /// can successfully mint an OAuth token.
+    pub async fn ping(&self) -> Result<(), DocAiError> {
+        // Just attempting to mint/refresh the token proves the credential exists,
+        // is valid JSON, and is cryptographically accepted by Google.
+        let _ = self.get_access_token().await?;
+        Ok(())
+    }
+
     pub async fn parse_entire_statement(
         &self,
         pdf_path: &Path,

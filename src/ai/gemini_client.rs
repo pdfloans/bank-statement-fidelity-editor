@@ -307,6 +307,19 @@ impl GeminiClient {
         }
     }
 
+    /// Very lightweight test call to verify the configured credentials
+    /// (API Key or Vertex Service Account) are valid and authorized to generate content.
+    pub async fn ping(&self) -> Result<(), GeminiError> {
+        let body = json!({
+            "contents": [{ "parts": [{ "text": "ping" }] }],
+            "generationConfig": { "maxOutputTokens": 1 }
+        });
+        
+        // Use the cheapest/fastest model for the ping.
+        let _ = self.post_generate(GEMINI_FLASH_FALLBACK, &body).await?;
+        Ok(())
+    }
+
     pub async fn propose_balance_adjustments(
         &self,
         transactions: &[Transaction],
