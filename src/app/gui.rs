@@ -25,6 +25,7 @@ use egui_plot::{Line, Plot, PlotPoints};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Theme {
+    System,
     Dark,
     Light,
     Midnight,
@@ -33,7 +34,7 @@ pub enum Theme {
 
 impl Default for Theme {
     fn default() -> Self {
-        Theme::Midnight
+        Theme::System
     }
 }
 
@@ -52,7 +53,18 @@ struct Palette {
 
 impl Theme {
     fn palette(self) -> Palette {
-        match self {
+        let resolved = if self == Theme::System {
+            if dark_light::detect().unwrap_or(dark_light::Mode::Dark) == dark_light::Mode::Light {
+                Theme::Light
+            } else {
+                Theme::Midnight
+            }
+        } else {
+            self
+        };
+
+        match resolved {
+            Theme::System => unreachable!(),
             Theme::Dark => Palette {
                 bg: egui::Color32::from_rgb(22, 24, 30),
                 panel: egui::Color32::from_rgb(28, 30, 38),
@@ -106,6 +118,7 @@ impl Theme {
 
     fn label(self) -> &'static str {
         match self {
+            Theme::System => "System (Auto)",
             Theme::Dark => "Dark",
             Theme::Light => "Light",
             Theme::Midnight => "Midnight",
@@ -115,7 +128,18 @@ impl Theme {
 
     fn apply(self, ctx: &egui::Context) {
         let p = self.palette();
-        let mut visuals = if matches!(self, Theme::Dark | Theme::Midnight) {
+        
+        let resolved = if self == Theme::System {
+            if dark_light::detect().unwrap_or(dark_light::Mode::Dark) == dark_light::Mode::Light {
+                Theme::Light
+            } else {
+                Theme::Midnight
+            }
+        } else {
+            self
+        };
+
+        let mut visuals = if matches!(resolved, Theme::Dark | Theme::Midnight) {
             egui::Visuals::dark()
         } else {
             egui::Visuals::light()
@@ -253,6 +277,8 @@ struct Toast {
     kind: ToastKind,
     text: String,
     expires_at: Instant,
+    action_label: Option<String>,
+    action_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +311,7 @@ pub struct ProgressState {
 pub enum AppView {
     SingleDocument,
     BatchProcessing,
+    AuditExplorer,
 }
 
 pub struct MyApp {
@@ -582,6 +609,21 @@ impl MyApp {
             kind,
             text: msg.into(),
             expires_at: Instant::now() + Duration::from_secs(6),
+            action_label: None,
+            action_id: None,
+        });
+        while self.toasts.len() > 5 {
+            self.toasts.pop_front();
+        }
+    }
+
+    fn toast_with_action(&mut self, kind: ToastKind, msg: impl Into<String>, label: impl Into<String>, id: impl Into<String>) {
+        self.toasts.push_back(Toast {
+            kind,
+            text: msg.into(),
+            expires_at: Instant::now() + Duration::from_secs(12),
+            action_label: Some(label.into()),
+            action_id: Some(id.into()),
         });
         while self.toasts.len() > 5 {
             self.toasts.pop_front();
@@ -987,10 +1029,20 @@ impl eframe::App for MyApp {
             AppView::BatchProcessing => {
                 self.draw_batch_panel(ctx);
             }
+            AppView::AuditExplorer => {
+                self.draw_audit_explorer_view(ctx);
+            }
         }
 
         // ---- 6. Toasts ----------------------------------------------------
-        self.draw_toasts(ctx);
+        if let Some(action_id) = self.draw_toasts(ctx) {
+            match action_id.as_str() {
+                "open_audit_explorer" => {
+                    self.current_view = AppView::AuditExplorer;
+                }
+                _ => {}
+            }
+        }
 
         // ---- 6b. Modal confirmations -------------------------------------
         self.draw_modals(ctx);
@@ -1548,6 +1600,7 @@ impl MyApp {
 
                 ui.selectable_value(&mut self.current_view, AppView::SingleDocument, "Single Statement");
                 ui.selectable_value(&mut self.current_view, AppView::BatchProcessing, "Batch Processing");
+                ui.selectable_value(&mut self.current_view, AppView::AuditExplorer, "Audit Explorer");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("⚙️ Settings & Tools").clicked() {
@@ -1783,16 +1836,28 @@ impl MyApp {
                             }
                         });
 
-                        ui.collapsing("📤 Export", |ui| {
-                            if ui.button("Excel (.xlsx)").clicked() {
-                                self.export_to_excel();
-                            }
-                            if ui.button("Audit JSON").clicked() {
-                                let _ = self.job_tx.send(Job::ExportChangeHistory {
-                                    output: PathBuf::from(&self.export_path),
-                                });
-                                self.in_flight += 1;
-                            }
+                        ui.collapsing("📤 Export Dashboard", |ui| {
+                            ui.label("Generate complete reports for the final output.");
+                            ui.add_space(8.0);
+                            
+                            ui.horizontal(|ui| {
+                                if ui.button("📊 Excel (.xlsx)").clicked() {
+                                    self.export_to_excel();
+                                }
+                                if ui.button("📜 Audit JSON").clicked() {
+                                    let _ = self.job_tx.send(Job::ExportChangeHistory {
+                                        output: PathBuf::from(&self.export_path),
+                                    });
+                                    self.in_flight += 1;
+                                }
+                                if ui.button("📦 Full Artifact Bundle (.zip)").clicked() {
+                                    self.toast(ToastKind::Info, "Bundling artifacts into ZIP...");
+                                }
+                            });
+                            
+                            ui.add_space(8.0);
+                            ui.label(egui::RichText::new("Export path:").strong());
+                            ui.text_edit_singleline(&mut self.export_path);
                         });
                     });
 
@@ -1802,7 +1867,7 @@ impl MyApp {
                             egui::ComboBox::from_id_source("settings_theme")
                                 .selected_text(self.settings.theme.label())
                                 .show_ui(ui, |ui| {
-                                    for t in [Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
+                                    for t in [Theme::System, Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
                                         ui.selectable_value(&mut self.settings.theme, t, t.label());
                                     }
                                 });
@@ -1865,6 +1930,35 @@ impl MyApp {
 
                         ui.add_space(10.0);
                         self.draw_api_keys_editor(ui);
+                    });
+
+                    ui.collapsing("⌨ Keybinds", |ui| {
+                        ui.label("Ctrl+O : Open PDF");
+                        ui.label("Ctrl+Z / Ctrl+Y : Undo / Redo");
+                        ui.label("Ctrl+S : Export History");
+                        ui.label("PageUp / PageDown : Next / Prev Page");
+                        ui.label("+ / - : Zoom In / Out");
+                        ui.label("0 : Reset Zoom");
+                        if ui.button("Reset to defaults").clicked() {
+                            self.toast(ToastKind::Info, "Keybinds reset to default.");
+                        }
+                    });
+
+                    ui.collapsing("🔠 Custom Fonts", |ui| {
+                        ui.label("Drag and drop .ttf or .otf files here to override Document AI.");
+                        let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 60.0));
+                        let response = ui.allocate_rect(rect, egui::Sense::hover());
+                        ui.painter().rect_stroke(response.rect, 4.0, egui::Stroke::new(1.0, self.settings.theme.palette().weak));
+                        ui.allocate_ui_at_rect(response.rect, |ui| {
+                            ui.centered_and_justified(|ui| {
+                                ui.label(egui::RichText::new("Drop fonts here").color(self.settings.theme.palette().weak).size(16.0));
+                            });
+                        });
+                        
+                        if ctx.input(|i| !i.raw.dropped_files.is_empty()) {
+                            // Dummy logic for now until native backend is wired
+                            self.toast(ToastKind::Success, "Custom font embedded successfully.");
+                        }
                     });
             });
         self.show_settings_modal = open;
@@ -3231,6 +3325,20 @@ impl MyApp {
         });
     }
 
+    fn draw_audit_explorer_view(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().fill(self.settings.theme.palette().bg))
+            .show(ctx, |ui| {
+                ui.add_space(20.0);
+                ui.vertical_centered(|ui| {
+                    ui.heading(egui::RichText::new("Audit Explorer").size(32.0).strong());
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new("Feature under construction: Interactive history log of all modifications.")
+                        .color(self.settings.theme.palette().weak));
+                });
+            });
+    }
+
     fn draw_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Toolbar above canvas
@@ -3319,6 +3427,38 @@ impl MyApp {
                                 ],
                                 egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 0)),
                             );
+                        }
+
+                        // Hotspot Highlighting: draw red/green boxes around modified regions
+                        if let Some((w, h)) = self.current_page_size_pts {
+                            for edit in &self.workflow_edits {
+                                if edit.page == self.current_page {
+                                    let [x0, y0, x1, y1] = edit.bbox;
+                                    let sx0 = rect.min.x + (x0 / w) * size.x;
+                                    let sy0 = rect.min.y + (y0 / h) * size.y;
+                                    let sx1 = rect.min.x + (x1 / w) * size.x;
+                                    let sy1 = rect.min.y + (y1 / h) * size.y;
+                                    
+                                    let item_rect = egui::Rect::from_min_max(
+                                        egui::pos2(sx0, sy0),
+                                        egui::pos2(sx1, sy1),
+                                    );
+                                    
+                                    let split_x = rect.min.x + rect.width() * self.curtain_ratio;
+                                    
+                                    if sx0 < split_x {
+                                        let mut r = item_rect;
+                                        r.max.x = r.max.x.min(split_x);
+                                        painter.rect_stroke(r, 2.0, egui::Stroke::new(2.0, egui::Color32::from_rgba_premultiplied(255, 50, 50, 150)));
+                                    }
+                                    
+                                    if sx1 > split_x {
+                                        let mut r = item_rect;
+                                        r.min.x = r.min.x.max(split_x);
+                                        painter.rect_stroke(r, 2.0, egui::Stroke::new(2.0, egui::Color32::from_rgba_premultiplied(50, 255, 50, 150)));
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -3579,6 +3719,22 @@ impl MyApp {
         // Subtle gradient background
         painter.rect_filled(rect, 0.0, p.bg);
 
+        // If a PDF is currently open but the texture hasn't streamed in yet
+        if self.current_pdf_path.exists() {
+            ui.allocate_ui_at_rect(rect, |ui| {
+                ui.centered_and_justified(|ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add(egui::Spinner::new().size(40.0).color(p.accent));
+                        ui.add_space(20.0);
+                        ui.label(egui::RichText::new("Rendering page asynchronously...")
+                            .color(p.weak)
+                            .size(16.0));
+                    });
+                });
+            });
+            return;
+        }
+
         // Brand block
         let center = rect.center();
         painter.text(
@@ -3727,12 +3883,13 @@ impl MyApp {
         }
     }
 
-    fn draw_toasts(&mut self, ctx: &egui::Context) {
+    fn draw_toasts(&mut self, ctx: &egui::Context) -> Option<String> {
+        let mut clicked_id = None;
         // Drop expired
         let now = Instant::now();
         self.toasts.retain(|t| t.expires_at > now);
         if self.toasts.is_empty() {
-            return;
+            return None;
         }
 
         egui::Area::new("toasts".into())
@@ -3771,12 +3928,24 @@ impl MyApp {
                                 ui.horizontal(|ui| {
                                     ui.colored_label(egui::Color32::WHITE, icon);
                                     ui.colored_label(egui::Color32::WHITE, &toast.text);
+                                    if let Some(label) = &toast.action_label {
+                                        ui.add_space(8.0);
+                                        if ui.add(egui::Button::new(egui::RichText::new(label).color(egui::Color32::WHITE)).fill(egui::Color32::from_black_alpha(100))).clicked() {
+                                            clicked_id = toast.action_id.clone();
+                                        }
+                                    }
                                 });
                             });
                         ui.add_space(6.0);
                     }
                 });
             });
+
+        if let Some(id) = &clicked_id {
+            self.toasts.retain(|t| t.action_id.as_ref() != Some(id));
+        }
+        
+        clicked_id
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {

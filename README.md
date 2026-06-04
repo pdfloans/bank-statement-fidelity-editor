@@ -11,7 +11,7 @@ A high-fidelity PDF text editor focused on bank statements: replace text and num
 - **Smart Balance Engine.** Runs Document AI over the full PDF, detects mathematical imbalance, and asks Gemini for the minimum cascading adjustment plan. Only the *last* running balance is auto-corrected by default; everything else stays untouched.
 - **Hybrid extraction.** Document AI for semantics, plus geometry providers (per-bank YAML templates, PyMuPDF heuristics, optional Tesseract). Sources are merged with deterministic tiebreak rules.
 - **Verification.** Renders original vs. edited at 300 DPI, computes per-pixel delta + perceptual hash; falls back from pdfRest (Adobe-tier) to local pdfium-render automatically if no key is configured.
-- **Audit log + change history.** Every edit lands in an append-only log file with a snapshot PDF, plus an in-memory undo/redo stack and an autosaved `audit/history.json` so you can resume after a crash.
+- **Audit log + change history.** Every edit lands in an append-only log file with a snapshot PDF, plus an in-memory undo/redo stack and an autosaved `audit/history.json` so you can resume after a crash. The final step of the pipeline automatically merges the generated Audit JSON Report directly as a new page onto the final output PDF.
 - **CLI + GUI parity.** Both interfaces drive the same `Runtime` job loop, so anything you can do in the GUI you can script.
 
 ## What it does not do

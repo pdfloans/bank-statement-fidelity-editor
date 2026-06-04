@@ -318,7 +318,7 @@ impl DocumentAiClient {
             
             let mut attempts = 0;
             let max_attempts = 4;
-            let mut api_key_res = None;
+            let api_key_res;
             loop {
                 attempts += 1;
                 match self.http.post(&url).json(&body).send().await {
@@ -392,7 +392,7 @@ impl DocumentAiClient {
         
         let mut attempts = 0;
         let max_attempts = 4;
-        let mut response = None;
+        let response;
         loop {
             attempts += 1;
             let access_token = self.get_access_token().await?;
