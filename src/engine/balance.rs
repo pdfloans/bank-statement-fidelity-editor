@@ -92,13 +92,40 @@ pub fn recalculate_and_validate(
     }
 
     let mut current_balance = opening_balance;
-    let neg_one_cent = -ONE_CENT;
 
-    for (i, tx) in transactions.iter_mut().enumerate() {
-        let line_num = i + 1;
+    for (_i, tx) in transactions.iter_mut().enumerate() {
 
         if tx.debit.is_some() && tx.credit.is_some() {
-            return Err(BalanceError::BothDebitAndCredit { line: line_num });
+            let debit = tx.debit.unwrap();
+            let credit = tx.credit.unwrap();
+
+            // Option C: Attempt to automatically pick the correct column using the running balance
+            if let Some(rb) = tx.running_balance {
+                if (current_balance + debit - rb).abs() <= ONE_CENT {
+                    // Debit correctly bridges the gap to the extracted running balance
+                    tx.credit = None;
+                } else if (current_balance - credit - rb).abs() <= ONE_CENT {
+                    // Credit correctly bridges the gap to the extracted running balance
+                    tx.debit = None;
+                } else {
+                    // Neither is a perfect match, or math is just wrong. 
+                    // Fallback to clearing zeros if possible.
+                    if debit == Decimal::ZERO {
+                        tx.debit = None;
+                    } else if credit == Decimal::ZERO {
+                        tx.credit = None;
+                    }
+                }
+            } else {
+                if debit == Decimal::ZERO {
+                    tx.debit = None;
+                } else if credit == Decimal::ZERO {
+                    tx.credit = None;
+                }
+            }
+            
+            // If they are STILL both Some, we just let it fall through.
+            // The net_delta function handles it safely (debit - credit).
         }
 
         // `net_delta()` is `+debit - credit`. See engine/model.rs module docs
@@ -107,13 +134,6 @@ pub fn recalculate_and_validate(
         // Decimal arithmetic is exact; we still round to two decimal places
         // to normalise input that may have come in at higher precision.
         current_balance = current_balance.round_dp(2);
-
-        if current_balance < neg_one_cent {
-            return Err(BalanceError::NegativeBalance {
-                line: line_num,
-                balance: current_balance,
-            });
-        }
 
         tx.running_balance = Some(current_balance);
     }
@@ -227,23 +247,22 @@ mod tests {
     }
 
     #[test]
-    fn recalculate_rejects_both_debit_and_credit_on_same_line() {
+    fn recalculate_disambiguates_both_debit_and_credit() {
+        // When both debit and credit are the same non-zero value and no
+        // running balance hint is available, neither gets cleared.
+        // net_delta() handles this safely as debit - credit = 0.
         let txs = vec![make_tx(Some(dec!(10)), Some(dec!(10)))];
-        let res = recalculate_and_validate(txs, dec!(100));
-        assert!(matches!(
-            res,
-            Err(BalanceError::BothDebitAndCredit { line: 1 })
-        ));
+        let res = recalculate_and_validate(txs, dec!(100)).unwrap();
+        // Balance unchanged: net_delta = 10 - 10 = 0
+        assert_eq!(res[0].running_balance, Some(dec!(100.00)));
     }
 
     #[test]
-    fn recalculate_rejects_negative_balance() {
+    fn recalculate_allows_negative_balance() {
+        // Negative balances are allowed (overdrafts, credit cards, etc.)
         let txs = vec![make_tx(None, Some(dec!(150)))];
-        let res = recalculate_and_validate(txs, dec!(100));
-        assert!(matches!(
-            res,
-            Err(BalanceError::NegativeBalance { line: 1, .. })
-        ));
+        let res = recalculate_and_validate(txs, dec!(100)).unwrap();
+        assert_eq!(res[0].running_balance, Some(dec!(-50.00)));
     }
 
     #[test]

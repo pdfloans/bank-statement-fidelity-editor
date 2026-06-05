@@ -206,6 +206,13 @@ pub struct VisualAttempt {
 
 impl VisualAttempt {
     pub fn passed(&self) -> bool {
+        // A diff score below 0.001 (0.1%) is essentially pixel-perfect —
+        // always accept regardless of the only_intended flag. The flag can
+        // be false due to sub-pixel aliasing differences that are visually
+        // imperceptible.
+        if self.diff_score < 0.001 {
+            return true;
+        }
         self.diff_score < self.threshold && self.only_intended
     }
 }

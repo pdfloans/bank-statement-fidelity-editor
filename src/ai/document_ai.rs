@@ -292,6 +292,8 @@ impl DocumentAiClient {
             }
         }
 
+        let real_dims = Self::get_real_page_dims(pdf_path);
+
         let pdf_bytes = std::fs::read(pdf_path)?;
         let base64_pdf = Base64Standard.encode(&pdf_bytes);
         let body = serde_json::json!({
@@ -340,7 +342,7 @@ impl DocumentAiClient {
             match api_key_res.unwrap() {
                 Ok(resp) if resp.status().is_success() => {
                     let result: serde_json::Value = resp.json().await?;
-                    let stmt = Self::parse_response_into_bank_statement(&result)?;
+                    let stmt = Self::parse_response_into_bank_statement(&result, Some(&real_dims))?;
                     if let (Some(c), Some(k)) = (cache.as_ref(), cache_key.as_ref()) {
                         if let Err(e) = c.put(k, &stmt) {
                             tracing::warn!("[doc_ai] cache write failed: {}", e);
@@ -382,7 +384,7 @@ impl DocumentAiClient {
         
         let mut attempts = 0;
         let max_attempts = 4;
-        let response;
+        let final_resp;
         loop {
             attempts += 1;
             let access_token = self.get_access_token().await?;
@@ -397,7 +399,7 @@ impl DocumentAiClient {
                             tokio::time::sleep(delay).await;
                             continue;
                         }
-                    response = Some(Ok(resp));
+                    final_resp = Some(Ok(resp));
                     break;
                 }
                 Err(e) => {
@@ -407,23 +409,23 @@ impl DocumentAiClient {
                         tokio::time::sleep(delay).await;
                         continue;
                     }
-                    response = Some(Err(e));
+                    final_resp = Some(Err(e));
                     break;
                 }
             }
         }
 
-        let response = response.unwrap()?;
+        let final_resp = final_resp.unwrap()?;
 
-        if !response.status().is_success() {
+        if !final_resp.status().is_success() {
             return Err(DocAiError::Api(
-                response.status(),
-                response.text().await.unwrap_or_default(),
+                final_resp.status(),
+                final_resp.text().await.unwrap_or_default(),
             ));
         }
 
-        let result: serde_json::Value = response.json().await?;
-        let stmt = Self::parse_response_into_bank_statement(&result)?;
+        let result: serde_json::Value = final_resp.json().await?;
+        let stmt = Self::parse_response_into_bank_statement(&result, Some(&real_dims))?;
         if let (Some(c), Some(k)) = (cache.as_ref(), cache_key.as_ref()) {
             if let Err(e) = c.put(k, &stmt) {
                 tracing::warn!("[doc_ai] cache write failed: {}", e);
@@ -511,30 +513,79 @@ impl DocumentAiClient {
         Ok(merge_chunk_results(chunked))
     }
 
+    fn get_real_page_dims(pdf_path: &Path) -> std::collections::HashMap<usize, (f32, f32)> {
+        let mut dims = std::collections::HashMap::new();
+        if let Ok(doc) = lopdf::Document::load(pdf_path) {
+            for (i, (_, page_id)) in doc.get_pages().into_iter().enumerate() {
+                if let Ok(page_dict) = doc.get_dictionary(page_id) {
+                    if let Ok(rect) = page_dict.get(b"MediaBox").and_then(lopdf::Object::as_array) {
+                        if rect.len() == 4 {
+                            let get_num = |obj: &lopdf::Object| -> f32 {
+                                match obj {
+                                    lopdf::Object::Real(r) => *r as f32,
+                                    lopdf::Object::Integer(i) => *i as f32,
+                                    _ => 0.0,
+                                }
+                            };
+                            let w = (get_num(&rect[2]) - get_num(&rect[0])).abs();
+                            let h = (get_num(&rect[3]) - get_num(&rect[1])).abs();
+                            dims.insert(i, (w, h));
+                        }
+                    }
+                }
+            }
+        }
+        dims
+    }
+
     fn parse_response_into_bank_statement(
         result: &serde_json::Value,
+        real_page_dims: Option<&std::collections::HashMap<usize, (f32, f32)>>,
     ) -> Result<BankStatement, DocAiError> {
         let pages_node = result["document"]["pages"].as_array();
         let total_pages = pages_node.map_or(0, |p| p.len());
 
         // Build a page-index → (width_pts, height_pts) map. DocAI normalizes
         // bbox vertices in 0..1, so we need page dimensions to convert back
-        // to PDF-points-equivalent units. The `dimension` block has a `unit`
-        // field ("inches", "cm", "points", "pixels"); when missing or "pixels"
-        // we fall back to the raw values which still work for the editor —
-        // the editor consumes whatever unit pdfium-render is using to render
-        // the same page, and as long as both ends agree it's a no-op.
+        // to PyMuPDF points. We must explicitly convert inches/cm/mm into
+        // 72-dpi points, since PyMuPDF works strictly in points.
         let pages_dim: Vec<(f32, f32, String)> = pages_node
             .map(|pages| {
                 pages
                     .iter()
-                    .map(|p| {
-                        let w = p["dimension"]["width"].as_f64().unwrap_or(0.0) as f32;
-                        let h = p["dimension"]["height"].as_f64().unwrap_or(0.0) as f32;
+                    .enumerate()
+                    .map(|(i, p)| {
+                        if let Some(real_dims) = real_page_dims {
+                            if let Some(&(rw, rh)) = real_dims.get(&i) {
+                                return (rw, rh, "points".to_string());
+                            }
+                        }
+                        
+                        let mut w = p["dimension"]["width"].as_f64().unwrap_or(0.0) as f32;
+                        let mut h = p["dimension"]["height"].as_f64().unwrap_or(0.0) as f32;
                         let unit = p["dimension"]["unit"]
                             .as_str()
                             .unwrap_or("")
                             .to_string();
+                            
+                        match unit.as_str() {
+                            "inch" | "inches" => {
+                                w *= 72.0;
+                                h *= 72.0;
+                            }
+                            "cm" => {
+                                w *= 72.0 / 2.54;
+                                h *= 72.0 / 2.54;
+                            }
+                            "mm" => {
+                                w *= 72.0 / 25.4;
+                                h *= 72.0 / 25.4;
+                            }
+                            // If it's already "points" or "pixels" (or missing), assume
+                            // PyMuPDF will align with it (PyMuPDF's default is 72 dpi points).
+                            _ => {}
+                        }
+                        
                         (w, h, unit)
                     })
                     .collect()
@@ -857,6 +908,292 @@ impl DocumentAiClient {
         }
         Ok(())
     }
+
+    // ── Document AI Training & Version Management ────────────────────────
+    //
+    // These methods enable the app to:
+    //   1. List available processor versions (pre-trained + custom)
+    //   2. Deploy/undeploy versions for inference
+    //   3. Trigger training of custom extractors
+    //   4. Evaluate trained models
+    //   5. Poll long-running operations
+
+    fn v1_base_url(&self) -> String {
+        format!(
+            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
+            self.config.location,
+            self.config.project_id,
+            self.config.location,
+            self.config.processor_id,
+        )
+    }
+
+    /// List all processor versions (pre-trained + custom trained).
+    /// Returns the raw JSON for the caller to process.
+    pub async fn list_processor_versions(&self) -> Result<Vec<ProcessorVersionInfo>, DocAiError> {
+        let url = format!("{}/processorVersions", self.v1_base_url());
+        let token = self.get_access_token().await?;
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        let versions = body["processorVersions"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| {
+                        Some(ProcessorVersionInfo {
+                            name: v["name"].as_str()?.to_string(),
+                            display_name: v["displayName"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            state: v["state"].as_str().unwrap_or("UNKNOWN").to_string(),
+                            create_time: v["createTime"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            model_type: if v["googleManaged"].as_bool().unwrap_or(false) {
+                                "google_managed".to_string()
+                            } else {
+                                "custom".to_string()
+                            },
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(versions)
+    }
+
+    /// Deploy a specific processor version for inference.
+    /// Returns the operation name for polling.
+    pub async fn deploy_processor_version(
+        &self,
+        version_id: &str,
+    ) -> Result<String, DocAiError> {
+        let url = format!(
+            "{}/processorVersions/{}:deploy",
+            self.v1_base_url(),
+            version_id
+        );
+        let token = self.get_access_token().await?;
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        Ok(body["name"].as_str().unwrap_or("").to_string())
+    }
+
+    /// Undeploy a processor version to stop hosting charges.
+    pub async fn undeploy_processor_version(
+        &self,
+        version_id: &str,
+    ) -> Result<String, DocAiError> {
+        let url = format!(
+            "{}/processorVersions/{}:undeploy",
+            self.v1_base_url(),
+            version_id
+        );
+        let token = self.get_access_token().await?;
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        Ok(body["name"].as_str().unwrap_or("").to_string())
+    }
+
+    /// Trigger training of a new processor version from labeled data.
+    ///
+    /// `display_name`: Human-readable name for the version (e.g. "AU Bank Statement v1").
+    /// `base_version`: Optional base model to fine-tune from. If None, uses the processor's default.
+    ///
+    /// Returns the long-running operation name for polling.
+    pub async fn train_processor_version(
+        &self,
+        display_name: &str,
+        base_version: Option<&str>,
+    ) -> Result<String, DocAiError> {
+        let url = format!(
+            "{}/processorVersions:train",
+            self.v1_base_url()
+        );
+        let token = self.get_access_token().await?;
+
+        let mut body = serde_json::json!({
+            "processorVersion": {
+                "displayName": display_name,
+            }
+        });
+
+        if let Some(base) = base_version {
+            body["baseProcessorVersion"] = serde_json::json!(base);
+        }
+
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let result: serde_json::Value = resp.json().await?;
+        Ok(result["name"].as_str().unwrap_or("").to_string())
+    }
+
+    /// Evaluate a trained processor version. Returns the operation name.
+    pub async fn evaluate_processor_version(
+        &self,
+        version_id: &str,
+    ) -> Result<String, DocAiError> {
+        let url = format!(
+            "{}/processorVersions/{}:evaluateProcessorVersion",
+            self.v1_base_url(),
+            version_id
+        );
+        let token = self.get_access_token().await?;
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&serde_json::json!({}))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        Ok(body["name"].as_str().unwrap_or("").to_string())
+    }
+
+    /// Poll a long-running operation by name. Returns (done, result_json).
+    pub async fn get_operation(
+        &self,
+        operation_name: &str,
+    ) -> Result<(bool, serde_json::Value), DocAiError> {
+        let url = format!(
+            "https://{}-documentai.googleapis.com/v1/{}",
+            self.config.location,
+            operation_name,
+        );
+        let token = self.get_access_token().await?;
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        let done = body["done"].as_bool().unwrap_or(false);
+        Ok((done, body))
+    }
+
+    /// Set the default processor version to a specific version ID.
+    pub async fn set_default_processor_version(
+        &self,
+        version_id: &str,
+    ) -> Result<String, DocAiError> {
+        let url = format!(
+            "{}:setDefaultProcessorVersion",
+            self.v1_base_url()
+        );
+        let token = self.get_access_token().await?;
+
+        let full_version_name = format!(
+            "projects/{}/locations/{}/processors/{}/processorVersions/{}",
+            self.config.project_id,
+            self.config.location,
+            self.config.processor_id,
+            version_id,
+        );
+
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "defaultProcessorVersion": full_version_name,
+            }))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        Ok(body["name"].as_str().unwrap_or("").to_string())
+    }
+}
+
+/// Metadata for a Document AI processor version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessorVersionInfo {
+    pub name: String,
+    pub display_name: String,
+    pub state: String,
+    pub create_time: String,
+    pub model_type: String,
 }
 
 /// Merge per-chunk parses into one `BankStatement`. Stage 3 / Item #16.
@@ -995,6 +1332,34 @@ fn bbox_from_bounding_poly(
             x1 = x1.max(x);
             y1 = y1.max(y);
         }
+        // `vertices` are in the same unit as the DocAI-reported page
+        // dimension. If pages_dim was sourced from the real PDF (in
+        // points), but DocAI was working at a different DPI, we need to
+        // scale. Detect by checking if the computed extent is much larger
+        // than pages_dim (e.g. 1654 pixels vs 595 points).
+        if let Some((pw, ph, _unit)) = pages_dim.get(page_idx) {
+            let _extent_w = (x1 - x0).max(1.0);
+            let _extent_h = (y1 - y0).max(1.0);
+            // If the raw vertex bbox is wider than the page width in points,
+            // the vertices are in a higher-DPI pixel space. Scale them down.
+            if x1 > *pw * 1.05 || y1 > *ph * 1.05 {
+                // Infer the DPI scale from the raw vertex coordinate range
+                // relative to the real page dimension.
+                let sx = *pw / x1.max(1.0);
+                let sy = *ph / y1.max(1.0);
+                // Use max raw coordinate as a proxy for the full page extent
+                // in pixel space, then scale uniformly.
+                let scale = sx.min(sy);
+                x0 *= scale;
+                y0 *= scale;
+                x1 *= scale;
+                y1 *= scale;
+                tracing::debug!(
+                    "[DocAI] Scaled pixel vertices to points: scale={:.4}, page_pts=({:.0},{:.0})",
+                    scale, pw, ph,
+                );
+            }
+        }
         return Some([x0, y0, x1, y1]);
     }
     None
@@ -1037,7 +1402,7 @@ mod tests {
             }
         }"#;
         let val: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val).unwrap();
+        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val, None).unwrap();
         assert_eq!(stmt.total_pages, 1);
         assert_eq!(
             stmt.transactions.len(),
@@ -1078,7 +1443,7 @@ mod tests {
             }
         }"#;
         let val: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val).unwrap();
+        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val, None).unwrap();
         assert_eq!(stmt.transactions.len(), 1);
         assert_eq!(stmt.transactions[0].debit, Some(f64_to_dec(3.50)));
     }

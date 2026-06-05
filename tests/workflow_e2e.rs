@@ -139,11 +139,12 @@ fn end_to_end_workflow_against_au_statement() {
         .unwrap();
     let preview = drain_until(
         &job_rx,
-        |r| matches!(r, JobResult::WorkflowPreviewBuilt(_) | JobResult::Error { .. }),
+        |r| matches!(r, JobResult::WorkflowPreviewBuilt(_) | JobResult::WorkflowFailed(_) | JobResult::Error { .. }),
         Duration::from_secs(60),
     );
     let preview = match preview {
         Some(JobResult::WorkflowPreviewBuilt(p)) => p,
+        Some(JobResult::WorkflowFailed(f)) => panic!("preview failed (WorkflowFailed): {f:?}"),
         Some(JobResult::Error { message, .. }) => panic!("preview failed: {message}"),
         _ => panic!("preview timed out"),
     };
