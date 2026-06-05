@@ -463,75 +463,7 @@ impl GeminiClient {
         Ok(plan)
     }
 
-    pub async fn detect_docai_version(
-        &self,
-        page_png: &[u8],
-    ) -> Result<String, GeminiError> {
-        use base64::Engine as _;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(page_png);
 
-        let prompt = "You are an expert at analyzing bank statements. Examine this bank statement page and determine the optimal Google Cloud Document AI bank statement parser version to use (v1, v2, v3, v4, or v5) based on its layout and complexity. Return ONLY a JSON object with a single string field 'version' containing your choice (e.g., 'v1').";
-
-        let schema = json!({
-            "type": "object",
-            "properties": {
-                "version": { "type": "string" }
-            },
-            "required": ["version"]
-        });
-
-        let body = json!({
-            "contents": [{
-                "role": "user",
-                "parts": [
-                    { "text": prompt },
-                    {
-                        "inline_data": {
-                            "mime_type": "image/png",
-                            "data": b64,
-                        }
-                    }
-                ]
-            }],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "responseSchema": schema
-            }
-        });
-
-        let response = self.post_generate_pro(&body).await?;
-
-        if !response.status().is_success() {
-            return Err(GeminiError::Api(
-                response.status(),
-                response.text().await.unwrap_or_default(),
-            ));
-        }
-
-        let json_resp: serde_json::Value = response.json().await?;
-        let text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
-            .ok_or_else(|| GeminiError::InvalidResponse("Missing text field".into()))?;
-
-        let parsed: serde_json::Value = serde_json::from_str(text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse: {e}")))?;
-
-        let ver = parsed["version"]
-            .as_str()
-            .unwrap_or("v2")
-            .to_lowercase();
-            
-        let mapped = match ver.as_str() {
-            "v1" => "pretrained-bankstatement-v1.1-2021-08-13",
-            "v2" => "pretrained-bankstatement-v2.0-2021-12-10",
-            "v3" => "pretrained-bankstatement-v3.0-2022-05-16",
-            "v4" => "pretrained-bankstatement-v4.0-2023-07-31",
-            "v5" => "pretrained-bankstatement-v5.0-2023-12-06",
-            _ => "pretrained-bankstatement-v5.0-2023-12-06",
-        };
-        
-        Ok(mapped.to_string())
-    }
 
     /// Ask Gemini to validate that Document AI captured every transaction on
     /// the page and that the resulting numbers are internally consistent.

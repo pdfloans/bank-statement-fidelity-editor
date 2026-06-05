@@ -2683,44 +2683,16 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
 
                             let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => c,
+                                Ok(c) => std::sync::Arc::new(c),
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("Document AI not configured: {e}"))));
                                     return;
                                 }
                             };
 
-                            let mut final_version = version;
-                            if final_version.is_none() {
-                                let _ = res_tx.send(JobResult::Progress { label: "Detecting optimal parser version via Gemini".into(), fraction: 0.1 });
-                                if let Ok(gemini) = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
-                                    let eng_for_render = engine_for_tokio.clone();
-                                    let input_for_render = input.clone();
-                                    if let Ok(Ok(png)) = tokio::task::spawn_blocking(move || {
-                                        eng_for_render.render_page(&input_for_render, 0, 150.0)
-                                    }).await {
-                                        match tokio::time::timeout(std::time::Duration::from_secs(45), gemini.detect_docai_version(&png.png_bytes)).await {
-                                            Ok(Ok(detected)) => {
-                                                tracing::info!("[workflow] Gemini detected optimal parser version: {}", detected);
-                                                final_version = Some(detected);
-                                            }
-                                            _ => {
-                                                tracing::warn!("[workflow] Gemini version detection failed or timed out after 45s. Defaulting to latest v5.0.");
-                                                final_version = Some("pretrained-bankstatement-v5.0-2023-12-06".to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            let final_version = final_version;
+                            let final_version = version;
 
-                            // Stage 3 / Item #16: page count first; if it
-                            // exceeds the processor's online sync cap (15
-                            // pages on v1beta3, the API-key-auth path we
-                            // prefer), chunk via the Python actor and parse
-                            // chunks in parallel. v1 sync allows 30 pages
-                            // but we standardise on 15 because the auth
-                            // cascade may fall back to v1beta3 at any time.
+                            // Stage 3 / Item #16: page count first
                             let page_count = {
                                 let p = input.clone();
                                 tokio::task::spawn_blocking(move || -> usize {
@@ -2743,21 +2715,15 @@ impl Runtime {
                                 .unwrap_or(0)
                             };
 
-                            let stmt = if page_count > 15 {
+                            let mut chunks = vec![];
+                            if page_count > 15 {
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!(
-                                        "Document is {page_count} pages — chunking for Document AI"
-                                    ),
+                                    label: format!("Document is {page_count} pages — chunking for Document AI"),
                                     fraction: 0.3,
                                 });
-                                // Ask the Python actor to chunk.
                                 let chunk_dir = std::path::PathBuf::from("output")
                                     .join("docai_chunks")
-                                    .join(format!(
-                                        "{}-{}",
-                                        chrono::Utc::now().format("%Y%m%d%H%M%S"),
-                                        std::process::id()
-                                    ));
+                                    .join(format!("{}-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"), std::process::id()));
                                 let _ = std::fs::create_dir_all(&chunk_dir);
 
                                 let (tx, rx) = oneshot::channel();
@@ -2769,7 +2735,7 @@ impl Runtime {
                                     },
                                     tx,
                                 ));
-                                let chunks: Vec<(std::path::PathBuf, usize)> = match rx.await {
+                                match rx.await {
                                     Ok(PythonJobResult::Json(json)) => {
                                         #[derive(serde::Deserialize)]
                                         struct ChunkInfo {
@@ -2777,50 +2743,87 @@ impl Runtime {
                                             page_offset: usize,
                                         }
                                         match serde_json::from_str::<Vec<ChunkInfo>>(&json) {
-                                            Ok(items) => items
-                                                .into_iter()
-                                                .map(|c| (std::path::PathBuf::from(c.path), c.page_offset))
-                                                .collect(),
+                                            Ok(items) => {
+                                                chunks = items.into_iter().map(|c| (std::path::PathBuf::from(c.path), c.page_offset)).collect();
+                                            }
                                             Err(e) => {
-                                                let _ = res_tx.send(JobResult::WorkflowFailed(
-                                                    crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk decode: {e}")),
-                                                ));
+                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk decode: {e}"))));
                                                 return;
                                             }
                                         }
                                     }
                                     Ok(PythonJobResult::Error(e)) => {
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(
-                                            crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk failed: {e}")),
-                                        ));
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk failed: {e}"))));
                                         return;
                                     }
                                     _ => {
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(
-                                            crate::engine::workflow::WorkflowFailure::ParseFailed("chunker returned unexpected result".into()),
-                                        ));
-                                        return;
-                                    }
-                                };
-
-                                let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Parsing {} chunks in parallel", chunks.len()),
-                                    fraction: 0.5,
-                                });
-                                match doc_ai.parse_chunked_statement(&chunks, 4, final_version.as_deref()).await {
-                                    Ok(s) => s,
-                                    Err(e) => {
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("chunker returned unexpected result".into())));
                                         return;
                                     }
                                 }
+                            }
+
+                            let versions_to_try: Vec<Option<String>> = if let Some(v) = final_version {
+                                vec![Some(v)]
                             } else {
-                                match doc_ai.parse_entire_statement(&input, final_version.as_deref()).await {
-                                    Ok(s) => s,
-                                    Err(e) => {
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e.to_string())));
-                                        return;
+                                let _ = res_tx.send(JobResult::Progress { label: "Trying ALL parser versions in parallel...".into(), fraction: 0.4 });
+                                vec![
+                                    Some("pretrained-bankstatement-v1.1-2021-08-13".to_string()),
+                                    Some("pretrained-bankstatement-v2.0-2021-12-10".to_string()),
+                                    Some("pretrained-bankstatement-v3.0-2022-05-16".to_string()),
+                                    Some("pretrained-bankstatement-v4.0-2023-07-31".to_string()),
+                                    Some("pretrained-bankstatement-v5.0-2023-12-06".to_string()),
+                                ]
+                            };
+
+                            let mut join_set = tokio::task::JoinSet::new();
+                            
+                            for ver in versions_to_try {
+                                let doc_ai_clone = std::sync::Arc::clone(&doc_ai);
+                                let chunks_clone = chunks.clone();
+                                let input_clone = input.clone();
+                                join_set.spawn(async move {
+                                    if !chunks_clone.is_empty() {
+                                        (ver.clone(), doc_ai_clone.parse_chunked_statement(&chunks_clone, 4, ver.as_deref()).await)
+                                    } else {
+                                        (ver.clone(), doc_ai_clone.parse_entire_statement(&input_clone, ver.as_deref()).await)
                                     }
+                                });
+                            }
+
+                            let mut best_stmt: Option<crate::ai::document_ai::BankStatement> = None;
+                            let mut max_tx_count = 0;
+                            let mut last_error = None;
+
+                            let _ = res_tx.send(JobResult::Progress { label: "Waiting for Document AI parsers...".into(), fraction: 0.6 });
+
+                            while let Some(res) = join_set.join_next().await {
+                                match res {
+                                    Ok((ver_opt, Ok(s))) => {
+                                        let count = s.transactions.len();
+                                        tracing::info!("[workflow] Parser version {:?} yielded {} transactions.", ver_opt, count);
+                                        // Use >= so later versions (v5) overwrite earlier (v1) if tied
+                                        if count >= max_tx_count {
+                                            max_tx_count = count;
+                                            best_stmt = Some(s);
+                                        }
+                                    }
+                                    Ok((ver_opt, Err(e))) => {
+                                        tracing::warn!("[workflow] Parser version {:?} failed: {}", ver_opt, e);
+                                        last_error = Some(e);
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("[workflow] Join task failed: {}", e);
+                                    }
+                                }
+                            }
+
+                            let stmt = match best_stmt {
+                                Some(s) => s,
+                                None => {
+                                    let err_msg = last_error.map(|e| e.to_string()).unwrap_or_else(|| "All parsers failed to return results.".into());
+                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(err_msg)));
+                                    return;
                                 }
                             };
 
