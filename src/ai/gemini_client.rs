@@ -379,7 +379,7 @@ impl GeminiClient {
     /// (API Key or Vertex Service Account) are valid and authorized to generate content.
     pub async fn ping(&self) -> Result<(), GeminiError> {
         let body = json!({
-            "contents": [{ "parts": [{ "text": "ping" }] }],
+            "contents": [{ "role": "user", "parts": [{ "text": "ping" }] }],
             "generationConfig": { "maxOutputTokens": 1 }
         });
         
@@ -437,6 +437,7 @@ impl GeminiClient {
 
         let body = json!({
             "contents": [{
+                "role": "user",
                 "parts": [{ "text": prompt }]
             }],
             "generationConfig": {
@@ -489,6 +490,7 @@ impl GeminiClient {
 
         let body = json!({
             "contents": [{
+                "role": "user",
                 "parts": [
                     { "text": prompt },
                     {
@@ -566,7 +568,7 @@ impl GeminiClient {
         });
 
         let body = json!({
-            "contents": [{ "parts": [{ "text": prompt }] }],
+            "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema
@@ -614,6 +616,7 @@ impl GeminiClient {
 
         let body = json!({
             "contents": [{
+                "role": "user",
                 "parts": [{ "text": prompt }]
             }],
             "generationConfig": {
@@ -707,6 +710,7 @@ impl GeminiClient {
 
         let body = json!({
             "contents": [{
+                "role": "user",
                 "parts": [
                     { "text": prompt },
                     {
@@ -812,6 +816,7 @@ impl GeminiClient {
 
         let body = json!({
             "contents": [{
+                "role": "user",
                 "parts": [{ "text": prompt }]
             }],
             "generationConfig": {
@@ -900,6 +905,7 @@ impl GeminiClient {
 
         let body = json!({
             "contents": [{
+                "role": "user",
                 "parts": [{ "text": prompt }]
             }],
             "generationConfig": {
@@ -1119,6 +1125,7 @@ mod tests {
 
         let body = json!({
             "contents": [{
+                "role": "user",
                 "parts": [{ "text": "prompt" }]
             }],
             "generationConfig": {
