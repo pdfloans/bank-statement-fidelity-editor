@@ -22,12 +22,22 @@ impl PdfEngine for MuPdfEngine {
     }
 
     fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
-        let pdfium = Pdfium::new(
-            Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-                .or_else(|_| Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(".")))
-                .or_else(|_| Pdfium::bind_to_system_library())
-                .map_err(|e| EngineError::LoadFailed(format!("Pdfium library not found: {e}")))?
-        );
+        tracing::info!("[pdfium] render_page called: {:?} page={} dpi={}", path, page, dpi);
+        let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+            .or_else(|e| {
+                tracing::warn!("[pdfium] bind_to_library(./) failed: {e}, trying '.'");
+                Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("."))
+            })
+            .or_else(|e| {
+                tracing::warn!("[pdfium] bind_to_library(.) failed: {e}, trying system");
+                Pdfium::bind_to_system_library()
+            })
+            .map_err(|e| {
+                tracing::error!("[pdfium] all binding attempts failed: {e}");
+                EngineError::LoadFailed(format!("Pdfium library not found: {e}"))
+            })?;
+        tracing::info!("[pdfium] library bound successfully");
+        let pdfium = Pdfium::new(bindings);
         let doc = pdfium
             .load_pdf_from_file(path, None)
             .map_err(|e| EngineError::LoadFailed(e.to_string()))?;
