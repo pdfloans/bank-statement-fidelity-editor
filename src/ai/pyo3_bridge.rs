@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyModule, PyTuple};
+use pyo3::types::{PyDict, PyModule};
 
 pub struct PyEngine {
     module: Py<PyModule>,
@@ -19,7 +19,7 @@ impl PyEngine {
             // var if set, (2) ./python relative to cwd, (3) the module's own
             // file path resolved at compile time. Each one's added only if
             // it actually exists.
-            let sys = py.import_bound("sys").map_err(|e| e.to_string())?;
+            let sys = py.import("sys").map_err(|e| e.to_string())?;
             let path = sys.getattr("path").map_err(|e| e.to_string())?;
             let path_list = path
                 .downcast::<pyo3::types::PyList>()
@@ -40,9 +40,10 @@ impl PyEngine {
             }
 
             let module =
-                PyModule::new_bound(py, "pymupdf_pro_integration").map_err(|e| e.to_string())?;
+                PyModule::new(py, "pymupdf_pro_integration").map_err(|e| e.to_string())?;
 
-            py.run_bound(py_code, Some(&module.dict()), None)
+            let c_code = std::ffi::CString::new(py_code).map_err(|e| e.to_string())?;
+            py.run(&c_code, Some(&module.dict()), None)
                 .map_err(|e| e.to_string())?;
 
             Ok(Self {
@@ -66,7 +67,7 @@ impl PyEngine {
             .map_err(|e| e.to_string())?;
         let result = func.call1(py, args).map_err(|e| e.to_string())?;
 
-        let json = py.import_bound("json").map_err(|e| e.to_string())?;
+        let json = py.import("json").map_err(|e| e.to_string())?;
         let dumps = json.getattr("dumps").map_err(|e| e.to_string())?;
         let json_str: String = dumps
             .call1((result,))
@@ -118,7 +119,7 @@ impl PyEngine {
                 .module
                 .getattr(py, "replace_text_in_rect")
                 .map_err(|e| e.to_string())?;
-            let kwargs = PyDict::new_bound(py);
+            let kwargs = PyDict::new(py);
             kwargs
                 .set_item("pdf_path", pdf_path)
                 .map_err(|e| e.to_string())?;
@@ -148,7 +149,7 @@ impl PyEngine {
             // when the embedded font subset can't render the new text. We
             // surface that as a structured error string so the runtime can
             // decide whether to invoke deep font replication.
-            let result = func.call_bound(py, (), Some(&kwargs));
+            let result = func.call(py, (), Some(&kwargs));
             match result {
                 Ok(obj) => {
                     // Read .get("method") for a friendly suffix in the warning.
@@ -255,7 +256,7 @@ impl PyEngine {
         font_path: Option<&str>,
     ) -> Result<String, String> {
         Python::with_gil(|py| {
-            let json_mod = py.import_bound("json").map_err(|e| e.to_string())?;
+            let json_mod = py.import("json").map_err(|e| e.to_string())?;
             let loads = json_mod.getattr("loads").map_err(|e| e.to_string())?;
             let edits_obj = loads.call1((edits_json,)).map_err(|e| e.to_string())?;
 
@@ -263,7 +264,7 @@ impl PyEngine {
                 .module
                 .getattr(py, "apply_many_edits")
                 .map_err(|e| e.to_string())?;
-            let kwargs = PyDict::new_bound(py);
+            let kwargs = PyDict::new(py);
             kwargs
                 .set_item("pdf_path", pdf_path)
                 .map_err(|e| e.to_string())?;
@@ -277,7 +278,7 @@ impl PyEngine {
                 kwargs.set_item("font_path", fp).map_err(|e| e.to_string())?;
             }
 
-            let result = func.call_bound(py, (), Some(&kwargs));
+            let result = func.call(py, (), Some(&kwargs));
             match result {
                 Ok(obj) => {
                     let dumps = json_mod.getattr("dumps").map_err(|e| e.to_string())?;
@@ -381,7 +382,7 @@ impl PyEngine {
     /// Force Python garbage collection.
     /// Stage 2 Memory Management: explicit collection to prevent OOM in batch processing.
     pub fn garbage_collect() {
-        if let Err(e) = Python::with_gil(|py| py.run_bound("import gc; gc.collect()", None, None)) {
+        if let Err(e) = Python::with_gil(|py| py.run(c"import gc; gc.collect()", None, None)) {
             tracing::warn!("Failed to run Python GC: {}", e);
         }
     }

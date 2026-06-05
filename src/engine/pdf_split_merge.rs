@@ -50,8 +50,7 @@ pub fn split_pdf(
         std::fs::create_dir_all(out_dir)?;
     }
 
-    let mut idx = 0;
-    for start in (0..total_pages).step_by(max_pages) {
+    for (idx, start) in (0..total_pages).step_by(max_pages).enumerate() {
         let end = (start + max_pages).min(total_pages);
         let count = end - start;
 
@@ -86,7 +85,6 @@ pub fn split_pdf(
             page_offset: start,
             page_count: count,
         });
-        idx += 1;
     }
 
     Ok(segments)

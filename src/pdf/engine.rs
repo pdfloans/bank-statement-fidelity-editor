@@ -158,6 +158,7 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
     ///
     /// Engines that can't enumerate text blocks (e.g. the mupdf path) just
     /// fall through to `apply_change` without the guard.
+    #[allow(clippy::too_many_arguments)]
     fn apply_change_guarded(
         &self,
         input: &Path,

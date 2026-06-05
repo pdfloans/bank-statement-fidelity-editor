@@ -317,6 +317,7 @@ pub async fn verify_edit(
 /// which pages were actually edited and can avoid re-rendering the rest.
 ///
 /// `only_pages = None` is identical to `verify_edit`.
+#[allow(clippy::too_many_arguments)]
 pub async fn verify_edit_pages(
     original: &Path,
     edited: &Path,
@@ -348,6 +349,7 @@ pub async fn verify_edit_pages(
 /// uses this to widen the mask on retries, accommodating sub-pixel baseline
 /// shifts that would otherwise keep flagging "intended-only = false" forever.
 /// Capped at 12pt is the loop's responsibility, not this function's.
+#[allow(clippy::too_many_arguments)]
 pub async fn verify_edit_pages_with_padding(
     original: &Path,
     edited: &Path,
@@ -397,7 +399,10 @@ pub async fn verify_edit_pages_with_padding(
         }
     }
 
-    let pdfium = Pdfium::default();
+    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+        .or_else(|_| Pdfium::bind_to_system_library())
+        .map_err(|e| VerificationError::PdfiumLoad(format!("Failed to bind pdfium: {e}")))?;
+    let pdfium = Pdfium::new(bindings);
     let original_doc = pdfium
         .load_pdf_from_file(original, None)
         .map_err(|e| VerificationError::PdfiumLoad(e.to_string()))?;

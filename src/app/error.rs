@@ -26,7 +26,7 @@ pub enum AppError {
 
 impl AppError {
     /// Parses string errors back into AppError for autofix interception
-    pub fn from_str(msg: &str) -> Option<Self> {
+    pub fn parse_msg(msg: &str) -> Option<Self> {
         let lower = msg.to_lowercase();
         if lower.contains("api_key_invalid") || lower.contains("api key") || lower.contains("document ai configuration") {
             Some(Self::ApiConfigMissing(msg.to_string()))

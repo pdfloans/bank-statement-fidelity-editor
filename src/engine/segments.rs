@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// A single edit requested by the user in global document coordinates.
@@ -226,7 +226,7 @@ impl SegmentManager {
     /// original source file is never written by `split_pdf` (it only reads
     /// `src_path` and writes into the temp `out_dir`), so it is left unmodified
     /// at its original path (Requirement 12.3).
-    pub fn prepare(&self, src_path: &PathBuf, max_pages: usize) -> Result<SegmentMap, crate::engine::pdf_split_merge::SplitMergeError> {
+    pub fn prepare(&self, src_path: &Path, max_pages: usize) -> Result<SegmentMap, crate::engine::pdf_split_merge::SplitMergeError> {
         let segments = match crate::engine::pdf_split_merge::split_pdf(src_path, self.temp_path(), max_pages) {
             Ok(segments) => segments,
             Err(e) => {
@@ -253,7 +253,7 @@ impl SegmentManager {
             .collect();
         Ok(SegmentMap::new(
             infos,
-            src_path.clone(),
+            src_path.to_path_buf(),
             self.temp_path().to_path_buf(),
             max_pages,
         ))
@@ -299,7 +299,7 @@ impl SegmentManager {
         &self,
         map: &SegmentMap,
         edits: Vec<GlobalEdit>,
-        output_path: &PathBuf,
+        output_path: &Path,
         mut apply_fn: F,
     ) -> Result<MergeReport, crate::engine::pdf_split_merge::SplitMergeError>
     where
@@ -326,7 +326,7 @@ impl SegmentManager {
 
         let merged_pages = crate::engine::pdf_split_merge::merge_pdfs(&final_paths, output_path)?;
         Ok(MergeReport {
-            final_path: output_path.clone(),
+            final_path: output_path.to_path_buf(),
             merged_pages,
             segments_edited,
             warnings: Vec::new(),

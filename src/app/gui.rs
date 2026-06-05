@@ -23,8 +23,9 @@ use egui_plot::{Line, Plot, PlotPoints};
 // Theme palette (Catppuccin-inspired) + helpers
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
+    #[default]
     System,
     Dark,
     Light,
@@ -32,11 +33,7 @@ pub enum Theme {
     Solarized,
 }
 
-impl Default for Theme {
-    fn default() -> Self {
-        Theme::System
-    }
-}
+
 
 struct Palette {
     bg: egui::Color32,
@@ -621,6 +618,7 @@ impl MyApp {
         }
     }
 
+    #[allow(dead_code)]
     fn toast_with_action(&mut self, kind: ToastKind, msg: impl Into<String>, label: impl Into<String>, id: impl Into<String>) {
         self.toasts.push_back(Toast {
             kind,
@@ -787,13 +785,13 @@ impl eframe::App for MyApp {
                 .show(ctx, |ui| {
                     ui.label(&p.label);
                     let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
-                    let mut text = format!("{}%", pct);
+                    let mut text = format!("{pct}%");
                     
                     if p.fraction > 0.0 {
                         let elapsed = p.started_at.elapsed().as_secs_f32();
                         let eta = (elapsed / p.fraction) * (1.0 - p.fraction);
                         if eta > 0.0 && eta.is_finite() {
-                            text = format!("{}% (ETA: {:.0}s)", pct, eta);
+                            text = format!("{pct}% (ETA: {eta:.0}s)");
                         }
                     }
                     
@@ -1041,11 +1039,8 @@ impl eframe::App for MyApp {
 
         // ---- 6. Toasts ----------------------------------------------------
         if let Some(action_id) = self.draw_toasts(ctx) {
-            match action_id.as_str() {
-                "open_audit_explorer" => {
-                    self.current_view = AppView::AuditExplorer;
-                }
-                _ => {}
+            if action_id == "open_audit_explorer" {
+                self.current_view = AppView::AuditExplorer;
             }
         }
 
@@ -1266,7 +1261,7 @@ impl MyApp {
                 self.toast(ToastKind::Error, format!("[{job_label}] {message}"));
                 
                 // Autofix interception
-                if let Some(err) = crate::app::error::AppError::from_str(&message) {
+                if let Some(err) = crate::app::error::AppError::parse_msg(&message) {
                     if err.suggested_action().is_some() {
                         self.pending_autofix = Some(err);
                     }
@@ -1395,30 +1390,27 @@ impl MyApp {
                         format!("Parse failed: {s}")
                     }
                     crate::engine::workflow::WorkflowFailure::Incomplete { score, .. } => {
-                        format!("Parse rejected as incomplete (score {:.2})", score)
+                        format!("Parse rejected as incomplete (score {score:.2})")
                     }
                     crate::engine::workflow::WorkflowFailure::FontCoverageFailed {
                         missing_chars,
                     } => {
-                        format!("Font coverage missing chars: {:?}", missing_chars)
+                        format!("Font coverage missing chars: {missing_chars:?}")
                     }
                     crate::engine::workflow::WorkflowFailure::VisualNotConverged {
                         last_score,
                         attempts,
                     } => {
-                        format!(
-                            "Visual didn't converge after {attempts} tries; last diff {:.4}",
-                            last_score
-                        )
+                        format!("Visual didn't converge after {attempts} tries; last diff {last_score:.4}")
                     }
                     crate::engine::workflow::WorkflowFailure::FinalMathInvalid { imbalance } => {
-                        format!("Final math invalid: imbalance ${:.2}", imbalance)
+                        format!("Final math invalid: imbalance ${imbalance:.2}")
                     }
                     crate::engine::workflow::WorkflowFailure::Other(s) => s.clone(),
                 };
                 
                 // Autofix interception
-                if let Some(err) = crate::app::error::AppError::from_str(&msg) {
+                if let Some(err) = crate::app::error::AppError::parse_msg(&msg) {
                     if err.suggested_action().is_some() {
                         self.pending_autofix = Some(err);
                     }
@@ -1438,12 +1430,12 @@ impl MyApp {
                 });
                 let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
             }
-            JobResult::JobCompleted(label) => {
-                self.in_flight = self.in_flight.checked_sub(1).unwrap_or(0);
+            JobResult::JobCompleted(_label) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
             }
             JobResult::TransferComplete(result) => {
                 self.progress = None;
-                self.in_flight = self.in_flight.checked_sub(1).unwrap_or(0);
+                self.in_flight = self.in_flight.saturating_sub(1);
                 let msg = format!(
                     "✅ Transfer complete: {} txns → output, math: {}, visual: {} ({:.1}s)",
                     result.source_tx_count,
@@ -1460,8 +1452,8 @@ impl MyApp {
                     self.open_pdf(output_path);
 
                     // Auto-load the source PDF as a side-by-side (Curtain Diff) layer
-                    if !self.transfer_source_path.is_empty() {
-                        if self
+                    if !self.transfer_source_path.is_empty()
+                        && self
                             .job_tx
                             .send(Job::RenderPage {
                                 path: std::path::PathBuf::from(self.transfer_source_path.clone()),
@@ -1470,18 +1462,17 @@ impl MyApp {
                                 tag: "after".to_string(), // Reuse 'after' texture slot for side-by-side
                             })
                             .is_ok()
-                        {
-                            self.in_flight += 1;
-                            self.show_curtain = true;
-                            self.curtain_ratio = 0.5; // Split 50/50 down the middle
-                            self.toast(ToastKind::Info, "Loading side-by-side comparison...");
-                        }
+                    {
+                        self.in_flight += 1;
+                        self.show_curtain = true;
+                        self.curtain_ratio = 0.5; // Split 50/50 down the middle
+                        self.toast(ToastKind::Info, "Loading side-by-side comparison...");
                     }
                 }
             }
             JobResult::TransferFailed { stage, message } => {
                 self.progress = None;
-                let msg = format!("Transfer failed at {}: {}", stage, message);
+                let msg = format!("Transfer failed at {stage}: {message}");
                 self.status = msg.clone();
                 self.toast(ToastKind::Error, &msg);
 
@@ -1545,7 +1536,7 @@ impl MyApp {
                         {
                             match dotenvy::from_path(&path) {
                                 Ok(_) => self.toast(ToastKind::Success, "Loaded .env file successfully"),
-                                Err(e) => self.toast(ToastKind::Error, format!("Failed to load .env: {}", e)),
+                                Err(e) => self.toast(ToastKind::Error, format!("Failed to load .env: {e}")),
                             }
                         }
                         ui.close_menu();
@@ -1639,16 +1630,14 @@ impl MyApp {
                     if ui.button("⚙️ Settings & Tools").clicked() {
                         self.show_settings_modal = true;
                     }
-                    if self.settings.advanced_mode {
-                        if ui.button("🌐 Remote Engine").clicked() {
-                            // Stub for remote engine connect
-                            if self.settings.remote_engine_url.is_empty() {
-                                self.settings.remote_engine_url = "https://engine.example.com".to_string();
-                                self.toast(ToastKind::Info, "Configured remote engine (stub)");
-                            } else {
-                                self.settings.remote_engine_url.clear();
-                                self.toast(ToastKind::Info, "Disconnected from remote engine");
-                            }
+                    if self.settings.advanced_mode && ui.button("🌐 Remote Engine").clicked() {
+                        // Stub for remote engine connect
+                        if self.settings.remote_engine_url.is_empty() {
+                            self.settings.remote_engine_url = "https://engine.example.com".to_string();
+                            self.toast(ToastKind::Info, "Configured remote engine (stub)");
+                        } else {
+                            self.settings.remote_engine_url.clear();
+                            self.toast(ToastKind::Info, "Disconnected from remote engine");
                         }
                     }
                     
@@ -2113,10 +2102,10 @@ impl MyApp {
         let stem = input.file_stem().unwrap_or_default().to_string_lossy();
         let ext = input.extension().unwrap_or_default().to_string_lossy();
         let parent = input.parent().unwrap_or(std::path::Path::new("."));
-        let mut candidate = parent.join(format!("{}_{}.{}", stem, suffix, ext));
+        let mut candidate = parent.join(format!("{stem}_{suffix}.{ext}"));
         let mut counter = 1u32;
         while candidate.exists() {
-            candidate = parent.join(format!("{}_{}_{}.{}", stem, suffix, counter, ext));
+            candidate = parent.join(format!("{stem}_{suffix}_{counter}.{ext}"));
             counter += 1;
         }
         candidate
@@ -2247,7 +2236,7 @@ impl MyApp {
                     for (i, option) in confirmation.options.iter().enumerate() {
                         let is_default = confirmation.default_answer == Some(i);
                         let label = if is_default {
-                            format!("→ {} (recommended)", option)
+                            format!("→ {option} (recommended)")
                         } else {
                             option.clone()
                         };
@@ -2315,7 +2304,7 @@ impl MyApp {
 
                 let n = self.transfer_test_paths.len();
                 let pairs = if n >= 2 { n * (n - 1) } else { 0 };
-                ui.label(format!("{} statements → {} test pairs", n, pairs));
+                ui.label(format!("{n} statements → {pairs} test pairs"));
 
                 ui.add_space(8.0);
                 ui.separator();
@@ -2328,15 +2317,15 @@ impl MyApp {
                     if btn.clicked() {
                         let statements: Vec<std::path::PathBuf> = self.transfer_test_paths
                             .iter()
-                            .map(|p| std::path::PathBuf::from(p))
+                            .map(std::path::PathBuf::from)
                             .collect();
                         let _ = self.job_tx.send(Job::RunTransferTests {
                             statements,
                             max_iterations: 3,
                         });
                         self.in_flight += 1;
-                        self.status = format!("Running {} transfer tests…", pairs);
-                        self.toast(ToastKind::Info, &format!("Running {} transfer test pairs…", pairs));
+                        self.status = format!("Running {pairs} transfer tests…");
+                        self.toast(ToastKind::Info, format!("Running {pairs} transfer test pairs…"));
                     }
 
                     if ui.button("Close").clicked() {
@@ -2369,7 +2358,7 @@ impl MyApp {
                             if !r.corrections.is_empty() {
                                 for c in &r.corrections {
                                     ui.label(
-                                        egui::RichText::new(format!("  ↳ {}", c))
+                                        egui::RichText::new(format!("  ↳ {c}"))
                                             .small()
                                             .color(self.settings.theme.palette().weak),
                                     );
@@ -2531,11 +2520,11 @@ impl MyApp {
                 ui.label("Validation Results:");
                 match docai_res {
                     Ok(_) => ui.label(egui::RichText::new("✓ Document AI: OK").color(egui::Color32::LIGHT_GREEN)),
-                    Err(e) => ui.label(egui::RichText::new(format!("✗ Document AI: {}", e)).color(egui::Color32::LIGHT_RED)),
+                    Err(e) => ui.label(egui::RichText::new(format!("✗ Document AI: {e}")).color(egui::Color32::LIGHT_RED)),
                 };
                 match gemini_res {
                     Ok(_) => ui.label(egui::RichText::new("✓ Gemini: OK").color(egui::Color32::LIGHT_GREEN)),
-                    Err(e) => ui.label(egui::RichText::new(format!("✗ Gemini: {}", e)).color(egui::Color32::LIGHT_RED)),
+                    Err(e) => ui.label(egui::RichText::new(format!("✗ Gemini: {e}")).color(egui::Color32::LIGHT_RED)),
                 };
             }
             if self.edit_gemini_use_vertex {
@@ -2774,6 +2763,7 @@ impl MyApp {
 
     /// Render a single money cell (debit/credit/balance). Red border when
     /// the typed text isn't parseable.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn money_cell(
         row: &mut egui_extras::TableRow<'_, '_>,
         buffers: &mut std::collections::HashMap<
@@ -3611,7 +3601,7 @@ impl MyApp {
                                                 prow.page + 1,
                                                 prow.line_on_page + 1
                                             ));
-                                            ui.label(format!("{} → {}", old_str, new_str));
+                                            ui.label(format!("{old_str} → {new_str}"));
                                         },
                                     );
                                 }
@@ -4002,17 +3992,13 @@ impl MyApp {
                 output: PathBuf::from(&self.export_path),
             });
         }
-        if input.key_pressed(egui::Key::PageDown) || input.key_pressed(egui::Key::ArrowRight) {
-            if self.current_page + 1 < self.total_pages {
-                self.current_page += 1;
-                self.request_render("current");
-            }
+        if (input.key_pressed(egui::Key::PageDown) || input.key_pressed(egui::Key::ArrowRight)) && self.current_page + 1 < self.total_pages {
+            self.current_page += 1;
+            self.request_render("current");
         }
-        if input.key_pressed(egui::Key::PageUp) || input.key_pressed(egui::Key::ArrowLeft) {
-            if self.current_page > 0 {
-                self.current_page -= 1;
-                self.request_render("current");
-            }
+        if (input.key_pressed(egui::Key::PageUp) || input.key_pressed(egui::Key::ArrowLeft)) && self.current_page > 0 {
+            self.current_page -= 1;
+            self.request_render("current");
         }
         if input.key_pressed(egui::Key::Plus) || input.key_pressed(egui::Key::Equals) {
             self.zoom_factor = (self.zoom_factor * 1.15).clamp(0.1, 5.0);

@@ -3,24 +3,24 @@
 //! Stages (each gated by user action in the GUI):
 //!
 //! 1. `Parse`        — Document AI extracts a [`BankStatement`]; Gemini does a
-//!                     completeness check ("did the parser capture all the rows
-//!                     visible on the page?"). The result is a
-//!                     [`ParseValidation`].
+//!    completeness check ("did the parser capture all the rows
+//!    visible on the page?"). The result is a
+//!    [`ParseValidation`].
 //! 2. `Edit`         — user edits any number of values. The app holds a
-//!                     [`Vec<UserEdit>`] until they request a preview.
+//!    [`Vec<UserEdit>`] until they request a preview.
 //! 3. `Preview`      — recompute every running balance from the user's edits,
-//!                     produce a [`BalancePreview`] with a per-row diff and a
-//!                     final imbalance number.
+//!    produce a [`BalancePreview`] with a per-row diff and a
+//!    final imbalance number.
 //! 4. `Render`       — for each accepted edit, call into the existing
-//!                     `apply_change` path which already does
-//!                     binary-level / supplied-font / structured-failure.
+//!    `apply_change` path which already does
+//!    binary-level / supplied-font / structured-failure.
 //! 5. `Validate`     — compare the rendered output to the page rendered with
-//!                     target values overlaid. If the perceptual diff is
-//!                     above a threshold the stage retries with
-//!                     `tolerance_pixels` widened up to `max_attempts`.
+//!    target values overlaid. If the perceptual diff is
+//!    above a threshold the stage retries with
+//!    `tolerance_pixels` widened up to `max_attempts`.
 //! 6. `FinalParse`   — re-run Document AI on the rendered output and verify
-//!                     all amounts, balances and the running ledger are
-//!                     mathematically consistent.
+//!    all amounts, balances and the running ledger are
+//!    mathematically consistent.
 //!
 //! Each stage is a pure data transformation; the runtime owns the I/O
 //! (network, files, Python actor). This lets the lib tests cover the

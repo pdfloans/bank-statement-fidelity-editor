@@ -5,6 +5,12 @@ use std::path::Path;
 #[derive(Debug)]
 pub struct MuPdfEngine;
 
+impl Default for MuPdfEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MuPdfEngine {
     pub fn new() -> Self {
         Self

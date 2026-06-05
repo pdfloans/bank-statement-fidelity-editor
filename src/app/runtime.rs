@@ -423,13 +423,12 @@ pub enum JobResult {
 
 impl JobResult {
     pub fn is_terminal(&self) -> bool {
-        match self {
+        !matches!(self,
             Self::Progress { .. }
             | Self::WorkflowStageChanged { .. }
             | Self::WorkflowParseValidated { .. }
-            | Self::FontCascadeUsed(_) => false,
-            _ => true,
-        }
+            | Self::FontCascadeUsed(_)
+        )
     }
 }
 
@@ -451,6 +450,7 @@ impl TerminalTracker {
         }))
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn send(&self, res: JobResult) -> Result<(), std::sync::mpsc::SendError<JobResult>> {
         if res.is_terminal() {
             self.0.terminal_sent.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -837,7 +837,7 @@ impl Runtime {
                             use crate::engine::transfer::*;
 
                             let started_at = std::time::Instant::now();
-                            let mut corrections_applied = 0usize;
+                            let _corrections_applied = 0usize;
 
                             // Construct AI clients from config
                             let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
@@ -1076,9 +1076,7 @@ impl Runtime {
                                     });
                                 }
 
-                                let total_txns = mapped.len();
-                                let mut edits_skipped_no_target = 0usize;
-                                let mut edits_skipped_no_bbox = 0usize;
+                                let _total_txns = mapped.len();
                                 let mut actually_edited_bboxes: Vec<(usize, [f32; 4])> = Vec::new();
                                 let mut batch_edits: Vec<serde_json::Value> = Vec::new();
 
@@ -1093,7 +1091,6 @@ impl Runtime {
                                                 "[TRANSFER] No target transaction at page={} line={} for mapping {}",
                                                 tx.target_page, tx.target_line, i
                                             );
-                                            edits_skipped_no_target += 1;
                                         }
                                         Some(target) => {
                                             let fields: Vec<(&str, Option<[f32; 4]>, String)> = vec![
@@ -1105,7 +1102,7 @@ impl Runtime {
                                             ];
 
                                             let mut any_field_written = false;
-                                            for (field_name, field_bbox, field_text) in &fields {
+                                            for (_field_name, field_bbox, field_text) in &fields {
                                                 if field_text.is_empty() { continue; }
                                                 if let Some(bbox) = field_bbox {
                                                     batch_edits.push(serde_json::json!({
@@ -1132,8 +1129,6 @@ impl Runtime {
                                                         "new_text": new_text.clone(),
                                                     }));
                                                     actually_edited_bboxes.push((tx.target_page, bbox));
-                                                } else {
-                                                    edits_skipped_no_bbox += 1;
                                                 }
                                             }
                                         }
@@ -1186,7 +1181,7 @@ impl Runtime {
                                 if !fallback_fonts_used.is_empty() && font_override_path.is_none() && attempt < max_retries {
                                     tracing::warn!("[TRANSFER] PyMuPDF used fallback fonts on pages {:?}. Synthesizing font...", fallback_fonts_used);
                                     let _ = res_tx.send(JobResult::Progress {
-                                        label: format!("(Attempt {}) Synthesizing precise missing glyphs...", attempt),
+                                        label: format!("(Attempt {attempt}) Synthesizing precise missing glyphs..."),
                                         fraction: 0.55,
                                     });
                                     let (rtx, rrx) = tokio::sync::oneshot::channel();
@@ -1217,7 +1212,7 @@ impl Runtime {
                                 tracing::info!("[TRANSFER] Stage 6: Visual fidelity verification");
 
                                 let intended_bboxes: Vec<(usize, [f32; 4])> = actually_edited_bboxes;
-                                let math_input_txns: Vec<crate::engine::model::Transaction> = mapped.iter().enumerate().map(|(_i, m)| {
+                                let math_input_txns: Vec<crate::engine::model::Transaction> = mapped.iter().map(|m| {
                                     crate::engine::model::Transaction {
                                         page: m.target_page,
                                         line_on_page: m.target_line,
@@ -1280,7 +1275,7 @@ impl Runtime {
                                 if (vision_anomaly || !visual_verified) && attempt < max_retries {
                                     tracing::warn!("[TRANSFER] Visual check failed (anomaly or strict threshold). Attempting font synthesis for retry.");
                                     let _ = res_tx.send(JobResult::Progress {
-                                        label: format!("(Attempt {}) Adapting font metrics to Gemini Vision anomaly...", attempt),
+                                        label: format!("(Attempt {attempt}) Adapting font metrics to Gemini Vision anomaly..."),
                                         fraction: 0.75,
                                     });
                                     let (rtx, rrx) = tokio::sync::oneshot::channel();
@@ -1323,20 +1318,20 @@ impl Runtime {
                                             }
                                             Ok((_, Some(msg))) => {
                                                 math_imbalance = rust_decimal_macros::dec!(0.01);
-                                                math_err_msg = format!("Math mismatch: {}", msg);
+                                                math_err_msg = format!("Math mismatch: {msg}");
                                                 tracing::warn!("[TRANSFER] {}", math_err_msg);
                                                 total_corrections += 1;
                                             }
                                             Err(e) => {
                                                 math_imbalance = rust_decimal_macros::dec!(0.01);
-                                                math_err_msg = format!("Balance engine error: {}", e);
+                                                math_err_msg = format!("Balance engine error: {e}");
                                                 tracing::warn!("[TRANSFER] {}", math_err_msg);
                                             }
                                         }
                                     }
                                     Err(e) => {
                                         math_imbalance = rust_decimal_macros::dec!(0.01);
-                                        math_err_msg = format!("Re-parse failed: {}", e);
+                                        math_err_msg = format!("Re-parse failed: {e}");
                                         tracing::warn!("[TRANSFER] {}", math_err_msg);
                                     }
                                 }
@@ -1680,10 +1675,7 @@ impl Runtime {
                                     crate::engine::transfer::recompute_running_balances(opening, &mut mapped);
 
                                     // Verify math
-                                    let math_ok = match gemini.verify_transfer_math(&mapped, opening).await {
-                                        Ok(ok) => ok,
-                                        Err(_) => false,
-                                    };
+                                    let math_ok = gemini.verify_transfer_math(&mapped, opening).await.unwrap_or_default();
 
                                     final_math_ok = math_ok;
                                     final_visual_score = 0.0; // would need render for real score
@@ -2635,7 +2627,15 @@ impl Runtime {
                                 let p = input.clone();
                                 tokio::task::spawn_blocking(move || -> usize {
                                     use pdfium_render::prelude::Pdfium;
-                                    let pdfium = Pdfium::default();
+                                    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+                                        .or_else(|_| Pdfium::bind_to_system_library());
+                                    let pdfium = match bindings {
+                                        Ok(b) => Pdfium::new(b),
+                                        Err(e) => {
+                                            tracing::error!("Failed to bind Pdfium: {}", e);
+                                            return 0;
+                                        }
+                                    };
                                     pdfium
                                         .load_pdf_from_file(&p, None)
                                         .map(|d| d.pages().len() as usize)
@@ -3667,7 +3667,7 @@ impl Runtime {
                                 // Build observations from the user's edits.
                                 let observations: Vec<(String, [f32; 4])> = edits_for_learn
                                     .iter()
-                                    .filter_map(|e| {
+                                    .map(|e| {
                                         let field_name = match e.field {
                                             crate::engine::workflow::EditField::Date => "date",
                                             crate::engine::workflow::EditField::Description => "description",
@@ -3675,7 +3675,7 @@ impl Runtime {
                                             crate::engine::workflow::EditField::Credit => "credit",
                                             crate::engine::workflow::EditField::RunningBalance => "balance",
                                         };
-                                        Some((field_name.to_string(), e.bbox))
+                                        (field_name.to_string(), e.bbox)
                                     })
                                     .collect();
 

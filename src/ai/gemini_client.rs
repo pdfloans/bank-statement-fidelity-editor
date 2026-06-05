@@ -216,7 +216,7 @@ impl GeminiClient {
                 let base_url = format!("https://{location}-aiplatform.googleapis.com");
                 Ok(Self {
                     api_key: String::new(),
-                    http: Client::new(),
+                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
                     base_url,
                     auth: GeminiAuth::Vertex {
                         project_id: doc_ai.project_id,
@@ -229,7 +229,7 @@ impl GeminiClient {
                 let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
                 Ok(Self {
                     api_key,
-                    http: Client::new(),
+                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
                     base_url: "https://generativelanguage.googleapis.com".into(),
                     auth: GeminiAuth::ApiKey,
                 })
@@ -294,13 +294,11 @@ impl GeminiClient {
             match req.send().await {
                 Ok(resp) => {
                     let status = resp.status();
-                    if status.is_server_error() || status == 429 {
-                        if attempts < max_attempts {
-                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
-                            tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
-                            tokio::time::sleep(delay).await;
-                            continue;
-                        }
+                    if (status.is_server_error() || status == 429) && attempts < max_attempts {
+                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                        tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
                     }
                     return Ok(resp);
                 }
@@ -361,7 +359,7 @@ impl GeminiClient {
         );
 
         // Tier 3: flash, last resort.
-        Ok(self.post_generate(GEMINI_FLASH_FALLBACK, body).await?)
+        self.post_generate(GEMINI_FLASH_FALLBACK, body).await
     }
 
     // Internal method for testing
@@ -369,7 +367,7 @@ impl GeminiClient {
     fn with_base_url(api_key: String, base_url: String) -> Self {
         Self {
             api_key,
-            http: Client::new(),
+            http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
             base_url,
             auth: GeminiAuth::ApiKey,
         }
@@ -461,7 +459,7 @@ impl GeminiClient {
             .ok_or_else(|| GeminiError::InvalidResponse("Missing or invalid text field".into()))?;
 
         let mut plan: GeminiBalancePlan = serde_json::from_str(plan_text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {}", e)))?;
+            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {e}")))?;
         plan.validate()?;
 
         if plan.confidence < 0.7 {
@@ -522,7 +520,7 @@ impl GeminiClient {
             .ok_or_else(|| GeminiError::InvalidResponse("Missing text field".into()))?;
 
         let parsed: serde_json::Value = serde_json::from_str(text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse: {}", e)))?;
+            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse: {e}")))?;
 
         parsed["version"]
             .as_str()
@@ -587,7 +585,7 @@ impl GeminiClient {
             .as_str()
             .ok_or_else(|| GeminiError::InvalidResponse("Missing or invalid text field".into()))?;
         let mut report: GeminiCompletenessReport = serde_json::from_str(plan_text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {}", e)))?;
+            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {e}")))?;
         report.validate()?;
         Ok(report)
     }
@@ -596,14 +594,15 @@ impl GeminiClient {
     pub async fn verify_statement_mathematics(
         &self,
         transactions_json: &str,
+        opening: f64,
     ) -> Result<bool, GeminiError> {
         let prompt = format!(
             "You are a forensic accountant. You must double-check the mathematics of the following \
              bank statement transactions. Specifically, you must ensure that:\n\
              Opening Balance + Sum of Credits - Sum of Debits = Closing Balance.\n\n\
-             Transactions (JSON format):\n{}\n\n\
-             Respond in JSON with a single boolean field `is_mathematically_sound`.",
-            transactions_json
+             Opening Balance: {opening}\n\n\
+             Transactions (JSON format):\n{transactions_json}\n\n\
+             Respond in JSON with a single boolean field `is_mathematically_sound`."
         );
 
         let schema = json!({
@@ -742,7 +741,7 @@ impl GeminiClient {
             .as_str()
             .ok_or_else(|| GeminiError::InvalidResponse("Missing vision text field".into()))?;
         let mut report: GeminiVisionReport = serde_json::from_str(report_text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("vision JSON parse: {}", e)))?;
+            .map_err(|e| GeminiError::InvalidResponse(format!("vision JSON parse: {e}")))?;
         report.validate()?;
         Ok(report)
     }
@@ -779,7 +778,7 @@ impl GeminiClient {
         );
 
         if let Some(hint) = correction_hint {
-            prompt.push_str(&format!("\n\nCRITICAL CORRECTION HINT from previous failed attempt:\n{}\n\nPlease adjust your plan to resolve this error.", hint));
+            prompt.push_str(&format!("\n\nCRITICAL CORRECTION HINT from previous failed attempt:\n{hint}\n\nPlease adjust your plan to resolve this error."));
         }
 
         let schema = json!({
@@ -840,7 +839,7 @@ impl GeminiClient {
             .ok_or_else(|| GeminiError::InvalidResponse("Missing transfer plan text".into()))?;
 
         let plan: crate::engine::transfer::TransferPlan = serde_json::from_str(plan_text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("Transfer plan JSON parse: {}", e)))?;
+            .map_err(|e| GeminiError::InvalidResponse(format!("Transfer plan JSON parse: {e}")))?;
 
         if plan.confidence < 0.5 {
             return Err(GeminiError::LowConfidence(plan.confidence));
@@ -929,7 +928,7 @@ impl GeminiClient {
             .ok_or_else(|| GeminiError::InvalidResponse("Missing math verification text".into()))?;
 
         let parsed: serde_json::Value = serde_json::from_str(text)
-            .map_err(|e| GeminiError::InvalidResponse(format!("Math verify JSON: {}", e)))?;
+            .map_err(|e| GeminiError::InvalidResponse(format!("Math verify JSON: {e}")))?;
 
         Ok(parsed["math_valid"].as_bool().unwrap_or(false))
     }
@@ -958,12 +957,12 @@ fn mint_gcp_access_token(
         // reqwest::blocking::Client internally spawns a tokio runtime,
         // which panics if we're already inside one. Detect and work around.
         match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
+            Ok(_handle) => {
                 // We're inside a tokio runtime — use the async client via block_in_place.
                 // We return a thin wrapper that uses the async client synchronously.
                 None // signal to use async path below
             }
-            Err(_) => Some(reqwest::blocking::Client::new()),
+            Err(_) => Some(reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default()),
         }
     };
 
@@ -985,7 +984,7 @@ fn mint_gcp_access_token(
             tokio::task::block_in_place(|| {
                 let handle = tokio::runtime::Handle::current();
                 handle.block_on(async {
-                    let client = reqwest::Client::new();
+                    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default();
                     let resp = client
                         .post(url)
                         .form(form)

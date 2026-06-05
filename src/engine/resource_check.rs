@@ -33,8 +33,8 @@
 //!     2. the page *declares* content (`/Contents`) but **none** of the
 //!        referenced content streams resolve, so there is no drawable content
 //!        stream at all.
-//!   A page that simply has no `/Contents` entry is a legal blank page and is
-//!   therefore renderable (not fatal).
+//!        A page that simply has no `/Contents` entry is a legal blank page and is
+//!        therefore renderable (not fatal).
 //!
 //! This is a deliberate, documented approximation. The caller (Fidelity_Guard,
 //! wired in task 12.1) may layer an optional `pdfium-render` probe on top, but
