@@ -472,7 +472,7 @@ impl MyApp {
         Self {
             input_path: input_path.clone(),
             output_path: "output/edited.pdf".to_string(),
-            current_pdf_path: PathBuf::from(&input_path),
+            current_pdf_path: PathBuf::new(),
             previous_pdf_path: None,
             export_path: "audit/history.json".to_string(),
             current_page: 0,

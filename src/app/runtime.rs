@@ -1496,14 +1496,29 @@ impl Runtime {
                         };
 
                         tokio::task::spawn_blocking(move || {
-                            match eng.render_page(&actual_path, actual_page, dpi) {
-                                Ok(rendered) => {
+                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                eng.render_page(&actual_path, actual_page, dpi)
+                            }));
+                            match result {
+                                Ok(Ok(rendered)) => {
                                     let _ = res_tx.send(JobResult::PageRendered { 
                                         png_bytes: rendered.png_bytes, page, dpi, tag, width_pts: rendered.width_pts, height_pts: rendered.height_pts 
                                     });
                                 }
-                                Err(e) => {
+                                Ok(Err(e)) => {
+                                    tracing::error!("[render_page] engine error: {}", e);
                                     let _ = res_tx.send(JobResult::Error { job_label: "render_page".into(), message: e.to_string() });
+                                }
+                                Err(panic_info) => {
+                                    let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                                        s.to_string()
+                                    } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                                        s.clone()
+                                    } else {
+                                        "render_page panicked".to_string()
+                                    };
+                                    tracing::error!("[render_page] panic: {}", msg);
+                                    let _ = res_tx.send(JobResult::Error { job_label: "render_page".into(), message: format!("Render panic: {msg}") });
                                 }
                             }
                         });
