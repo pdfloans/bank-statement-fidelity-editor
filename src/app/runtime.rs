@@ -3832,9 +3832,18 @@ impl Runtime {
 
                                 // We reach here when:
                                 //   - perceptual diff did NOT pass (attempt_state.passed() == false)
-                                //   - but vision check was OK → broke out of the inner loop
-                                // This means the render is close but not perfect. Increment
-                                // attempt and retry, or bail if we've exhausted attempts.
+                                // Early bail-out: if the score is very high (>0.30)
+                                // after 2+ attempts, the document has a structural
+                                // rendering issue that won't improve with retries.
+                                // Bail early to prevent OOM on large multi-page docs.
+                                if attempt >= 2 && last_score > 0.30 {
+                                    tracing::warn!(
+                                        "[workflow] Visual diff {:.4} after {} attempts — structural issue detected. \
+                                         Accepting early to prevent memory exhaustion. Manual review required.",
+                                        last_score, attempt
+                                    );
+                                    break;
+                                }
                                 if attempt >= max_visual_attempts {
                                     // Exhausted all attempts. Accept with appropriate
                                     // logging level based on severity.
@@ -3850,10 +3859,6 @@ impl Runtime {
                                             attempt, last_score
                                         );
                                     } else {
-                                        // High visual diff (like Westpac Business 0.547).
-                                        // Still produce the output and let the final math
-                                        // check + user review decide. A hard failure here
-                                        // would prevent the user from ever seeing the result.
                                         tracing::warn!(
                                             "[workflow] Accepting render after {} attempts with HIGH visual diff score {:.4}. \
                                              The output may have visual artifacts — manual review strongly recommended.",
