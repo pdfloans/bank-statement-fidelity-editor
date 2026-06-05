@@ -1018,11 +1018,12 @@ impl Runtime {
                                 let mut actual_pages_removed = 0usize;
 
                                 if !transfer_plan.pages_to_clone.is_empty() {
+                                    let temp_path = output_pdf.with_extension("cloned.pdf");
                                     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
                                     let _ = py_tx.send((
                                         PythonJob::ClonePages {
                                             pdf_path: output_pdf.to_string_lossy().to_string(),
-                                            output_path: output_pdf.to_string_lossy().to_string(),
+                                            output_path: temp_path.to_string_lossy().to_string(),
                                             page_indices: transfer_plan.pages_to_clone.clone(),
                                         },
                                         reply_tx,
@@ -1032,6 +1033,7 @@ impl Runtime {
                                             if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
                                                 if res["success"].as_bool().unwrap_or(false) {
                                                     actual_pages_added = res["cloned"].as_u64().unwrap_or(0) as usize;
+                                                    let _ = std::fs::rename(&temp_path, &output_pdf);
                                                 }
                                             }
                                             tracing::info!("[TRANSFER] Cloned {} pages", actual_pages_added);
@@ -1041,11 +1043,12 @@ impl Runtime {
                                 }
 
                                 if !transfer_plan.pages_to_remove.is_empty() {
+                                    let temp_path = output_pdf.with_extension("removed.pdf");
                                     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
                                     let _ = py_tx.send((
                                         PythonJob::RemovePages {
                                             pdf_path: output_pdf.to_string_lossy().to_string(),
-                                            output_path: output_pdf.to_string_lossy().to_string(),
+                                            output_path: temp_path.to_string_lossy().to_string(),
                                             page_indices: transfer_plan.pages_to_remove.clone(),
                                         },
                                         reply_tx,
@@ -1055,6 +1058,7 @@ impl Runtime {
                                             if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
                                                 if res["success"].as_bool().unwrap_or(false) {
                                                     actual_pages_removed = res["removed"].as_u64().unwrap_or(0) as usize;
+                                                    let _ = std::fs::rename(&temp_path, &output_pdf);
                                                 }
                                             }
                                             tracing::info!("[TRANSFER] Removed {} pages", actual_pages_removed);
@@ -1081,6 +1085,21 @@ impl Runtime {
                                 let mut batch_edits: Vec<serde_json::Value> = Vec::new();
 
                                 for (i, tx) in mapped.iter().enumerate() {
+                                    let mut adjusted_page = tx.target_page;
+                                    for &c in transfer_plan.pages_to_clone.iter().rev() {
+                                        if tx.target_page > c as usize {
+                                            adjusted_page += 1;
+                                        }
+                                    }
+                                    for &r in transfer_plan.pages_to_remove.iter().rev() {
+                                        if adjusted_page > r as usize {
+                                            adjusted_page = adjusted_page.saturating_sub(1);
+                                        } else if adjusted_page == r as usize {
+                                            // The target page was removed, skip edits for this transaction
+                                            continue;
+                                        }
+                                    }
+
                                     let target_tx = target_by_page
                                         .get(&tx.target_page)
                                         .and_then(|page_txns| page_txns.get(tx.target_line));
@@ -1106,11 +1125,11 @@ impl Runtime {
                                                 if field_text.is_empty() { continue; }
                                                 if let Some(bbox) = field_bbox {
                                                     batch_edits.push(serde_json::json!({
-                                                        "page": tx.target_page,
+                                                        "page": adjusted_page,
                                                         "rect": bbox,
                                                         "new_text": field_text.clone(),
                                                     }));
-                                                    actually_edited_bboxes.push((tx.target_page, *bbox));
+                                                    actually_edited_bboxes.push((adjusted_page, *bbox));
                                                     any_field_written = true;
                                                 }
                                             }
@@ -1124,11 +1143,11 @@ impl Runtime {
                                                         tx.running_balance,
                                                     );
                                                     batch_edits.push(serde_json::json!({
-                                                        "page": tx.target_page,
+                                                        "page": adjusted_page,
                                                         "rect": bbox,
                                                         "new_text": new_text.clone(),
                                                     }));
-                                                    actually_edited_bboxes.push((tx.target_page, bbox));
+                                                    actually_edited_bboxes.push((adjusted_page, bbox));
                                                 }
                                             }
                                         }
@@ -1140,35 +1159,108 @@ impl Runtime {
                                 let mut fallback_fonts_used = Vec::new();
                                 if total_edits > 0 {
                                     tracing::info!("[TRANSFER] Applying batch of {} text edits", total_edits);
-                                    let edits_json = serde_json::to_string(&batch_edits).unwrap_or_default();
-                                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                                    let _ = py_tx.send((
-                                        PythonJob::ApplyManyEdits {
-                                            pdf_path: output_pdf.to_string_lossy().to_string(),
-                                            output_path: output_pdf.to_string_lossy().to_string(),
-                                            edits_json,
-                                            font_path: font_override_path.clone(),
-                                        },
-                                        reply_tx,
-                                    ));
+                                    
+                                    let mut output_pages = 0;
+                                    if let Ok(doc) = lopdf::Document::load(&output_pdf) {
+                                        output_pages = doc.get_pages().len();
+                                    }
 
-                                    match reply_rx.await {
-                                        Ok(PythonJobResult::Json(json_str)) => {
-                                            if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                                                if res["success"].as_bool().unwrap_or(false) {
-                                                    edits_applied = res["applied"].as_u64().unwrap_or(0) as usize;
-                                                    if let Some(flags) = res["review_flags"].as_array() {
-                                                        for f in flags {
-                                                            if let Some(pg) = f.as_u64() {
-                                                                fallback_fonts_used.push(pg as usize);
+                                    if output_pages > 3 {
+                                        tracing::info!("[TRANSFER] Document has {} pages (> 3), chunking for Pro engine", output_pages);
+                                        let temp_mgr = crate::engine::segments::SegmentManager::new().unwrap();
+                                        if let Ok(map) = temp_mgr.prepare(&output_pdf, 3) {
+                                            let mut edits_by_seg: std::collections::BTreeMap<usize, Vec<serde_json::Value>> = std::collections::BTreeMap::new();
+                                            for edit in &batch_edits {
+                                                let global_page = edit["page"].as_u64().unwrap_or(0) as usize;
+                                                if let Some((seg_idx, local_page)) = map.resolve(global_page) {
+                                                    let mut new_edit = edit.clone();
+                                                    new_edit["page"] = serde_json::json!(local_page);
+                                                    edits_by_seg.entry(seg_idx).or_default().push(new_edit);
+                                                }
+                                            }
+
+                                            let mut final_paths = Vec::new();
+                                            for (i, seg) in map.segments.iter().enumerate() {
+                                                let seg_edits = edits_by_seg.get(&i).cloned().unwrap_or_default();
+                                                if !seg_edits.is_empty() {
+                                                    let edited_path = temp_mgr.temp_path().join(format!("segment_{i:03}_edited.pdf"));
+                                                    let edits_json = serde_json::to_string(&seg_edits).unwrap_or_default();
+                                                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                                    let _ = py_tx.send((
+                                                        PythonJob::ApplyManyEdits {
+                                                            pdf_path: seg.path.to_string_lossy().to_string(),
+                                                            output_path: edited_path.to_string_lossy().to_string(),
+                                                            edits_json,
+                                                            font_path: font_override_path.clone(),
+                                                        },
+                                                        reply_tx,
+                                                    ));
+                                                    match reply_rx.await {
+                                                        Ok(PythonJobResult::Json(json_str)) => {
+                                                            if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                                                if res["success"].as_bool().unwrap_or(false) {
+                                                                    edits_applied += res["applied"].as_u64().unwrap_or(0) as usize;
+                                                                    if let Some(flags) = res["review_flags"].as_array() {
+                                                                        for f in flags {
+                                                                            if let Some(pg) = f.as_u64() {
+                                                                                if let Some(gp) = map.to_global(i, pg as usize) {
+                                                                                    fallback_fonts_used.push(gp);
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            final_paths.push(edited_path);
+                                                        }
+                                                        _ => {
+                                                            tracing::warn!("[TRANSFER] Batch edit failed on segment {}, pushing unedited", i);
+                                                            final_paths.push(seg.path.clone());
+                                                        }
+                                                    }
+                                                } else {
+                                                    final_paths.push(seg.path.clone());
+                                                }
+                                            }
+
+                                            if let Err(e) = crate::engine::pdf_split_merge::merge_pdfs(&final_paths, &output_pdf) {
+                                                tracing::error!("[TRANSFER] Failed to merge segments: {}", e);
+                                            }
+                                        } else {
+                                            tracing::error!("[TRANSFER] Failed to prepare document segments for chunking");
+                                        }
+                                    } else {
+                                        let edits_json = serde_json::to_string(&batch_edits).unwrap_or_default();
+                                        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                        let _ = py_tx.send((
+                                            PythonJob::ApplyManyEdits {
+                                                pdf_path: output_pdf.to_string_lossy().to_string(),
+                                                output_path: output_pdf.with_extension("temp.pdf").to_string_lossy().to_string(),
+                                                edits_json,
+                                                font_path: font_override_path.clone(),
+                                            },
+                                            reply_tx,
+                                        ));
+
+                                        match reply_rx.await {
+                                            Ok(PythonJobResult::Json(json_str)) => {
+                                                if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                                    if res["success"].as_bool().unwrap_or(false) {
+                                                        edits_applied = res["applied"].as_u64().unwrap_or(0) as usize;
+                                                        if let Some(flags) = res["review_flags"].as_array() {
+                                                            for f in flags {
+                                                                if let Some(pg) = f.as_u64() {
+                                                                    fallback_fonts_used.push(pg as usize);
+                                                                }
                                                             }
                                                         }
+                                                        let _ = std::fs::rename(output_pdf.with_extension("temp.pdf"), &output_pdf);
                                                     }
                                                 }
                                             }
+                                            Ok(PythonJobResult::Error(e)) => tracing::error!("[TRANSFER] Batch edit failed: {}", e),
+                                            _ => tracing::error!("[TRANSFER] Batch edit failed with unexpected result"),
                                         }
-                                        Ok(PythonJobResult::Error(e)) => tracing::error!("[TRANSFER] Batch edit failed: {}", e),
-                                        _ => tracing::error!("[TRANSFER] Batch edit failed with unexpected result"),
                                     }
                                 }
 
@@ -2607,9 +2699,15 @@ impl Runtime {
                                     if let Ok(Ok(png)) = tokio::task::spawn_blocking(move || {
                                         eng_for_render.render_page(&input_for_render, 0, 150.0)
                                     }).await {
-                                        if let Ok(detected) = gemini.detect_docai_version(&png.png_bytes).await {
-                                            tracing::info!("[workflow] Gemini detected optimal parser version: {}", detected);
-                                            final_version = Some(detected);
+                                        match tokio::time::timeout(std::time::Duration::from_secs(45), gemini.detect_docai_version(&png.png_bytes)).await {
+                                            Ok(Ok(detected)) => {
+                                                tracing::info!("[workflow] Gemini detected optimal parser version: {}", detected);
+                                                final_version = Some(detected);
+                                            }
+                                            _ => {
+                                                tracing::warn!("[workflow] Gemini version detection failed or timed out after 45s. Defaulting to latest v5.0.");
+                                                final_version = Some("pretrained-bankstatement-v5.0-2023-12-06".to_string());
+                                            }
                                         }
                                     }
                                 }

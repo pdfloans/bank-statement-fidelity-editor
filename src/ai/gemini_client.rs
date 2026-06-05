@@ -216,7 +216,7 @@ impl GeminiClient {
                 let base_url = format!("https://{location}-aiplatform.googleapis.com");
                 Ok(Self {
                     api_key: String::new(),
-                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    http: Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                     base_url,
                     auth: GeminiAuth::Vertex {
                         project_id: doc_ai.project_id,
@@ -229,7 +229,7 @@ impl GeminiClient {
                 let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
                 Ok(Self {
                     api_key,
-                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    http: Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
                     base_url: "https://generativelanguage.googleapis.com".into(),
                     auth: GeminiAuth::ApiKey,
                 })
@@ -367,7 +367,7 @@ impl GeminiClient {
     fn with_base_url(api_key: String, base_url: String) -> Self {
         Self {
             api_key,
-            http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+            http: Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
             base_url,
             auth: GeminiAuth::ApiKey,
         }
@@ -528,12 +528,12 @@ impl GeminiClient {
             .to_lowercase();
             
         let mapped = match ver.as_str() {
-            "v1" => "pretrained-bank-statement-v1.0-2022-08-31",
-            "v2" => "pretrained-bank-statement-v1.2-2022-11-10",
-            "v3" => "pretrained-bank-statement-v1.3-2023-07-28",
-            "v4" => "pretrained-bank-statement-v1.4-2024-03-12",
-            "v5" => "pretrained-bank-statement-v1.5-2024-09-20",
-            _ => "pretrained-bank-statement-v1.2-2022-11-10",
+            "v1" => "pretrained-bankstatement-v1.1-2021-08-13",
+            "v2" => "pretrained-bankstatement-v2.0-2021-12-10",
+            "v3" => "pretrained-bankstatement-v3.0-2022-05-16",
+            "v4" => "pretrained-bankstatement-v4.0-2023-07-31",
+            "v5" => "pretrained-bankstatement-v5.0-2023-12-06",
+            _ => "pretrained-bankstatement-v5.0-2023-12-06",
         };
         
         Ok(mapped.to_string())
@@ -973,7 +973,7 @@ fn mint_gcp_access_token(
                 // We return a thin wrapper that uses the async client synchronously.
                 None // signal to use async path below
             }
-            Err(_) => Some(reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default()),
+            Err(_) => Some(reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default()),
         }
     };
 
@@ -995,7 +995,7 @@ fn mint_gcp_access_token(
             tokio::task::block_in_place(|| {
                 let handle = tokio::runtime::Handle::current();
                 handle.block_on(async {
-                    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default();
+                    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default();
                     let resp = client
                         .post(url)
                         .form(form)

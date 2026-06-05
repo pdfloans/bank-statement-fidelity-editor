@@ -96,7 +96,7 @@ impl DocumentAiClient {
         Ok(Self {
             config: doc_ai,
             token_cache: Mutex::new(None),
-            http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+            http: Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
         })
     }
 
@@ -111,16 +111,6 @@ impl DocumentAiClient {
         }
     }
 
-    fn process_url_v1(&self, version: Option<&str>) -> String {
-        let base = format!(
-            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
-            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
-        );
-        match version {
-            Some(v) => format!("{base}/processorVersions/{v}:process"),
-            None => format!("{base}:process"),
-        }
-    }
 
     async fn get_access_token(&self) -> Result<String, DocAiError> {
         let now = SystemTime::now()
@@ -387,8 +377,8 @@ impl DocumentAiClient {
             ));
         }
 
-        let url = self.process_url_v1(version);
-        tracing::debug!("[doc_ai] using v1 OAuth (ADC or service-account)");
+        let url = self.process_url_v1beta3(version);
+        tracing::debug!("[doc_ai] using v1beta3 OAuth (ADC or service-account)");
         
         let mut attempts = 0;
         let max_attempts = 4;
