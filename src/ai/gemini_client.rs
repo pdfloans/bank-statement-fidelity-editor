@@ -522,10 +522,21 @@ impl GeminiClient {
         let parsed: serde_json::Value = serde_json::from_str(text)
             .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse: {e}")))?;
 
-        parsed["version"]
+        let ver = parsed["version"]
             .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| GeminiError::InvalidResponse("Missing version field".into()))
+            .unwrap_or("v2")
+            .to_lowercase();
+            
+        let mapped = match ver.as_str() {
+            "v1" => "pretrained-bank-statement-v1.0-2022-08-31",
+            "v2" => "pretrained-bank-statement-v1.2-2022-11-10",
+            "v3" => "pretrained-bank-statement-v1.3-2023-07-28",
+            "v4" => "pretrained-bank-statement-v1.4-2024-03-12",
+            "v5" => "pretrained-bank-statement-v1.5-2024-09-20",
+            _ => "pretrained-bank-statement-v1.2-2022-11-10",
+        };
+        
+        Ok(mapped.to_string())
     }
 
     /// Ask Gemini to validate that Document AI captured every transaction on
