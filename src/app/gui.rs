@@ -4290,7 +4290,7 @@ fn upsert_env_file(path: &std::path::Path, pairs: &[(&str, String)]) -> std::io:
 // ---------------------------------------------------------------------------
 
 fn load_icon() -> egui::IconData {
-    let image = image::load_from_memory(include_bytes!("../../../assets/icon.png"))
+    let image = image::load_from_memory(include_bytes!("../../assets/icon.png"))
         .expect("Failed to open icon path")
         .into_rgba8();
     let (width, height) = image.dimensions();
