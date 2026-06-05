@@ -3388,7 +3388,8 @@ impl Runtime {
                                         match doc_ai.parse_entire_statement(&out_math, None).await {
                                             Ok(stmt) => {
                                                 let json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
-                                                match gemini.verify_statement_mathematics(&json).await {
+                                                let opening_f64 = crate::engine::model::dec_to_f64(stmt.opening_balance);
+                                                match gemini.verify_statement_mathematics(&json, opening_f64).await {
                                                     Ok(true) => Some(Ok(())),
                                                     Ok(false) => Some(Err("Math verification failed: Gemini found inconsistencies.".to_string())),
                                                     Err(e) => Some(Err(format!("Gemini math check failed: {e}"))),
@@ -3574,7 +3575,8 @@ impl Runtime {
                                                                 label: "Double-verifying math with Gemini…".into(),
                                                                 fraction: 0.98,
                                                             });
-                                                            if let Ok(is_sound) = gemini.verify_statement_mathematics(&tx_json).await {
+                                                            let opening_f64 = crate::engine::model::dec_to_f64(opening);
+                                                            if let Ok(is_sound) = gemini.verify_statement_mathematics(&tx_json, opening_f64).await {
                                                                 if !is_sound {
                                                                     tracing::warn!("Gemini flagged mathematics as unsound even though engine approved it.");
                                                                     is_valid = false;
