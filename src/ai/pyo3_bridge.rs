@@ -358,6 +358,26 @@ impl PyEngine {
         })
     }
 
+    pub fn clone_pages(&self, pdf_path: &str, output_path: &str, page_indices: &[usize]) -> Result<String, String> {
+        Python::with_gil(|py| {
+            self.call_json(
+                py,
+                "clone_pages",
+                (pdf_path, output_path, page_indices.to_vec()),
+            )
+        })
+    }
+
+    pub fn remove_pages(&self, pdf_path: &str, output_path: &str, page_indices: &[usize]) -> Result<String, String> {
+        Python::with_gil(|py| {
+            self.call_json(
+                py,
+                "remove_pages",
+                (pdf_path, output_path, page_indices.to_vec()),
+            )
+        })
+    }
+
     /// Force Python garbage collection.
     /// Stage 2 Memory Management: explicit collection to prevent OOM in batch processing.
     pub fn garbage_collect() {

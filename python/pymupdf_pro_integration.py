@@ -3291,3 +3291,71 @@ if __name__ == "__main__":
         }
         print(json.dumps(combined))
 
+
+# ===========================================================================
+# Page-level operations for the Transfer Pipeline (Bug 6).
+#
+# These do NOT require PyMuPDF Pro -- page manipulation (insert/delete) uses
+# the free pymupdf API.  They run BEFORE the Pro-gated per-field text edits
+# so the document has the correct page count when apply_many_edits executes.
+# ===========================================================================
+
+def clone_pages(pdf_path: str, output_path: str, page_indices: list):
+    """Duplicate specified pages in the PDF.
+
+    Each entry in `page_indices` is the 0-based page number to clone.  Clones
+    are inserted immediately *after* the original.  The list is processed
+    front-to-back with an accumulating offset so indices in the input refer to
+    the *original* document's page numbering.
+
+    Example
+    -------
+    ``clone_pages("in.pdf", "out.pdf", [0, 0, 0])``
+    A 2-page document ``[P0, P1]`` becomes ``[P0, P0', P0'', P0''', P1]``.
+
+    Returns ``{"success": True, "cloned": N, "new_page_count": M}``.
+    """
+    doc = pymupdf.open(pdf_path)
+    offset = 0
+    for orig_idx in page_indices:
+        target = orig_idx + offset
+        if target < 0 or target >= doc.page_count:
+            # Clamp silently — Gemini may occasionally produce an OOB index.
+            continue
+        # insert_pdf copies a page range from the *same* document.  The copy
+        # is inserted at `start_at` (0-based insert-before position); placing
+        # it at ``target + 1`` puts it right after the source page.
+        doc.insert_pdf(doc, from_page=target, to_page=target, start_at=target + 1)
+        offset += 1
+
+    doc.save(output_path, garbage=4, deflate=True)
+    new_count = doc.page_count
+    doc.close()
+    return {"success": True, "cloned": offset, "new_page_count": new_count}
+
+
+def remove_pages(pdf_path: str, output_path: str, page_indices: list):
+    """Remove specified pages from the PDF.
+
+    `page_indices` refer to 0-based page numbers in the *current* document
+    (post-clone if cloning was applied first).  They are processed in
+    **descending** order so each deletion doesn't shift later indices.
+
+    A safety guard prevents removing ALL pages — at least one page is always
+    kept (the first page if everything else is removed).
+
+    Returns ``{"success": True, "removed": N, "new_page_count": M}``.
+    """
+    doc = pymupdf.open(pdf_path)
+    removed = 0
+    for idx in sorted(set(page_indices), reverse=True):
+        if doc.page_count <= 1:
+            break  # Never remove the last page
+        if 0 <= idx < doc.page_count:
+            doc.delete_page(idx)
+            removed += 1
+
+    doc.save(output_path, garbage=4, deflate=True)
+    new_count = doc.page_count
+    doc.close()
+    return {"success": True, "removed": removed, "new_page_count": new_count}

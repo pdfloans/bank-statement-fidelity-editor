@@ -247,7 +247,7 @@ impl Default for AppSettings {
             dark_mode: true,
             theme: Theme::Midnight,
             auto_save: true,
-            default_dpi: 200.0,
+            default_dpi: 300.0,
             use_pdfrest: false,
             deep_font_replication: false,
             show_welcome: true,

@@ -204,8 +204,10 @@ impl GeminiClient {
                 if doc_ai.project_id.is_empty() {
                     return Err(GeminiError::MissingVertexConfig);
                 }
-                let location = if doc_ai.location.is_empty() {
+                let location = if doc_ai.location.is_empty() || doc_ai.location == "us" {
                     "us-central1".to_string()
+                } else if doc_ai.location == "eu" {
+                    "europe-west1".to_string()
                 } else {
                     doc_ai.location.clone()
                 };
@@ -748,11 +750,12 @@ impl GeminiClient {
         &self,
         source_transactions: &[Transaction],
         target_transactions: &[Transaction],
+        correction_hint: Option<&str>,
     ) -> Result<crate::engine::transfer::TransferPlan, GeminiError> {
         let scrubbed_source = scrub_pii(source_transactions);
         let scrubbed_target = scrub_pii(target_transactions);
 
-        let prompt = format!(
+        let mut prompt = format!(
             "You are an expert financial document analyst. You need to plan how to transfer \
              transactions from a SOURCE bank statement to a TARGET bank statement.\n\n\
              SOURCE statement transactions ({} rows):\n{}\n\n\
@@ -770,6 +773,10 @@ impl GeminiClient {
             target_transactions.len(),
             serde_json::to_string(&scrubbed_target).unwrap_or_default(),
         );
+
+        if let Some(hint) = correction_hint {
+            prompt.push_str(&format!("\n\nCRITICAL CORRECTION HINT from previous failed attempt:\n{}\n\nPlease adjust your plan to resolve this error.", hint));
+        }
 
         let schema = json!({
             "type": "object",
@@ -941,7 +948,52 @@ fn mint_gcp_access_token(
         .map(|d| d.as_secs())
         .map_err(|e| format!("clock error: {e}"))?;
 
-    let http = reqwest::blocking::Client::new();
+    let http = {
+        // reqwest::blocking::Client internally spawns a tokio runtime,
+        // which panics if we're already inside one. Detect and work around.
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                // We're inside a tokio runtime — use the async client via block_in_place.
+                // We return a thin wrapper that uses the async client synchronously.
+                None // signal to use async path below
+            }
+            Err(_) => Some(reqwest::blocking::Client::new()),
+        }
+    };
+
+    // Helper: POST a form and return the JSON response, works in both contexts.
+    let post_form = |url: &str, form: &[(&str, &str)]| -> Result<serde_json::Value, String> {
+        if let Some(ref client) = http {
+            // Pure blocking path (no tokio runtime active)
+            let resp = client
+                .post(url)
+                .form(form)
+                .send()
+                .map_err(|e| format!("token request: {e}"))?;
+            if !resp.status().is_success() {
+                return Err(format!("token endpoint {}: {}", resp.status(), resp.text().unwrap_or_default()));
+            }
+            resp.json().map_err(|e| format!("token json: {e}"))
+        } else {
+            // Inside tokio — use block_in_place + async client
+            tokio::task::block_in_place(|| {
+                let handle = tokio::runtime::Handle::current();
+                handle.block_on(async {
+                    let client = reqwest::Client::new();
+                    let resp = client
+                        .post(url)
+                        .form(form)
+                        .send()
+                        .await
+                        .map_err(|e| format!("token request: {e}"))?;
+                    if !resp.status().is_success() {
+                        return Err(format!("token endpoint {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+                    }
+                    resp.json().await.map_err(|e| format!("token json: {e}"))
+                })
+            })
+        }
+    };
 
     // Preferred: service-account JWT-bearer grant.
     if !doc_ai.service_account_path.is_empty() {
@@ -978,22 +1030,13 @@ fn mint_gcp_access_token(
         let signed = encode(&header, &claims, &encoding_key)
             .map_err(|e| format!("jwt sign: {e}"))?;
 
-        let resp = http
-            .post("https://oauth2.googleapis.com/token")
-            .form(&[
+        let v = post_form(
+            "https://oauth2.googleapis.com/token",
+            &[
                 ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
                 ("assertion", &signed),
-            ])
-            .send()
-            .map_err(|e| format!("token request: {e}"))?;
-        if !resp.status().is_success() {
-            return Err(format!(
-                "token endpoint {}: {}",
-                resp.status(),
-                resp.text().unwrap_or_default()
-            ));
-        }
-        let v: serde_json::Value = resp.json().map_err(|e| format!("token json: {e}"))?;
+            ],
+        )?;
         return v["access_token"]
             .as_str()
             .map(|s| s.to_string())
@@ -1013,24 +1056,15 @@ fn mint_gcp_access_token(
         let refresh_token = adc["refresh_token"]
             .as_str()
             .ok_or("ADC missing refresh_token")?;
-        let resp = http
-            .post("https://oauth2.googleapis.com/token")
-            .form(&[
+        let v = post_form(
+            "https://oauth2.googleapis.com/token",
+            &[
                 ("grant_type", "refresh_token"),
                 ("client_id", client_id),
                 ("client_secret", client_secret),
                 ("refresh_token", refresh_token),
-            ])
-            .send()
-            .map_err(|e| format!("ADC token request: {e}"))?;
-        if !resp.status().is_success() {
-            return Err(format!(
-                "ADC token endpoint {}: {}",
-                resp.status(),
-                resp.text().unwrap_or_default()
-            ));
-        }
-        let v: serde_json::Value = resp.json().map_err(|e| format!("ADC token json: {e}"))?;
+            ],
+        )?;
         return v["access_token"]
             .as_str()
             .map(|s| s.to_string())

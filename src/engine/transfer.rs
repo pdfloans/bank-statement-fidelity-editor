@@ -127,6 +127,8 @@ pub struct TransferResult {
     pub stages_completed: u8,
     pub total_duration_secs: f64,
     pub corrections_applied: usize,
+    pub retries_attempted: usize,
+    pub synthesized_fonts_used: bool,
 }
 
 /// Tracks which stage the pipeline is currently executing.
@@ -255,6 +257,8 @@ pub fn write_transfer_audit(
         "stages_completed": result.stages_completed,
         "total_duration_secs": result.total_duration_secs,
         "corrections_applied": result.corrections_applied,
+        "retries_attempted": result.retries_attempted,
+        "synthesized_fonts_used": result.synthesized_fonts_used,
     });
 
     std::fs::write(&audit_path, serde_json::to_string_pretty(&report)?)?;
