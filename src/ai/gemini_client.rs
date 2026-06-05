@@ -156,19 +156,13 @@ pub struct GeminiClient {
 /// The best available Gemini **Pro** model id, tried first for all reasoning
 /// and vision calls.
 ///
-/// `gemini-3.1-pro-preview` is Google's most advanced reasoning model and the
-/// designated replacement for the now-shutdown `gemini-3-pro-preview`
-/// (retired Mar 9, 2026). Google specifically calls out its agentic
-/// improvements "in domains like finance and spreadsheet applications", which
-/// is exactly this statement-balancing workload — so it's both the most
-/// capable and the most specialized fit. There is no separate finance-specific
-/// `generateContent` model; this is it.
-const GEMINI_PRO_MODEL: &str = "gemini-3.1-pro-preview";
+/// `gemini-2.5-pro` is Google's most advanced generally available reasoning model.
+const GEMINI_PRO_MODEL: &str = "gemini-2.5-pro";
 
 /// GA Pro fallback if the preview frontier model isn't enabled for a given
 /// project/key (some projects must allowlist preview models). Still a top-tier
 /// reasoning model and generally available on Vertex AI + the AI Studio API.
-const GEMINI_PRO_FALLBACK: &str = "gemini-2.5-pro";
+const GEMINI_PRO_FALLBACK: &str = "gemini-1.5-pro";
 
 /// Last-resort flash fallback when neither Pro model is available for this
 /// key/project (403/404).
