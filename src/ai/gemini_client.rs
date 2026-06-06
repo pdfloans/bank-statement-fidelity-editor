@@ -285,8 +285,8 @@ impl GeminiClient {
         match &self.auth {
             GeminiAuth::ApiKey => (
                 format!(
-                    "{}/v1beta/models/{}:generateContent",
-                    self.base_url, model
+                    "{}/v1beta/models/{}:generateContent?key={}",
+                    self.base_url, model, self.api_key.trim()
                 ),
                 None,
             ),
@@ -320,7 +320,7 @@ impl GeminiClient {
             let mut req = self.http.post(&url).json(body);
             match &self.auth {
                 GeminiAuth::ApiKey => {
-                    req = req.header("X-goog-api-key", &self.api_key);
+                    // Key is passed in the URL query parameter `?key=...`
                 }
                 GeminiAuth::Vertex { .. } => {
                     if let Some(ref token) = bearer {
