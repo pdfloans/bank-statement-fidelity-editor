@@ -1451,6 +1451,7 @@ impl MyApp {
                 let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
             }
             JobResult::JobCompleted(_label) => {
+                self.progress = None;
                 self.in_flight = self.in_flight.saturating_sub(1);
             }
             JobResult::TransferComplete(result) => {

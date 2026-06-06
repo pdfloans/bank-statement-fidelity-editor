@@ -210,7 +210,7 @@ impl GeminiClient {
                 let base_url = format!("https://{location}-aiplatform.googleapis.com");
                 Ok(Self {
                     api_key: String::new(),
-                    http: Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
+                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
                     base_url,
                     auth: GeminiAuth::Vertex {
                         project_id: doc_ai.project_id,
@@ -223,7 +223,51 @@ impl GeminiClient {
                 let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
                 Ok(Self {
                     api_key,
-                    http: Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
+                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    base_url: "https://generativelanguage.googleapis.com".into(),
+                    auth: GeminiAuth::ApiKey,
+                })
+            }
+        }
+    }
+
+    pub async fn from_app_config_async(cfg: &AppConfig) -> Result<Self, GeminiError> {
+        match cfg.gemini_auth_mode {
+            GeminiAuthMode::Vertex => {
+                let doc_ai = cfg
+                    .document_ai
+                    .clone()
+                    .ok_or(GeminiError::MissingVertexConfig)?;
+                if doc_ai.project_id.is_empty() {
+                    return Err(GeminiError::MissingVertexConfig);
+                }
+                let location = if doc_ai.location.is_empty() || doc_ai.location == "us" {
+                    "us-central1".to_string()
+                } else if doc_ai.location == "eu" {
+                    "europe-west1".to_string()
+                } else {
+                    doc_ai.location.clone()
+                };
+                let access_token = mint_gcp_access_token_async(&doc_ai)
+                    .await
+                    .map_err(|e| GeminiError::Vertex(format!("token mint failed: {e}")))?;
+                let base_url = format!("https://{location}-aiplatform.googleapis.com");
+                Ok(Self {
+                    api_key: String::new(),
+                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    base_url,
+                    auth: GeminiAuth::Vertex {
+                        project_id: doc_ai.project_id,
+                        location,
+                        access_token,
+                    },
+                })
+            }
+            GeminiAuthMode::ApiKey => {
+                let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
+                Ok(Self {
+                    api_key,
+                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
                     base_url: "https://generativelanguage.googleapis.com".into(),
                     auth: GeminiAuth::ApiKey,
                 })
@@ -289,6 +333,12 @@ impl GeminiClient {
                 Ok(resp) => {
                     let status = resp.status();
                     if (status.is_server_error() || status == 429) && attempts < max_attempts {
+                        // If it's a 429 Quota/Rate Limit, don't sleep excessively, bail out after 1 retry
+                        // to let the fallback chain proceed to the next tier immediately.
+                        if status == 429 && attempts >= 2 {
+                            tracing::warn!("Gemini 429 Too Many Requests for {}, aborting retries to allow fallback.", model);
+                            return Ok(resp);
+                        }
                         let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
                         tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
                         tokio::time::sleep(delay).await;
@@ -361,7 +411,7 @@ impl GeminiClient {
     fn with_base_url(api_key: String, base_url: String) -> Self {
         Self {
             api_key,
-            http: Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default(),
+            http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
             base_url,
             auth: GeminiAuth::ApiKey,
         }
@@ -879,6 +929,119 @@ impl GeminiClient {
 ///
 /// This is a synchronous, one-shot exchange (used at client construction)
 /// implemented with `reqwest::blocking` so `from_app_config` stays non-async.
+pub async fn mint_gcp_access_token_async(
+    doc_ai: &crate::app::config::DocumentAiConfig,
+) -> Result<String, String> {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|e| format!("clock error: {e}"))?;
+
+    let post_form = |url: String, form: Vec<(String, String)>| async move {
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default();
+        let resp = client
+            .post(&url)
+            .form(&form)
+            .send()
+            .await
+            .map_err(|e| format!("token request: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!("token endpoint {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+        }
+        resp.json::<serde_json::Value>().await.map_err(|e| format!("token json: {e}"))
+    };
+
+    if !doc_ai.service_account_path.is_empty() {
+        let key_content = tokio::fs::read_to_string(&doc_ai.service_account_path)
+            .await
+            .map_err(|e| format!("read service account: {e}"))?;
+        let sa: serde_json::Value =
+            serde_json::from_str(&key_content).map_err(|e| format!("parse SA json: {e}"))?;
+        let client_email = sa["client_email"]
+            .as_str()
+            .ok_or("service account missing client_email")?;
+        let private_key = sa["private_key"]
+            .as_str()
+            .ok_or("service account missing private_key")?;
+
+        #[derive(Serialize)]
+        struct Claims {
+            iss: String,
+            scope: String,
+            aud: String,
+            iat: u64,
+            exp: u64,
+        }
+        let claims = Claims {
+            iss: client_email.to_string(),
+            scope: "https://www.googleapis.com/auth/cloud-platform".to_string(),
+            aud: "https://oauth2.googleapis.com/token".to_string(),
+            iat: now,
+            exp: now + 3600,
+        };
+        let mut header = Header::new(Algorithm::RS256);
+        header.typ = Some("JWT".to_string());
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
+            .map_err(|e| format!("bad private key: {e}"))?;
+        let signed = encode(&header, &claims, &encoding_key)
+            .map_err(|e| format!("jwt sign: {e}"))?;
+
+        let v = post_form(
+            "https://oauth2.googleapis.com/token".to_string(),
+            vec![
+                ("grant_type".to_string(), "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string()),
+                ("assertion".to_string(), signed),
+            ],
+        ).await?;
+        return v["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "token response missing access_token".to_string());
+    }
+
+    if !doc_ai.adc_path.is_empty() {
+        let raw = tokio::fs::read_to_string(&doc_ai.adc_path)
+            .await
+            .map_err(|e| format!("read ADC: {e}"))?;
+        let adc: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("parse ADC json: {e}"))?;
+        let client_id = adc["client_id"].as_str().ok_or("ADC missing client_id")?;
+        let client_secret = adc["client_secret"]
+            .as_str()
+            .ok_or("ADC missing client_secret")?;
+        let refresh_token = adc["refresh_token"]
+            .as_str()
+            .ok_or("ADC missing refresh_token")?;
+
+        let resp_json = post_form(
+            "https://oauth2.googleapis.com/token".to_string(),
+            vec![
+                ("client_id".to_string(), client_id.to_string()),
+                ("client_secret".to_string(), client_secret.to_string()),
+                ("refresh_token".to_string(), refresh_token.to_string()),
+                ("grant_type".to_string(), "refresh_token".to_string()),
+            ],
+        ).await?;
+        return resp_json["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "ADC token response missing access_token".to_string());
+    }
+
+    Err("Neither service_account_path nor adc_path is configured for Vertex AI mode".into())
+}
+
+/// Mint a short-lived Google Cloud OAuth access token (scope
+/// `cloud-platform`) for Vertex AI, from the same credentials the Document AI
+/// client uses. Prefers an explicit service-account JSON key
+/// (`service_account_path`); falls back to an ADC `authorized_user` file
+/// (`adc_path`). Returns the bearer token string.
+///
+/// This is a synchronous, one-shot exchange (used at client construction)
+/// implemented with `reqwest::blocking` so `from_app_config` stays non-async.
 fn mint_gcp_access_token(
     doc_ai: &crate::app::config::DocumentAiConfig,
 ) -> Result<String, String> {
@@ -899,7 +1062,7 @@ fn mint_gcp_access_token(
                 // We return a thin wrapper that uses the async client synchronously.
                 None // signal to use async path below
             }
-            Err(_) => Some(reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default()),
+            Err(_) => Some(reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default()),
         }
     };
 
@@ -921,7 +1084,7 @@ fn mint_gcp_access_token(
             tokio::task::block_in_place(|| {
                 let handle = tokio::runtime::Handle::current();
                 handle.block_on(async {
-                    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build().unwrap_or_default();
+                    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default();
                     let resp = client
                         .post(url)
                         .form(form)

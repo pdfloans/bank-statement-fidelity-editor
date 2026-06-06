@@ -2633,7 +2633,7 @@ impl Runtime {
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::Progress { label: "Validating AI Credentials...".into(), fraction: 0.1 });
                             
-                            let gemini_res = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                            let gemini_res = match crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await {
                                 Ok(client) => client.ping().await.map_err(|e| e.to_string()),
                                 Err(e) => Err(e.to_string()),
                             };
@@ -2669,7 +2669,7 @@ impl Runtime {
                                     return;
                                 }
                             };
-                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await {
                                 Ok(c) => Arc::new(c),
                                 Err(_) => {
                                     let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: "Adjust-and-apply requires GEMINI_API_KEY + Document AI configuration. Set them in Settings → API keys.".into() });
@@ -2960,22 +2960,32 @@ impl Runtime {
                             // Gemini validation. If Gemini isn't configured we still
                             // proceed but report a synthetic completeness score of 0.5
                             // so the user sees that AI validation was skipped.
-                            let (score, notes, missing, _math_ok) = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
-                                Ok(g) => {
-                                    match g.validate_parse_completeness(
-                                        &stmt.transactions,
-                                        crate::engine::model::dec_to_f64(stmt.opening_balance),
-                                        crate::engine::model::dec_to_f64(stmt.closing_balance),
-                                        stmt.total_pages,
-                                    ).await {
-                                        Ok(r) => (r.completeness_score, r.notes, r.missing_rows, r.math_consistent),
-                                        Err(e) => {
-                                            tracing::warn!("[workflow] Gemini validation failed: {e}; continuing");
-                                            (0.7, format!("Gemini validation skipped: {e}"), vec![], false)
-                                        }
-                                    }
+                            // Wrapped in a 30-second timeout so the UI never hangs
+                            // (the Pro fallback chain + retries can take 15+ minutes
+                            // with the 300s HTTP timeout if the API is unreachable).
+                            let gemini_init_and_validate = async {
+                                let g = crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await?;
+                                g.validate_parse_completeness(
+                                    &stmt.transactions,
+                                    crate::engine::model::dec_to_f64(stmt.opening_balance),
+                                    crate::engine::model::dec_to_f64(stmt.closing_balance),
+                                    stmt.total_pages,
+                                ).await
+                            };
+
+                            let (score, notes, missing, _math_ok) = match tokio::time::timeout(std::time::Duration::from_secs(30), gemini_init_and_validate).await {
+                                Ok(Ok(r)) => (r.completeness_score, r.notes, r.missing_rows, r.math_consistent),
+                                Ok(Err(e)) => {
+                                    tracing::warn!("[workflow] Gemini validation failed: {e}; continuing");
+                                    // Send a detailed error progress update so the user can see *why* it failed
+                                    let _ = res_tx.send(JobResult::Progress { label: format!("AI validation skipped: {}", e), fraction: 0.7 });
+                                    (0.7, format!("Gemini validation skipped: {e}"), vec![], false)
                                 }
-                                Err(_) => (0.5, "Gemini not configured; AI validation skipped.".into(), vec![], false),
+                                Err(_elapsed) => {
+                                    tracing::warn!("[workflow] Gemini validation timed out after 30s; continuing without AI validation");
+                                    let _ = res_tx.send(JobResult::Progress { label: "AI validation timed out after 30s".into(), fraction: 0.7 });
+                                    (0.7, "Gemini validation timed out; skipped.".into(), vec![], false)
+                                }
                             };
 
                             let validation = crate::engine::workflow::ParseValidation {

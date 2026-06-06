@@ -10,7 +10,7 @@ use std::error::Error;
 async fn main() -> Result<(), Box<dyn Error>> {
     // Load configuration from environment (includes GEMINI_API_KEY if set)
     let cfg = AppConfig::from_env()?;
-    let gemini = GeminiClient::from_app_config(&cfg)?;
+    let gemini = GeminiClient::from_app_config_async(&cfg).await?;
 
     // Dummy transaction list matching the Transaction struct definition
     let transactions = vec![
