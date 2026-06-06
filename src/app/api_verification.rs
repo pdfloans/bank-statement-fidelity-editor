@@ -125,8 +125,8 @@ async fn verify_pymupdf_pro(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     
     // Check if key is configured
-    let key = &config.pymupdf_pro_key;
-    if key.is_empty() {
+    let key = config.pymupdf_pro_key.as_ref();
+    if key.is_none() || key.is_some_and(|k| k.is_empty()) {
         return VerificationResult {
             service: "PyMuPDF Pro".to_string(),
             status: VerificationStatus::Failed,
@@ -142,7 +142,8 @@ async fn verify_pymupdf_pro(config: &AppConfig) -> VerificationResult {
     
     // Check key format
     use crate::app::env_spec::is_well_formed_pro_key;
-    if !is_well_formed_pro_key(key) {
+    let key_str = key.unwrap();
+    if !is_well_formed_pro_key(key_str) {
         return VerificationResult {
             service: "PyMuPDF Pro".to_string(),
             status: VerificationStatus::Failed,

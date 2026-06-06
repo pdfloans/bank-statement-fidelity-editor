@@ -77,7 +77,7 @@ fn estimate_entropy(passphrase: &str) -> f64 {
         // Unicode characters provide much higher entropy
         1_000_000.0
     } else {
-        let mut size = 0.0;
+        let mut size: f64 = 0.0;
         if has_lower { size += 26.0; }
         if has_upper { size += 26.0; }
         if has_digit { size += 10.0; }
