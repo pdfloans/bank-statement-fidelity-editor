@@ -79,6 +79,9 @@ pub enum BalanceError {
 
     #[error("Missing opening balance — cannot calculate running balances.")]
     MissingOpeningBalance,
+
+    #[error("No transactions found in the statement — cannot calculate running balances.")]
+    EmptyTransactions,
 }
 
 /// Recalculates all running balances after any edit.
@@ -88,7 +91,7 @@ pub fn recalculate_and_validate(
     opening_balance: Decimal,
 ) -> Result<Vec<Transaction>, BalanceError> {
     if transactions.is_empty() {
-        return Err(BalanceError::MissingOpeningBalance);
+        return Err(BalanceError::EmptyTransactions);
     }
 
     let mut current_balance = opening_balance;
@@ -154,7 +157,7 @@ pub fn auto_correct_final_balance(
     expected_final_balance: Decimal,
 ) -> Result<(Vec<Transaction>, String), BalanceError> {
     if transactions.is_empty() {
-        return Err(BalanceError::MissingOpeningBalance);
+        return Err(BalanceError::EmptyTransactions);
     }
 
     let last_index = transactions.len() - 1;

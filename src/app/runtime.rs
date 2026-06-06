@@ -1206,7 +1206,17 @@ impl Runtime {
 
                                     if output_pages > 3 {
                                         tracing::info!("[TRANSFER] Document has {} pages (> 3), chunking for Pro engine", output_pages);
-                                        let temp_mgr = crate::engine::segments::SegmentManager::new().unwrap();
+                                        let temp_mgr = match crate::engine::segments::SegmentManager::new() {
+                                            Ok(mgr) => mgr,
+                                            Err(e) => {
+                                                tracing::error!("[TRANSFER] Failed to create SegmentManager: {}", e);
+                                                let _ = res_tx.send(JobResult::TransferFailed {
+                                                    stage: "PdfSurgery".into(),
+                                                    message: format!("Failed to create SegmentManager: {e}"),
+                                                });
+                                                return;
+                                            }
+                                        };
                                         if let Ok(map) = temp_mgr.prepare(&output_pdf, 3) {
                                             let mut edits_by_seg: std::collections::BTreeMap<usize, Vec<serde_json::Value>> = std::collections::BTreeMap::new();
                                             for edit in &batch_edits {

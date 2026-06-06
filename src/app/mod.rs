@@ -1,3 +1,4 @@
+pub mod api_verification;
 pub mod audit;
 pub mod cli;
 pub mod config;

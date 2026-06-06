@@ -137,6 +137,14 @@ pub enum Commands {
     /// Print configuration health check (env vars, file paths, runtime ping)
     Doctor,
 
+    /// Verify all API keys can make successful API calls with fallback chains
+    #[command(name = "verify-api-keys")]
+    VerifyApiKeys {
+        /// Output results in JSON format for CI/CD
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Document AI training orchestration (Stage 4 / Item #12).
     ///
     /// Reports labelled-document count and, when the dataset has at least
@@ -1076,6 +1084,24 @@ pub fn run(
             run_selftest(&job_tx, &job_rx, input)
         }
         Commands::Doctor => run_doctor(&config, &job_tx, &job_rx),
+        Commands::VerifyApiKeys { json } => {
+            // Run verification on a fresh tokio runtime
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("❌ failed to start tokio runtime: {e}");
+                    return 1;
+                }
+            };
+            let cfg = config.clone();
+            rt.block_on(async move {
+                let report = crate::app::api_verification::verify_all_api_keys(&cfg, json).await;
+                report.exit_code()
+            })
+        }
         Commands::DocaiTrain {
             display_name,
             min_labelled,

@@ -23,8 +23,21 @@ pub fn global_http_client() -> ClientWithMiddleware {
         let reqwest_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .tcp_keepalive(std::time::Duration::from_secs(60))
-            .build()
-            .unwrap_or_default();
+            .build();
+        
+        let reqwest_client = match reqwest_client {
+            Ok(client) => client,
+            Err(e) => {
+                tracing::error!("[config] Failed to build HTTP client: {}. Using default client as fallback.", e);
+                reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(60))
+                    .build()
+                    .unwrap_or_else(|e| {
+                        tracing::error!("[config] Failed to build fallback HTTP client: {}. This is critical.", e);
+                        std::process::exit(1);
+                    })
+            }
+        };
             
         ClientBuilder::new(reqwest_client)
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
@@ -315,12 +328,6 @@ impl AppConfig {
             errors.push(format!(
                 "DUAL_CORE_PASSPHRASE must be at least {MIN_PASSPHRASE_LENGTH} characters"
             ));
-        }
-
-        if let Some(path) = &self.log_dir.to_str() {
-            if path.is_empty() {
-                errors.push("LOG_DIR cannot be an empty path".to_string());
-            }
         }
 
         errors
