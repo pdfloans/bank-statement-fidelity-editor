@@ -432,6 +432,8 @@ pub enum WorkflowFailure {
     FinalMathInvalid {
         imbalance: Decimal,
     },
+    /// The AI hallucinated values that do not sum correctly.
+    FidelityCheckFailed(String),
     Other(String),
 }
 

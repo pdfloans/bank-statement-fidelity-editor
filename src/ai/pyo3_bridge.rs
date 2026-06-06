@@ -12,7 +12,7 @@ impl PyEngine {
 
         let py_code = include_str!("../../python/pymupdf_pro_integration.py");
 
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             // Stage 11: ensure `python/` (where font_replicator.py lives) is
             // on sys.path so the integration module can `import font_replicator`.
             // We try in order: (1) the path baked in via PYO3_PYTHON_DIR env
@@ -52,6 +52,20 @@ impl PyEngine {
         })
     }
 
+    /// Safely executes a Python closure. If called from within a Tokio async
+    /// task, it wraps the execution in `tokio::task::block_in_place` to prevent
+    /// thread starvation. If called from an OS thread, it runs directly.
+    fn safe_python_with_gil<F, R>(f: F) -> R
+    where
+        F: FnOnce(Python<'_>) -> R,
+    {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::block_in_place(|| Python::with_gil(f))
+        } else {
+            Python::with_gil(f)
+        }
+    }
+
     fn call_json<'py, N>(
         &self,
         py: Python<'py>,
@@ -84,7 +98,7 @@ impl PyEngine {
         // RuntimeError("PRO_PAGE_LIMIT_EXCEEDED: ..."). `call_json` propagates
         // that Python exception message verbatim as Err(String), so the stable
         // PRO_PAGE_LIMIT_EXCEEDED token reaches the runtime unchanged.
-        Python::with_gil(|py| self.call_json(py, "get_text_blocks", (pdf_path, page_num)))
+        Self::safe_python_with_gil(|py| self.call_json(py, "get_text_blocks", (pdf_path, page_num)))
     }
 
     pub fn replace_text_in_rect(
@@ -96,7 +110,7 @@ impl PyEngine {
         new_text: &str,
         font_path: Option<&str>,
     ) -> Result<Option<String>, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             let bg_func = self
                 .module
                 .getattr(py, "analyze_background")
@@ -193,7 +207,7 @@ impl PyEngine {
         x: f32,
         y: f32,
     ) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,
                 "find_text_block_at_click",
@@ -215,7 +229,7 @@ impl PyEngine {
         pdf_path: &str,
         font_name: &str,
     ) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,
                 "complete_font_with_adaption_fallback",
@@ -230,7 +244,7 @@ impl PyEngine {
         font_name: &str,
         output_dir: &str,
     ) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             // We use the same pattern as other calls, but we need to make sure
             // the python side is ready for it.
             // Actually, my python bridge uses 'command' in __main__.
@@ -255,7 +269,7 @@ impl PyEngine {
         edits_json: &str,
         font_path: Option<&str>,
     ) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             let json_mod = py.import("json").map_err(|e| e.to_string())?;
             let loads = json_mod.getattr("loads").map_err(|e| e.to_string())?;
             let edits_obj = loads.call1((edits_json,)).map_err(|e| e.to_string())?;
@@ -317,7 +331,7 @@ impl PyEngine {
         output_dir: &str,
         max_pages_per_chunk: usize,
     ) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,
                 "chunk_pdf_for_docai",
@@ -350,7 +364,7 @@ impl PyEngine {
         missing_chars_csv: &str,
         output_dir: &str,
     ) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,
                 "replicate_font_for_missing_chars",
@@ -360,7 +374,7 @@ impl PyEngine {
     }
 
     pub fn clone_pages(&self, pdf_path: &str, output_path: &str, page_indices: &[usize]) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,
                 "clone_pages",
@@ -370,7 +384,7 @@ impl PyEngine {
     }
 
     pub fn remove_pages(&self, pdf_path: &str, output_path: &str, page_indices: &[usize]) -> Result<String, String> {
-        Python::with_gil(|py| {
+        Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,
                 "remove_pages",

@@ -31,7 +31,7 @@ pub enum PdfRestError {
 
 pub struct PdfRestClient {
     api_key: String,
-    http: reqwest::Client,
+    http: reqwest_middleware::ClientWithMiddleware,
     base_url: String,
 }
 
@@ -63,15 +63,9 @@ struct ResourceResponse {
 
 impl PdfRestClient {
     pub fn new(api_key: String) -> Self {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .unwrap_or_default();
-
         Self {
             api_key,
-            http,
+            http: crate::app::config::global_http_client(),
             base_url: "https://api.pdfrest.com".into(),
         }
     }
@@ -83,7 +77,7 @@ impl PdfRestClient {
         client
     }
 
-    fn authed_request(&self, method: reqwest::Method, url: &str) -> reqwest::RequestBuilder {
+    fn authed_request(&self, method: reqwest::Method, url: &str) -> reqwest_middleware::RequestBuilder {
         self.http
             .request(method, url)
             .header("Api-Key", &self.api_key)
@@ -99,7 +93,9 @@ impl PdfRestClient {
     ) -> Result<Vec<PathBuf>, PdfRestError> {
         fs::create_dir_all(out_dir).await?;
 
-        let pdf_bytes = fs::read(pdf).await?;
+        let file = fs::File::open(pdf).await?;
+        let stream = tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
+        let body = reqwest::Body::wrap_stream(stream);
         let filename = pdf
             .file_name()
             .and_then(|n| n.to_str())
@@ -109,7 +105,7 @@ impl PdfRestClient {
         let form = multipart::Form::new()
             .part(
                 "file",
-                multipart::Part::bytes(pdf_bytes)
+                multipart::Part::stream(body)
                     .file_name(filename)
                     .mime_str("application/pdf")
                     .map_err(|e| PdfRestError::Upload(e.to_string()))?,

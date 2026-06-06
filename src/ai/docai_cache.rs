@@ -21,8 +21,10 @@
 
 use std::path::{Path, PathBuf};
 
+use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Nonce};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 use crate::ai::document_ai::BankStatement;
 
@@ -44,21 +46,28 @@ pub enum CacheError {
     Io(#[from] std::io::Error),
     #[error("cache decode: {0}")]
     Decode(#[from] serde_json::Error),
+    #[error("encryption error: {0}")]
+    Encryption(String),
 }
 
 pub struct DocAiCache {
     root: PathBuf,
+    cipher: ChaCha20Poly1305,
 }
 
 impl DocAiCache {
     /// Open (or create) the cache rooted at `audit/cache/docai/`.
-    pub fn open_default() -> Result<Self, CacheError> {
-        Self::open(PathBuf::from("audit").join("cache").join("docai"))
+    pub fn open_default(passphrase: &str) -> Result<Self, CacheError> {
+        Self::open(PathBuf::from("audit").join("cache").join("docai"), passphrase)
     }
 
-    pub fn open(root: PathBuf) -> Result<Self, CacheError> {
+    pub fn open(root: PathBuf, passphrase: &str) -> Result<Self, CacheError> {
         std::fs::create_dir_all(&root)?;
-        Ok(Self { root })
+        let mut hasher = Sha256::new();
+        hasher.update(passphrase.as_bytes());
+        let key_bytes = hasher.finalize();
+        let cipher = ChaCha20Poly1305::new(&key_bytes);
+        Ok(Self { root, cipher })
     }
 
     /// Build the cache key. Key bytes are stable across runs as long as
@@ -94,8 +103,25 @@ impl DocAiCache {
 
     pub fn get(&self, key: &str) -> Option<BankStatement> {
         let path = self.path_for(key);
-        let raw = std::fs::read_to_string(&path).ok()?;
-        match serde_json::from_str::<CacheEntry>(&raw) {
+        let file_data = std::fs::read(&path).ok()?;
+        
+        if file_data.len() < 12 {
+            tracing::warn!("[docai_cache] file too short: {}", path.display());
+            return None;
+        }
+        
+        let nonce = Nonce::from_slice(&file_data[0..12]);
+        let ciphertext = &file_data[12..];
+        
+        let plaintext = match self.cipher.decrypt(nonce, ciphertext) {
+            Ok(pt) => pt,
+            Err(e) => {
+                tracing::warn!("[docai_cache] decryption failed for {}: {}", path.display(), e);
+                return None;
+            }
+        };
+        
+        match serde_json::from_slice::<CacheEntry>(&plaintext) {
             Ok(entry) if entry.format_version == CACHE_FORMAT_VERSION => {
                 tracing::debug!(cache.hit = true, cache.key = %key, "[docai_cache] hit");
                 Some(entry.statement)
@@ -121,11 +147,25 @@ impl DocAiCache {
             written_at: chrono::Utc::now().to_rfc3339(),
             statement: statement.clone(),
         };
+        let plaintext = serde_json::to_vec(&entry)?;
+        
+        let uuid = Uuid::new_v4();
+        let nonce_bytes = &uuid.as_bytes()[0..12];
+        let nonce = Nonce::from_slice(nonce_bytes);
+        
+        let ciphertext = self.cipher.encrypt(nonce, plaintext.as_slice())
+            .map_err(|e| CacheError::Encryption(e.to_string()))?;
+            
+        // Store [12-byte nonce][ciphertext]
+        let mut file_data = Vec::with_capacity(12 + ciphertext.len());
+        file_data.extend_from_slice(nonce_bytes);
+        file_data.extend_from_slice(&ciphertext);
+
         let path = self.path_for(key);
         // Atomic-ish write: tmp + rename. Important on Windows because
         // PyMuPDF's `pymupdf.open` from another thread can read in parallel.
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(&entry)?)?;
+        std::fs::write(&tmp, &file_data)?;
         std::fs::rename(tmp, path)?;
         Ok(())
     }
@@ -171,7 +211,7 @@ mod tests {
     fn roundtrip_through_cache() {
         use rust_decimal_macros::dec;
         let dir = tempdir().unwrap();
-        let cache = DocAiCache::open(dir.path().to_path_buf()).unwrap();
+        let cache = DocAiCache::open(dir.path().to_path_buf(), "testpass").unwrap();
         let stmt = sample_statement();
         cache.put("key1", &stmt).unwrap();
         let got = cache.get("key1").unwrap();
@@ -184,7 +224,7 @@ mod tests {
     #[test]
     fn miss_returns_none() {
         let dir = tempdir().unwrap();
-        let cache = DocAiCache::open(dir.path().to_path_buf()).unwrap();
+        let cache = DocAiCache::open(dir.path().to_path_buf(), "testpass").unwrap();
         assert!(cache.get("nonexistent").is_none());
     }
 

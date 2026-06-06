@@ -1,6 +1,9 @@
 use std::env;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{Deserialize, Serialize};
 
 use crate::app::env_spec::is_well_formed_pro_key;
@@ -11,6 +14,23 @@ const MIN_PASSPHRASE_LENGTH: usize = 16;
 
 /// Minimum passphrase length for development mode
 const DEV_PASSPHRASE_MIN_LENGTH: usize = 8;
+
+pub static HTTP_CLIENT: OnceLock<ClientWithMiddleware> = OnceLock::new();
+
+pub fn global_http_client() -> ClientWithMiddleware {
+    HTTP_CLIENT.get_or_init(|| {
+        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+        let reqwest_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .tcp_keepalive(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default();
+            
+        ClientBuilder::new(reqwest_client)
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .build()
+    }).clone()
+}
 
 /// Availability of PyMuPDF Pro per-segment editing/rendering (Subsystem B),
 /// derived solely from the `PYMUPDF_PRO_KEY` value the application read.
@@ -72,6 +92,10 @@ pub struct DocumentAiConfig {
     /// `gcloud auth application-default login`). Auto-detected from the
     /// platform's well-known location when not set explicitly.
     pub adc_path: String,
+    /// GCS URI for batch process outputs (e.g. gs://my-bucket/outputs/).
+    pub gcs_output_uri: String,
+    /// Passphrase for encrypting the local Document AI cache
+    pub passphrase: String,
 }
 
 /// How the Gemini calls authenticate.
@@ -161,29 +185,26 @@ impl AppConfig {
     pub fn from_env() -> ConfigResult<Self> {
         let is_dev_mode = cfg!(debug_assertions);
 
+        let clean_key = |key: Result<String, env::VarError>| -> Option<String> {
+            key.ok()
+                .map(|s| s.trim_matches('"').trim_matches('\'').trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+
         // Optional API keys
-        let gemini_api_key = env::var("GEMINI_API_KEY").ok().filter(|s| !s.is_empty());
-        let pdfrest_api_key = env::var("PDFREST_API_KEY").ok().filter(|s| !s.is_empty());
-        let lipi_api_key = env::var("LIPI_API_KEY").ok().filter(|s| !s.is_empty());
-        let webhook_url = env::var("WEBHOOK_URL").ok().filter(|s| !s.is_empty());
+        let gemini_api_key = clean_key(env::var("GEMINI_API_KEY"));
+        let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
+        let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
+        let webhook_url = clean_key(env::var("WEBHOOK_URL"));
 
         // Document AI configuration
-        let proj = env::var("DOCUMENT_AI_PROJECT_ID")
-            .ok()
-            .filter(|s| !s.is_empty());
-        let loc = env::var("DOCUMENT_AI_LOCATION")
-            .ok()
-            .filter(|s| !s.is_empty());
-        let proc_id = env::var("DOCUMENT_AI_PROCESSOR_ID")
-            .ok()
-            .filter(|s| !s.is_empty());
-        let sa_path = env::var("GOOGLE_APPLICATION_CREDENTIALS")
-            .ok()
-            .filter(|s| !s.is_empty());
-        let api_key = env::var("DOCUMENT_AI_API_KEY")
-            .ok()
-            .filter(|s| !s.is_empty());
+        let proj = clean_key(env::var("DOCUMENT_AI_PROJECT_ID"));
+        let loc = clean_key(env::var("DOCUMENT_AI_LOCATION"));
+        let proc_id = clean_key(env::var("DOCUMENT_AI_PROCESSOR_ID"));
+        let sa_path = clean_key(env::var("GOOGLE_APPLICATION_CREDENTIALS"));
+        let api_key = clean_key(env::var("DOCUMENT_AI_API_KEY"));
         let adc_path = detect_adc_path();
+        let gcs_output_uri = clean_key(env::var("DOCUMENT_AI_GCS_URI")).unwrap_or_default();
 
         let document_ai = match (proj, loc, proc_id) {
             (Some(project_id), Some(location), Some(processor_id))
@@ -196,13 +217,15 @@ impl AppConfig {
                     service_account_path: sa_path.unwrap_or_default(),
                     api_key: api_key.unwrap_or_default(),
                     adc_path: adc_path.unwrap_or_default(),
+                    gcs_output_uri,
+                    passphrase: String::new(), // Filled in by AppConfig later
                 })
             }
             _ => None,
         };
 
         // PyMuPDF Pro key - required in production
-        let pymupdf_pro_key = env::var("PYMUPDF_PRO_KEY").ok().filter(|s| !s.is_empty());
+        let pymupdf_pro_key = clean_key(env::var("PYMUPDF_PRO_KEY"));
 
         // Gemini auth mode: default API key, opt into Vertex via env.
         let gemini_auth_mode = match env::var("GEMINI_AUTH_MODE")
@@ -216,9 +239,9 @@ impl AppConfig {
         };
 
         // Passphrase - required
-        let passphrase = env::var("DUAL_CORE_PASSPHRASE").map_err(|_| {
-            ConfigError::MissingRequired("DUAL_CORE_PASSPHRASE".to_string())
-        })?;
+        let passphrase = env::var("DUAL_CORE_PASSPHRASE")
+            .map(|s| s.trim_matches('"').trim_matches('\'').trim().to_string())
+            .map_err(|_| ConfigError::MissingRequired("DUAL_CORE_PASSPHRASE".to_string()))?;
 
         // Validate passphrase length
         let min_length = if is_dev_mode {
@@ -258,11 +281,16 @@ impl AppConfig {
             ));
         }
 
+        let mut doc_ai = document_ai;
+        if let Some(ref mut d) = doc_ai {
+            d.passphrase = passphrase.clone();
+        }
+
         Ok(Self {
             gemini_api_key,
             pdfrest_api_key,
             lipi_api_key,
-            document_ai,
+            document_ai: doc_ai,
             pymupdf_pro_key,
             passphrase,
             otel_endpoint,

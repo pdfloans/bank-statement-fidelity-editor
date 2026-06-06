@@ -1,4 +1,4 @@
-use crate::app::config::{AppConfig, GeminiAuthMode};
+use crate::app::config::{AppConfig, DocumentAiConfig, GeminiAuthMode, global_http_client};
 use crate::engine::layout::DocumentLayout;
 use crate::engine::model::Transaction;
 use reqwest::{Client, StatusCode};
@@ -133,8 +133,10 @@ pub enum GeminiError {
     MissingVertexConfig,
     #[error("Vertex AI auth error: {0}")]
     Vertex(String),
-    #[error("HTTP Error: {0}")]
-    Http(#[from] reqwest::Error),
+    #[error("Network Error: {0}")]
+    Network(#[from] reqwest::Error),
+    #[error("Middleware Error: {0}")]
+    Middleware(#[from] reqwest_middleware::Error),
     #[error("API Error (HTTP {0}): {1}")]
     Api(StatusCode, String),
     #[error("Invalid Response: {0}")]
@@ -146,9 +148,9 @@ pub enum GeminiError {
 }
 
 pub struct GeminiClient {
-    api_key: String,
-    http: Client,
-    base_url: String,
+    pub api_key: String,
+    pub http: reqwest_middleware::ClientWithMiddleware,
+    pub base_url: String,
     /// How this client authenticates and which endpoint family it targets.
     auth: GeminiAuth,
 }
@@ -210,7 +212,7 @@ impl GeminiClient {
                 let base_url = format!("https://{location}-aiplatform.googleapis.com");
                 Ok(Self {
                     api_key: String::new(),
-                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    http: global_http_client(),
                     base_url,
                     auth: GeminiAuth::Vertex {
                         project_id: doc_ai.project_id,
@@ -223,7 +225,7 @@ impl GeminiClient {
                 let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
                 Ok(Self {
                     api_key,
-                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    http: global_http_client(),
                     base_url: "https://generativelanguage.googleapis.com".into(),
                     auth: GeminiAuth::ApiKey,
                 })
@@ -254,7 +256,7 @@ impl GeminiClient {
                 let base_url = format!("https://{location}-aiplatform.googleapis.com");
                 Ok(Self {
                     api_key: String::new(),
-                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    http: global_http_client(),
                     base_url,
                     auth: GeminiAuth::Vertex {
                         project_id: doc_ai.project_id,
@@ -267,7 +269,7 @@ impl GeminiClient {
                 let api_key = cfg.gemini_api_key.clone().ok_or(GeminiError::MissingKey)?;
                 Ok(Self {
                     api_key,
-                    http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+                    http: global_http_client(),
                     base_url: "https://generativelanguage.googleapis.com".into(),
                     auth: GeminiAuth::ApiKey,
                 })
@@ -320,7 +322,8 @@ impl GeminiClient {
             let mut req = self.http.post(&url).json(body);
             match &self.auth {
                 GeminiAuth::ApiKey => {
-                    // Key is passed in the URL query parameter `?key=...`
+                    // Pass the API key in the header AND the URL query parameter
+                    req = req.header("x-goog-api-key", self.api_key.trim());
                 }
                 GeminiAuth::Vertex { .. } => {
                     if let Some(ref token) = bearer {
@@ -343,6 +346,9 @@ impl GeminiClient {
                         tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
                         tokio::time::sleep(delay).await;
                         continue;
+                    }
+                    if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+                        tracing::error!("Gemini API rejected request with {} for model {}! Please verify your GEMINI_API_KEY and quota.", status, model);
                     }
                     return Ok(resp);
                 }
@@ -411,7 +417,7 @@ impl GeminiClient {
     fn with_base_url(api_key: String, base_url: String) -> Self {
         Self {
             api_key,
-            http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
+            http: global_http_client(),
             base_url,
             auth: GeminiAuth::ApiKey,
         }
@@ -422,6 +428,12 @@ impl GeminiClient {
     pub async fn ping(&self) -> Result<(), GeminiError> {
         let body = json!({
             "contents": [{ "role": "user", "parts": [{ "text": "ping" }] }],
+            "safetySettings": [
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
             "generationConfig": { "maxOutputTokens": 1 }
         });
         
@@ -482,6 +494,12 @@ impl GeminiClient {
                 "role": "user",
                 "parts": [{ "text": prompt }]
             }],
+            "safetySettings": [
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema
@@ -554,6 +572,12 @@ impl GeminiClient {
 
         let body = json!({
             "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
+            "safetySettings": [
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": schema
@@ -619,7 +643,7 @@ impl GeminiClient {
             ));
         }
 
-        let resp_json: serde_json::Value = response.json().await.map_err(GeminiError::Http)?;
+        let resp_json: serde_json::Value = response.json().await.map_err(GeminiError::Network)?;
         let content = resp_json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
             .unwrap_or("{}");

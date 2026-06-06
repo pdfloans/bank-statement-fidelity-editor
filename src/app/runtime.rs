@@ -2887,70 +2887,41 @@ impl Runtime {
                                 .unwrap_or(0)
                             };
 
-                            let mut chunks = vec![];
-                            if page_count > 15 {
-                                let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Document is {page_count} pages — chunking for Document AI"),
-                                    fraction: 0.3,
-                                });
-                                let chunk_dir = std::path::PathBuf::from("output")
-                                    .join("docai_chunks")
-                                    .join(format!("{}-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"), std::process::id()));
-                                let _ = std::fs::create_dir_all(&chunk_dir);
-
-                                let (tx, rx) = oneshot::channel();
-                                let _ = python_tx_clone.send((
-                                    PythonJob::ChunkPdfForDocai {
-                                        pdf_path: input.to_string_lossy().to_string(),
-                                        output_dir: chunk_dir.to_string_lossy().to_string(),
-                                        max_pages_per_chunk: 15,
-                                    },
-                                    tx,
-                                ));
-                                match rx.await {
-                                    Ok(PythonJobResult::Json(json)) => {
-                                        #[derive(serde::Deserialize)]
-                                        struct ChunkInfo {
-                                            path: String,
-                                            page_offset: usize,
-                                        }
-                                        match serde_json::from_str::<Vec<ChunkInfo>>(&json) {
-                                            Ok(items) => {
-                                                chunks = items.into_iter().map(|c| (std::path::PathBuf::from(c.path), c.page_offset)).collect();
-                                            }
-                                            Err(e) => {
-                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk decode: {e}"))));
-                                                return;
-                                            }
-                                        }
-                                    }
-                                    Ok(PythonJobResult::Error(e)) => {
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("chunk failed: {e}"))));
-                                        return;
-                                    }
-                                    _ => {
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("chunker returned unexpected result".into())));
-                                        return;
-                                    }
-                                }
-                            }
 
                             let final_version = version.unwrap_or_else(|| "pretrained-bankstatement-v5.0-2023-12-06".to_string());
                             let _ = res_tx.send(JobResult::Progress { label: format!("Parsing with {}...", final_version), fraction: 0.4 });
 
-                            let parse_result = if !chunks.is_empty() {
-                                doc_ai.parse_chunked_statement(&chunks, 4, Some(&final_version)).await
-                            } else {
-                                doc_ai.parse_entire_statement(&input, Some(&final_version)).await
-                            };
+                            let parse_result = doc_ai.parse_smart_batch(&input, Some(&final_version), page_count).await;
 
                             let stmt = match parse_result {
                                 Ok(s) => {
                                     tracing::info!("[workflow] Parser version {} yielded {} transactions.", final_version, s.transactions.len());
+                                    
+                                    // Phase 5: Fidelity Check (Strict Math Verification)
+                                    // We check both retail (debit = in, credit = out) and formal (credit = in, debit = out) conventions.
+                                    let mut retail_sum = s.opening_balance;
+                                    let mut formal_sum = s.opening_balance;
+                                    for tx in &s.transactions {
+                                        let d = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                        let c = tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                        retail_sum += d - c;
+                                        formal_sum += c - d;
+                                    }
+                                    let expected = s.closing_balance;
+                                    let retail_diff = (retail_sum - expected).abs();
+                                    let formal_diff = (formal_sum - expected).abs();
+                                    let one_cent = rust_decimal_macros::dec!(0.01);
+                                    
+                                    if s.transactions.len() > 0 && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
+                                        let msg = format!("AI Fidelity Math Check Failed. Expected Closing: {}, computed: {} (retail) or {} (formal).", expected, retail_sum, formal_sum);
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
+                                        return;
+                                    }
+
                                     s
                                 }
                                 Err(e) => {
-                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("Parser {} failed: {}", final_version, e))));
+                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("docai parse: {e}"))));
                                     return;
                                 }
                             };

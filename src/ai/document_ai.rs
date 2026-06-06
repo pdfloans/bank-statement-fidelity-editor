@@ -14,7 +14,8 @@
 
 use base64::{engine::general_purpose::STANDARD as Base64Standard, Engine};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
+use reqwest_middleware::ClientWithMiddleware;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -36,6 +37,8 @@ pub enum DocAiError {
     Auth(StatusCode, String),
     #[error("Network Error: {0}")]
     Network(#[from] reqwest::Error),
+    #[error("Middleware Error: {0}")]
+    Middleware(#[from] reqwest_middleware::Error),
     #[error("Parse Error: {0}")]
     Parse(#[from] serde_json::Error),
     #[error("API Error (HTTP {0}): {1}")]
@@ -73,9 +76,10 @@ struct CachedToken {
 }
 
 pub struct DocumentAiClient {
-    config: DocumentAiConfig,
+    pub config: DocumentAiConfig,
+    pub http: ClientWithMiddleware,
+    pub location: String,
     token_cache: Mutex<Option<CachedToken>>,
-    http: Client,
 }
 
 impl DocumentAiClient {
@@ -94,9 +98,10 @@ impl DocumentAiClient {
             ));
         }
         Ok(Self {
-            config: doc_ai,
+            config: doc_ai.clone(),
+            http: crate::app::config::global_http_client(),
+            location: doc_ai.location.clone(),
             token_cache: Mutex::new(None),
-            http: Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default(),
         })
     }
 
@@ -108,6 +113,17 @@ impl DocumentAiClient {
         match version {
             Some(v) => format!("{base}/processorVersions/{v}:process"),
             None => format!("{base}:process"),
+        }
+    }
+
+    fn batch_process_url_v1beta3(&self, version: Option<&str>) -> String {
+        let base = format!(
+            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}",
+            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+        );
+        match version {
+            Some(v) => format!("{base}/processorVersions/{v}:batchProcess"),
+            None => format!("{base}:batchProcess"),
         }
     }
 
@@ -266,7 +282,7 @@ impl DocumentAiClient {
         // ----- Cache lookup --------------------------------------------------
         // Document AI is billed per page; if we've parsed this exact PDF
         // through this exact processor before, return the cached result.
-        let cache = match crate::ai::docai_cache::DocAiCache::open_default() {
+        let cache = match crate::ai::docai_cache::DocAiCache::open_default(&self.config.passphrase) {
             Ok(c) => Some(c),
             Err(e) => {
                 tracing::warn!("[doc_ai] cache disabled (open failed): {}", e);
@@ -323,6 +339,9 @@ impl DocumentAiClient {
                                 tokio::time::sleep(delay).await;
                                 continue;
                             }
+                        if status == StatusCode::BAD_REQUEST || status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                            tracing::error!("[doc_ai] API Key rejected with {}! Check if your key is valid. Falling back to OAuth.", status);
+                        }
                         api_key_res = Some(Ok(resp));
                         break;
                     }
@@ -353,7 +372,7 @@ impl DocumentAiClient {
                 Ok(resp) => {
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
-                    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN || status == StatusCode::BAD_REQUEST {
                         tracing::warn!(
                             "[doc_ai] API-key auth rejected ({}); falling back to service-account",
                             status
@@ -399,6 +418,9 @@ impl DocumentAiClient {
                             tokio::time::sleep(delay).await;
                             continue;
                         }
+                    if status == StatusCode::BAD_REQUEST || status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                        tracing::error!("[doc_ai] OAuth rejected with {}! Check your credentials.", status);
+                    }
                     final_resp = Some(Ok(resp));
                     break;
                 }
@@ -434,83 +456,149 @@ impl DocumentAiClient {
         Ok(stmt)
     }
 
-    /// Parse a list of pre-chunked PDFs in parallel and merge the results
-    /// into a single [`BankStatement`]. Stage 3 / Item #16: avoids the 30
-    /// page-per-request processor cap by chunking + parallelising.
-    ///
-    /// `chunks` is a slice of `(chunk_path, page_offset)` pairs — typically
-    /// produced by `python/pymupdf_pro_integration.py::chunk_pdf_for_docai`.
-    /// `max_concurrency` caps how many chunk parses run simultaneously to
-    /// stay under Document AI's per-second QPS limits (4 is a safe default).
-    pub async fn parse_chunked_statement(
+    /// Replaces the old `parse_chunked_statement`. Dynamically uses `v1:process`
+    /// for <= 15 pages and `v1:batchProcess` (LRO) for > 15 pages.
+    pub async fn parse_smart_batch(
         &self,
-        chunks: &[(std::path::PathBuf, usize)],
-        max_concurrency: usize,
+        pdf_path: &Path,
         version: Option<&str>,
+        total_pages: usize,
     ) -> Result<BankStatement, DocAiError> {
-        use futures_util::stream::{FuturesUnordered, StreamExt};
-        use std::future::Future;
-        use std::pin::Pin;
+        if total_pages <= 15 {
+            self.parse_entire_statement(pdf_path, version).await
+        } else {
+            self.parse_via_lro(pdf_path, version).await
+        }
+    }
 
-        if chunks.is_empty() {
-            return Err(DocAiError::MissingConfig("no chunks supplied"));
+    async fn upload_to_gcs(&self, pdf_path: &Path, access_token: &str) -> Result<String, DocAiError> {
+        let uri = &self.config.gcs_output_uri;
+        if uri.is_empty() {
+            return Err(DocAiError::MissingConfig("DOCUMENT_AI_GCS_URI is required for files > 15 pages"));
+        }
+        let bucket = uri.strip_prefix("gs://").and_then(|s| s.split('/').next()).unwrap_or_default();
+        let filename = pdf_path.file_name().unwrap_or_default().to_string_lossy();
+        let object_name = format!("inputs/{}/{}", uuid::Uuid::new_v4(), filename);
+        let url = format!(
+            "https://storage.googleapis.com/upload/storage/v1/b/{}/o?uploadType=media&name={}",
+            bucket,
+            urlencoding::encode(&object_name)
+        );
+
+        let file = tokio::fs::File::open(pdf_path).await?;
+        let stream = tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
+        let body = reqwest::Body::wrap_stream(stream);
+
+        let resp = self.http.post(&url)
+            .bearer_auth(access_token)
+            .header("Content-Type", "application/pdf")
+            .body(body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(resp.status(), resp.text().await.unwrap_or_default()));
         }
 
-        type ChunkFut<'a> = Pin<
-            Box<dyn Future<Output = (usize, usize, Result<BankStatement, DocAiError>)> + Send + 'a>,
-        >;
-        let mut in_flight: FuturesUnordered<ChunkFut<'_>> = FuturesUnordered::new();
-        let mut next_idx = 0usize;
-        let mut results: Vec<Option<(usize, BankStatement)>> = (0..chunks.len()).map(|_| None).collect();
+        Ok(format!("gs://{}/{}", bucket, object_name))
+    }
 
-        // Prime up to `max_concurrency` parses.
-        while next_idx < chunks.len() && in_flight.len() < max_concurrency {
-            let (path, offset) = chunks[next_idx].clone();
-            let idx = next_idx;
-            in_flight.push(Box::pin(async move {
-                let r = self.parse_entire_statement(&path, version).await;
-                (idx, offset, r)
-            }));
-            next_idx += 1;
+    async fn parse_via_lro(&self, pdf_path: &Path, version: Option<&str>) -> Result<BankStatement, DocAiError> {
+        let access_token = self.get_access_token().await?;
+        let gcs_input_uri = self.upload_to_gcs(pdf_path, &access_token).await?;
+
+        let output_prefix = format!("outputs/{}/", uuid::Uuid::new_v4());
+        let gcs_output_uri = format!("{}/{}", self.config.gcs_output_uri.trim_end_matches('/'), output_prefix);
+
+        let url = self.batch_process_url_v1beta3(version);
+        let body = serde_json::json!({
+            "inputDocuments": {
+                "gcsDocuments": {
+                    "documents": [{
+                        "gcsUri": gcs_input_uri,
+                        "mimeType": "application/pdf"
+                    }]
+                }
+            },
+            "documentOutputConfig": {
+                "gcsOutputConfig": {
+                    "gcsUri": gcs_output_uri
+                }
+            }
+        });
+
+        let resp = self.http.post(&url)
+            .bearer_auth(&access_token)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(DocAiError::Api(resp.status(), resp.text().await.unwrap_or_default()));
         }
 
-        while let Some((idx, offset, res)) = in_flight.next().await {
-            let stmt = res?;
-            // Re-write each transaction's `page` to the absolute index in the
-            // unchunked document.
-            let shifted_txs: Vec<Transaction> = stmt
-                .transactions
-                .into_iter()
-                .map(|mut t| {
-                    t.page += offset;
-                    t
-                })
-                .collect();
-            results[idx] = Some((
-                offset,
-                BankStatement {
-                    transactions: shifted_txs,
-                    ..stmt
-                },
-            ));
-            // Top up.
-            if next_idx < chunks.len() {
-                let (path, offset) = chunks[next_idx].clone();
-                let i = next_idx;
-                in_flight.push(Box::pin(async move {
-                    let r = self.parse_entire_statement(&path, version).await;
-                    (i, offset, r)
-                }));
-                next_idx += 1;
+        let json: serde_json::Value = resp.json().await?;
+        let op_name = json["name"].as_str().unwrap_or_default().to_string();
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let op_url = format!("https://{}-documentai.googleapis.com/v1beta3/{}", self.config.location, op_name);
+            let op_resp = self.http.get(&op_url).bearer_auth(&access_token).send().await?;
+            if !op_resp.status().is_success() {
+                continue;
+            }
+            let op_json: serde_json::Value = op_resp.json().await?;
+
+            if op_json["done"].as_bool().unwrap_or(false) {
+                if let Some(error) = op_json.get("error") {
+                    return Err(DocAiError::Api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()));
+                }
+                break;
             }
         }
 
-        // Merge in chunk-index order so transactions stay in document order.
-        let chunked: Vec<BankStatement> = results
-            .into_iter()
-            .filter_map(|r| r.map(|(_, s)| s))
-            .collect();
-        Ok(merge_chunk_results(chunked))
+        self.download_and_merge_gcs_outputs(&gcs_output_uri, &access_token).await
+    }
+
+    async fn download_and_merge_gcs_outputs(&self, gcs_output_uri: &str, access_token: &str) -> Result<BankStatement, DocAiError> {
+        let uri = gcs_output_uri;
+        let bucket = uri.strip_prefix("gs://").and_then(|s| s.split('/').next()).unwrap_or_default();
+        let prefix = uri.strip_prefix(&format!("gs://{}/", bucket)).unwrap_or_default();
+
+        let list_url = format!(
+            "https://storage.googleapis.com/storage/v1/b/{}/o?prefix={}",
+            bucket,
+            urlencoding::encode(prefix)
+        );
+        let list_resp = self.http.get(&list_url).bearer_auth(access_token).send().await?;
+        if !list_resp.status().is_success() {
+            return Err(DocAiError::Api(list_resp.status(), list_resp.text().await.unwrap_or_default()));
+        }
+        let list_json: serde_json::Value = list_resp.json().await?;
+
+        let mut statements = Vec::new();
+        if let Some(items) = list_json["items"].as_array() {
+            for item in items {
+                let name = item["name"].as_str().unwrap_or_default();
+                if name.ends_with(".json") {
+                    let dl_url = format!(
+                        "https://storage.googleapis.com/storage/v1/b/{}/o/{}?alt=media",
+                        bucket,
+                        urlencoding::encode(name)
+                    );
+                    let dl_resp = self.http.get(&dl_url).bearer_auth(access_token).send().await?;
+                    if !dl_resp.status().is_success() {
+                        continue;
+                    }
+                    let doc_json: serde_json::Value = dl_resp.json().await?;
+                    if let Ok(stmt) = Self::parse_response_into_bank_statement(&doc_json, None) {
+                        statements.push(stmt);
+                    }
+                }
+            }
+        }
+
+        Ok(merge_chunk_results(statements))
     }
 
     fn get_real_page_dims(pdf_path: &Path) -> std::collections::HashMap<usize, (f32, f32)> {
@@ -693,23 +781,38 @@ impl DocumentAiClient {
                         let field_bboxes = FieldBboxes {
                             date: property_bbox(
                                 entity,
-                                &["transaction_date", "transaction_deposit_date"],
+                                &["transaction_date", "transaction_deposit_date", "transaction_withdrawal_date"],
                                 &pages_dim,
                             ),
-                            description: None,
+                            description: property_bbox(
+                                entity,
+                                &[
+                                    "transaction_description",
+                                    "transaction_deposit_description",
+                                    "transaction_withdrawal_description",
+                                ],
+                                &pages_dim,
+                            ),
                             debit: property_bbox(entity, &["debit", "transaction_withdrawal"], &pages_dim),
                             credit: property_bbox(entity, &["credit", "transaction_deposit"], &pages_dim),
                             running_balance: property_bbox(entity, &["running_balance"], &pages_dim),
                         };
+                        
+                        let date = extract_string_property(entity, "transaction_date")
+                            .or_else(|| extract_string_property(entity, "transaction_deposit_date"))
+                            .or_else(|| extract_string_property(entity, "transaction_withdrawal_date"))
+                            .unwrap_or_default();
+                            
+                        let description = extract_string_property(entity, "transaction_description")
+                            .or_else(|| extract_string_property(entity, "transaction_deposit_description"))
+                            .or_else(|| extract_string_property(entity, "transaction_withdrawal_description"))
+                            .unwrap_or_else(|| text.clone());
+
                         transactions.push(Transaction {
                             page: page_idx,
                             line_on_page: idx,
-                            date: extract_string_property(entity, "transaction_date")
-                                .or_else(|| {
-                                    extract_string_property(entity, "transaction_deposit_date")
-                                })
-                                .unwrap_or_default(),
-                            raw_text: text,
+                            date,
+                            raw_text: description,
                             debit: extract_number_property(entity, "debit").or_else(|| {
                                 extract_number_property(entity, "transaction_withdrawal")
                             }),
@@ -788,9 +891,9 @@ impl DocumentAiClient {
     /// from [`authed_url`]; here we just attach the bearer if present.
     fn apply_auth(
         &self,
-        builder: reqwest::RequestBuilder,
+        builder: reqwest_middleware::RequestBuilder,
         token: Option<&str>,
-    ) -> reqwest::RequestBuilder {
+    ) -> reqwest_middleware::RequestBuilder {
         match token {
             Some(t) => builder.bearer_auth(t),
             None => builder,
@@ -1693,7 +1796,7 @@ mod tests {
             }
         }"#;
         let val: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val).unwrap();
+        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val, None).unwrap();
         assert_eq!(stmt.transactions.len(), 1);
 
         let tx = &stmt.transactions[0];
@@ -1757,7 +1860,7 @@ mod tests {
             }
         }"#;
         let val: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val).unwrap();
+        let stmt = DocumentAiClient::parse_response_into_bank_statement(&val, None).unwrap();
         assert_eq!(stmt.transactions.len(), 1);
         let tx = &stmt.transactions[0];
         assert!(tx.bbox.is_some(), "row bbox should be set");

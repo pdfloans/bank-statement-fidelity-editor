@@ -1426,6 +1426,9 @@ impl MyApp {
                     crate::engine::workflow::WorkflowFailure::FinalMathInvalid { imbalance } => {
                         format!("Final math invalid: imbalance ${imbalance:.2}")
                     }
+                    crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(s) => {
+                        format!("AI Fidelity Check Failed: {}", s)
+                    }
                     crate::engine::workflow::WorkflowFailure::Other(s) => s.clone(),
                 };
                 
