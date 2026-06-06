@@ -24,6 +24,7 @@ The application employs a "hybrid" PDF processing strategy, leaning on different
 
 - **Google Cloud Document AI (v1beta3):** The primary engine for semantic extraction. It is responsible for parsing raw PDF layouts into structured transactions (dates, descriptions, debits, credits, running balances).
 - **Google Gemini / Vertex AI:** Used as the "Smart Balance Engine". Gemini is fed the deterministic imbalances detected in the statement and tasked with generating minimal cascading adjustment plans to resolve math errors.
+- **pdfRest API:** Integrated as an advanced AI client and orchestration layer for Adobe-tier visual verification and document analysis.
 - **Tesseract OCR (Optional):** Used locally as a fallback geometry provider for text bounding boxes if native PDF text extraction fails.
 
 ## Concurrency and Asynchronous Runtime
@@ -44,3 +45,8 @@ The application employs a "hybrid" PDF processing strategy, leaning on different
 
 - **`serde` (1.0) / `serde_json`:** Used ubiquitously for serializing and deserializing API requests, JSON outputs, and internal message passing.
 - **`confy` (0.6):** A configuration management library used to persist the `AppSettings` (like dark mode, advanced mode, etc.) to the user's local application data directory.
+
+## Security and Fault Tolerance
+
+- **`chacha20poly1305`:** Used for strong encryption of the local Document AI cache and other sensitive artifacts at rest.
+- **Enterprise Fault Tolerance:** Handled inside the `tokio` asynchronous runtime with exponential backoffs, automatic retry middlewares via `reqwest-retry`, and strict cryptographic software root-of-trust (via SHA-256 and `.pipeline_key`).

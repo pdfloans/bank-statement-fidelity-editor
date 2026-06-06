@@ -44,15 +44,19 @@ All configuration is via environment variables (or a `.env` file).
 
 | Variable | Required? | Description |
 |---|---|---|
-| `DUAL_CORE_PASSPHRASE` | Yes (≥16 chars) | Software root-of-trust passphrase. |
+| `DUAL_CORE_PASSPHRASE` | Yes (≥16 chars) | Software root-of-trust passphrase. Alternatively, create a `.pipeline_key` file. |
 | `PYMUPDF_PRO_KEY` | Recommended | PyMuPDF Pro license key for the Python actor. |
 | `GEMINI_API_KEY` | For Smart Balance | Google Gemini API key. |
+| `GEMINI_AUTH_MODE` | Optional | `ApiKey` (default) or `vertex` (Google Cloud Service Account/ADC). |
 | `DOCUMENT_AI_API_KEY` | For Document AI (Beta, preferred) | API key for Document AI v1beta3. Tried first. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | For Document AI (legacy fallback) | Path to service-account JSON. Used if API-key auth fails. |
 | `DOCUMENT_AI_PROJECT_ID` | For Document AI | GCP project. |
 | `DOCUMENT_AI_LOCATION` | For Document AI | e.g. `us`. |
 | `DOCUMENT_AI_PROCESSOR_ID` | For Document AI | Processor ID. |
-| `PDFREST_API_KEY` | Optional | Enables Adobe-tier visual verification. |
+| `DOCUMENT_AI_GCS_URI` | For Batch AI Outputs | e.g. `gs://my-bucket/outputs/`. |
+| `PDFREST_API_KEY` | Optional | Enables Adobe-tier visual verification and AI orchestration. |
+| `LIPI_API_KEY` | Optional | Used for legacy Lipi processing. |
+| `WEBHOOK_URL` | Optional | URL to ping on job completion. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional | OTLP gRPC endpoint. |
 | `OTEL_SERVICE_NAME` | Optional | Defaults to `dual-core-pdf-pipeline`. |
 | `RUST_LOG` | Optional | e.g. `info`, `debug`. |
@@ -64,14 +68,24 @@ Run `dual-core-pdf-pipeline doctor` to print a one-shot health check (env vars s
 
 ```text
 dual-core-pdf-pipeline gui                                 # launch the GUI
+dual-core-pdf-pipeline serve                               # run headless server (binds 0.0.0.0:$PORT)
 dual-core-pdf-pipeline doctor                              # config health check
+dual-core-pdf-pipeline verify-api-keys                     # verify all API keys
 dual-core-pdf-pipeline text -i in.pdf -o out.pdf \
     --old "100.00" --new "150.00" --page 0 --bbox 50,40,90,52
 dual-core-pdf-pipeline balance -i in.pdf -o out.pdf [--auto-approve]
-dual-core-pdf-pipeline extract -i in.pdf -o transactions.json
-dual-core-pdf-pipeline verify --original a.pdf --edited b.pdf -o audit/verify
+dual-core-pdf-pipeline auto-balance -i in.pdf -o out.pdf   # Smart balance with auto-approve
+dual-core-pdf-pipeline extract -i in.pdf -o data.json
+dual-core-pdf-pipeline verify --original a.pdf --edited b.pdf --output-dir audit/verify [--use-pdfrest]
 dual-core-pdf-pipeline render -i in.pdf -o pages -p 0 --dpi 300
 dual-core-pdf-pipeline font-complete -i in.pdf --font Helvetica
+dual-core-pdf-pipeline analyze-fonts -i in.pdf
+dual-core-pdf-pipeline ai-fix-visual -i in.pdf -p 0
+dual-core-pdf-pipeline docai-train                         # Train a new Document AI processor version
+dual-core-pdf-pipeline fontcache-init                      # Bootstrap font cache
+dual-core-pdf-pipeline transfer-transactions --source-pdf a.pdf --target-pdf b.pdf -o out.pdf
+dual-core-pdf-pipeline adjust-dates -i in.pdf -o out.pdf --mode shift-forward-1-month
+dual-core-pdf-pipeline run-transfer-tests --statements a.pdf,b.pdf
 dual-core-pdf-pipeline export-history --from-log audit/2026.log -o history.json
 ```
 
