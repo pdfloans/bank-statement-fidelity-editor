@@ -136,6 +136,7 @@ impl OxidizePdfEngine {
                                 bbox: [x, y, x + estimated_width, y + font_size],
                                 font: current_font.clone(),
                                 size: font_size,
+                                obj_id: Some(format!("ObjId({}, {})", page_id.0, page_id.1)),
                             });
                         }
                     }
@@ -168,6 +169,7 @@ impl OxidizePdfEngine {
                                 bbox: [x, y, x + estimated_width, y + font_size],
                                 font: current_font.clone(),
                                 size: font_size,
+                                obj_id: Some(format!("ObjId({}, {})", page_id.0, page_id.1)),
                             });
                         }
                     }
@@ -411,6 +413,7 @@ impl PdfEngine for OxidizePdfEngine {
             success: true,
             font_used: "original".to_string(),
             overflow: false,
+            obj_id: Some(format!("ObjId({}, {})", page_id.0, page_id.1)),
         })
     }
 

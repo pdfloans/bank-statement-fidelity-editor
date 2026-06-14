@@ -2041,6 +2041,7 @@ impl Runtime {
                                     };
 
                                     let mut final_record = h.create_record(page, old_text, new_text.clone(), bbox, description, None);
+                                    final_record.obj_id = o.obj_id;
                                     let snap_path = a.snapshot_path_for(final_record.id);
 
                                     // Snapshots use a hard link when possible (same volume)

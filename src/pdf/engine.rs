@@ -44,6 +44,7 @@ pub struct ReplaceOutcome {
     pub success: bool,
     pub font_used: String,
     pub overflow: bool,
+    pub obj_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +54,7 @@ pub struct TextBlock {
     pub bbox: [f32; 4],
     pub font: String,
     pub size: f32,
+    pub obj_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -203,8 +205,9 @@ mod tests {
             page,
             text: "100.00".into(),
             bbox,
-            font: "Helvetica".into(),
-            size: 10.0,
+            font: String::new(),
+            size: 12.0,
+            obj_id: None,
         }
     }
 
