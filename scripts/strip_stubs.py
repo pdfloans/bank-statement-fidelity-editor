@@ -12,7 +12,7 @@ def remove_python_stub(filepath):
     # let cargo check give us the exact line numbers of all errors. Then we 
     # use a script to replace those specific line ranges.
     
-    pass
+    raise NotImplementedError("remove_python_stub is not implemented yet")
 
 if __name__ == "__main__":
     remove_python_stub(sys.argv[1])
