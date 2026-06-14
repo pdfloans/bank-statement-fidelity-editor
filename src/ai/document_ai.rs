@@ -105,9 +105,9 @@ impl DocumentAiClient {
         })
     }
 
-    fn process_url_v1beta3(&self, version: Option<&str>) -> String {
+    fn process_url(&self, version: Option<&str>) -> String {
         let base = format!(
-            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}",
+            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
             self.config.location, self.config.project_id, self.config.location, self.config.processor_id
         );
         match version {
@@ -116,9 +116,9 @@ impl DocumentAiClient {
         }
     }
 
-    fn batch_process_url_v1beta3(&self, version: Option<&str>) -> String {
+    fn batch_process_url(&self, version: Option<&str>) -> String {
         let base = format!(
-            "https://{}-documentai.googleapis.com/v1beta3/projects/{}/locations/{}/processors/{}",
+            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
             self.config.location, self.config.project_id, self.config.location, self.config.processor_id
         );
         match version {
@@ -319,10 +319,10 @@ impl DocumentAiClient {
             }
         });
 
-        // 1. Primary: API key → v1beta3.
+        // 1. Primary: API key → v1.
         if !self.config.api_key.is_empty() {
-            let url = format!("{}?key={}", self.process_url_v1beta3(version), self.config.api_key);
-            tracing::debug!("[doc_ai] trying v1beta3 API-key auth");
+            let url = format!("{}?key={}", self.process_url(version), self.config.api_key);
+            tracing::debug!("[doc_ai] trying v1 API-key auth");
             
             let mut attempts = 0;
             let max_attempts = 4;
@@ -398,8 +398,8 @@ impl DocumentAiClient {
             ));
         }
 
-        let url = self.process_url_v1beta3(version);
-        tracing::debug!("[doc_ai] using v1beta3 OAuth (ADC or service-account)");
+        let url = self.process_url(version);
+        tracing::debug!("[doc_ai] using v1 OAuth (ADC or service-account)");
         
         let mut attempts = 0;
         let max_attempts = 4;
@@ -510,7 +510,7 @@ impl DocumentAiClient {
         let output_prefix = format!("outputs/{}/", uuid::Uuid::new_v4());
         let gcs_output_uri = format!("{}/{}", self.config.gcs_output_uri.trim_end_matches('/'), output_prefix);
 
-        let url = self.batch_process_url_v1beta3(version);
+        let url = self.batch_process_url(version);
         let body = serde_json::json!({
             "inputDocuments": {
                 "gcsDocuments": {
@@ -542,7 +542,7 @@ impl DocumentAiClient {
 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            let op_url = format!("https://{}-documentai.googleapis.com/v1beta3/{}", self.config.location, op_name);
+            let op_url = format!("https://{}-documentai.googleapis.com/v1/{}", self.config.location, op_name);
             let op_resp = self.http.get(&op_url).bearer_auth(&access_token).send().await?;
             if !op_resp.status().is_success() {
                 continue;
