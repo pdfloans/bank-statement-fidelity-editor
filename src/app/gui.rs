@@ -370,11 +370,13 @@ pub struct MyApp {
     workflow_stage: crate::engine::workflow::WorkflowStage,
     workflow_transactions: Vec<crate::engine::model::Transaction>,
     workflow_validation: Option<crate::engine::workflow::ParseValidation>,
+    workflow_df: Option<polars::frame::DataFrame>,
     #[allow(dead_code)]
     workflow_edits: Vec<crate::engine::workflow::UserEdit>,
     workflow_preview: Option<crate::engine::workflow::BalancePreview>,
     workflow_visual: Option<crate::engine::workflow::VisualAttempt>,
     workflow_outcome: Option<crate::engine::workflow::WorkflowOutcome>,
+    native_engine: Option<std::sync::Arc<dyn crate::pdf::PdfEngine>>,
 
     /// Stage 8.5: per-font breakdown for the loaded PDF, populated
     /// automatically when `JobResult::FontAnalysisReady` arrives.
@@ -518,10 +520,12 @@ impl MyApp {
             workflow_stage: crate::engine::workflow::WorkflowStage::Idle,
             workflow_transactions: Vec::new(),
             workflow_validation: None,
+            workflow_df: None,
             workflow_edits: Vec::new(),
             workflow_preview: None,
             workflow_visual: None,
             workflow_outcome: None,
+            native_engine: None,
             font_analysis: None,
             font_cascade_reports: Vec::new(),
             show_discard_draft_confirm: false,

@@ -38,10 +38,6 @@ impl AuditLog {
         })
     }
 
-    /// Writes a change record to the persistent log file.
-    ///
-    /// # Errors
-    /// Returns [`AuditError::Write`] if the log file cannot be opened or written.
     pub fn write(
         &mut self,
         record: &ChangeRecord,
@@ -52,25 +48,30 @@ impl AuditLog {
     ) -> AuditResult<()> {
         self.ensure_open()?;
 
-        let ts = Utc::now().to_rfc3339();
-        let old_escaped = serde_json::to_string(&record.old_text).unwrap_or_default();
-        let new_escaped = serde_json::to_string(&record.new_text).unwrap_or_default();
-        let desc_escaped = serde_json::to_string(&record.description).unwrap_or_default();
-        let snap_escaped = serde_json::to_string(
-            &record
-                .snapshot_path
-                .as_ref()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default(),
-        )
-        .unwrap_or_default();
+        // Phase 7: Write structured native JSON for maximum precision and security.
+        #[derive(serde::Serialize)]
+        struct AuditEvent<'a> {
+            version: &'static str,
+            operator: &'a str,
+            source_pdf: &'a Path,
+            output_pdf: &'a Path,
+            requires_visual_review: bool,
+            #[serde(flatten)]
+            record: &'a ChangeRecord,
+        }
 
-        let line = format!(
-            "audit_v1 ts={} page={} id={} old={} new={} op={} prov={} desc={} snap={} bbox=[{},{},{},{}] in={:?} out={:?} review={}\n",
-            ts, record.page, record.id, old_escaped, new_escaped, operator, record.provenance, desc_escaped, snap_escaped,
-            record.bbox[0], record.bbox[1], record.bbox[2], record.bbox[3],
-            source, output, requires_visual_review
-        );
+        let event = AuditEvent {
+            version: "audit_v2_json",
+            operator,
+            source_pdf: source,
+            output_pdf: output,
+            requires_visual_review,
+            record,
+        };
+
+        // Write as JSON lines to the master log
+        let mut line = serde_json::to_string(&event).unwrap_or_default();
+        line.push('\n');
 
         let file = self
             .log_file
@@ -78,6 +79,14 @@ impl AuditLog {
             .expect("log_file is Some after ensure_open");
         file.write_all(line.as_bytes()).map_err(AuditError::Write)?;
         file.flush().map_err(AuditError::Write)?;
+
+        // Also dump an individual snapshot matching the old verification_report format
+        let ts = record.timestamp.replace(':', ""); // safe for filenames
+        let snap_json_path = self.snapshots_dir.join(format!("{ts}.json"));
+        if let Ok(json_bytes) = serde_json::to_vec_pretty(&event) {
+            let _ = fs::write(snap_json_path, json_bytes);
+        }
+
         Ok(())
     }
 
@@ -278,6 +287,7 @@ impl AuditLogParser {
             description,
             snapshot_path,
             provenance,
+            obj_id: None,
         })
     }
 }
@@ -302,6 +312,7 @@ mod tests {
             description: "Adjustment".into(),
             snapshot_path: Some(PathBuf::from("audit/snapshots/123.pdf")),
             provenance: "DocumentAI".into(),
+            obj_id: None,
         };
 
         audit

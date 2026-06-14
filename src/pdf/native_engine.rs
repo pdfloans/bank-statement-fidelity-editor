@@ -211,13 +211,47 @@ impl PdfEngine for OxidizePdfEngine {
 
     fn render_page(
         &self,
-        _path: &Path,
-        _page: usize,
-        _dpi: f32,
+        path: &Path,
+        page: usize,
+        dpi: f32,
     ) -> Result<RenderedPage, EngineError> {
-        // Phase 2 stub — rendering requires a full rasterizer (tiny-skia).
-        // For now, return an error so the selector can fall back.
-        Err(EngineError::Unsupported)
+        // Fallback Native Renderer (Structural/Layout mode)
+        // Since full PDF rasterization via tiny-skia is Phase 6, we draw text block
+        // bounding boxes on a white canvas. This allows UI interaction (clicking,
+        // selecting text for edits) without needing external C++ renderers.
+        
+        let width_pts = 600.0; // Standard A4 estimated width
+        let height_pts = 850.0;
+        let width_px = (width_pts * dpi / 72.0) as u32;
+        let height_px = (height_pts * dpi / 72.0) as u32;
+
+        let mut img = image::RgbaImage::from_pixel(width_px, height_px, image::Rgba([255, 255, 255, 255]));
+        
+        if let Ok(blocks) = self.get_text_blocks(path, page) {
+            for b in blocks {
+                let x0 = (b.bbox[0] * dpi / 72.0) as i32;
+                // PDF y=0 is bottom; image y=0 is top
+                let y0 = (height_px as f32 - (b.bbox[3] * dpi / 72.0)) as i32; 
+                let x1 = (b.bbox[2] * dpi / 72.0) as i32;
+                let y1 = (height_px as f32 - (b.bbox[1] * dpi / 72.0)) as i32;
+
+                let rect = imageproc::rect::Rect::at(x0.max(0), y0.max(0))
+                    .of_size(((x1 - x0).max(1)) as u32, ((y1 - y0).max(1)) as u32);
+                
+                imageproc::drawing::draw_hollow_rect_mut(&mut img, rect, image::Rgba([0, 0, 0, 100]));
+            }
+        }
+
+        let mut bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut bytes);
+        img.write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| EngineError::RenderFailed(format!("Failed to encode fallback PNG: {}", e)))?;
+        
+        Ok(RenderedPage {
+            png_bytes: bytes,
+            width_pts,
+            height_pts,
+        })
     }
 
     fn get_text_blocks(

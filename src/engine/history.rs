@@ -16,6 +16,7 @@ pub struct ChangeRecord {
     pub description: String,
     pub snapshot_path: Option<PathBuf>,
     pub provenance: String,
+    pub obj_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,6 +74,7 @@ impl ChangeHistory {
             description,
             snapshot_path: None,
             provenance: "Manual".into(),
+            obj_id: None,
         };
 
         self.history.truncate(self.current_index);
@@ -102,6 +104,7 @@ impl ChangeHistory {
             description,
             snapshot_path,
             provenance: "Manual".into(),
+            obj_id: None,
         }
     }
 

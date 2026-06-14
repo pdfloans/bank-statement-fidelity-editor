@@ -274,15 +274,3 @@ mod tests {
     }
 }
 
-// ── Phase 0 Stub ──
-#[derive(Debug)]
-pub struct StubNativeEngine;
-
-impl PdfEngine for StubNativeEngine {
-    fn capabilities(&self) -> EngineCapabilities { todo!() }
-    fn render_page(&self, _path: &Path, _page: usize, _dpi: f32) -> Result<RenderedPage, EngineError> { todo!() }
-    fn get_text_blocks(&self, _path: &Path, _page: usize) -> Result<Vec<TextBlock>, EngineError> { todo!() }
-    fn find_text_block_at_click(&self, _path: &Path, _page: usize, _x: f32, _y: f32) -> Result<Option<TextBlock>, EngineError> { todo!() }
-    fn apply_change(&self, _input: &Path, _output: &Path, _page: usize, _bbox: [f32; 4], _new_text: &str, _font_path: Option<&Path>) -> Result<ReplaceOutcome, EngineError> { todo!() }
-    fn analyze_layout(&self, _path: &Path) -> Result<DocumentLayout, EngineError> { todo!() }
-}

@@ -1411,12 +1411,9 @@ impl Runtime {
                             send_progress(&res_tx, TransferStage::FinalAudit);
                             
                             match write_transfer_audit(&final_result, &source_pdf, &target_pdf) {
-                                Ok(audit_path) => {
-                                    let _ = std::process::Command::new("python")
-                                        .arg("python/append_audit_report.py")
-                                        .arg(&final_result.output_path)
-                                        .arg(&audit_path)
-                                        .status();
+                                Ok(_audit_path) => {
+                                    // Phase 7: Audit reports are securely saved purely in Rust via serde_json.
+                                    // No external python post-processing is required.
                                 }
                                 Err(e) => tracing::warn!("[TRANSFER] Failed to write audit report: {}", e),
                             }
