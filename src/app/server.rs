@@ -144,9 +144,35 @@ fn route(
         }
         "/" => (
             "200 OK",
-            "text/plain; charset=utf-8",
-            "Bank Statement Fidelity Editor — headless serve mode.\n\
-             Liveness: GET /health   Readiness: GET /readyz\n"
+            "text/html; charset=utf-8",
+            "<!DOCTYPE html>
+<html>
+<head>
+    <title>Bank Statement Fidelity Editor</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #ffffff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+        .container { max-width: 600px; padding: 40px; background-color: #1e1e1e; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        h1 { color: #4facfe; margin-top: 0; }
+        p { line-height: 1.6; color: #cccccc; }
+        .code { background: #2d2d2d; padding: 10px; border-radius: 6px; font-family: monospace; color: #a3be8c; }
+        .endpoints { margin-top: 30px; display: flex; gap: 20px; justify-content: center; }
+        .endpoint { padding: 10px 20px; background: #252525; border: 1px solid #333; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <h1>Bank Statement Fidelity Editor</h1>
+        <h2>Headless Backend Mode</h2>
+        <p>This deployment is successfully running the backend worker and API.</p>
+        <p><strong>Note:</strong> This application is a native desktop application. The current deployment serves as a headless health-check and worker backend, not a Web GUI.</p>
+        <p>To use the graphical interface, please download and run the application locally on your desktop environment.</p>
+        <div class='endpoints'>
+            <div class='endpoint'>Liveness: <span class='code'>GET /health</span></div>
+            <div class='endpoint'>Readiness: <span class='code'>GET /readyz</span></div>
+        </div>
+    </div>
+</body>
+</html>"
                 .to_string(),
         ),
         _ => (
