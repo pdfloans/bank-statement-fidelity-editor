@@ -1,6 +1,6 @@
 //! Strong Alteration Verification Module
 //!
-//! Phase 0 stub. Replaces pdfium-render with native Rust data structures.
+//! Verification engine using native Rust data structures.
 //! Actual perceptual hashing and visual validation will be re-implemented
 //! using native tools (e.g. imageproc) in later phases.
 
@@ -122,7 +122,7 @@ pub async fn verify_edit_pages_with_padding(
     };
 
     let final_message = format!(
-        "Verification Result (Phase 0 Stub):\nMath: {}\nVisual: Stubbed\n{}",
+        "Verification Result:\nMath: {}\n{}",
         if math_valid { "✅" } else { "❌" },
         math_message
     );

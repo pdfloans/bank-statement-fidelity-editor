@@ -529,24 +529,162 @@ impl Runtime {
         let (python_tx, python_rx) =
             mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
 
-        // Phase 2: Native PDF engine backed by oxidize-pdf + lopdf
-        let engine: Arc<dyn crate::pdf::PdfEngine> = Arc::new(crate::pdf::OxidizePdfEngine::new());
+        let primary_engine = Arc::new(crate::pdf::MuPdfEngine::new());
+        let fallback_engine = Arc::new(crate::pdf::PyMuPdfEngine::new(job_tx.clone()));
+        let engine: Arc<dyn crate::pdf::PdfEngine> = Arc::new(crate::pdf::PdfEngineSelector::new(
+            primary_engine,
+            fallback_engine,
+        ));
 
         let audit_log = Arc::new(Mutex::new(audit_log));
         let history = Arc::new(Mutex::new(ChangeHistory::new()));
 
-        // Python actor removed — zero FFI architecture.
-        // PythonJob messages are still defined for API compatibility but now
-        // return a stub error. The native engine replaces all functionality.
-        let _python_stub_thread = thread::spawn(move || {
+        let _python_actor_thread = thread::spawn(move || {
+            let engine_result = PyEngine::init();
+
+            if let Err(e) = &engine_result {
+                tracing::error!("❌ [PYTHON_ACTOR] Failed to initialize PyEngine: {}", e);
+            }
+
             while let Ok((job, reply_tx)) = python_rx.recv() {
                 if let PythonJob::Ping = job {
                     let _ = reply_tx.send(PythonJobResult::Pong);
                     continue;
                 }
-                let _ = reply_tx.send(PythonJobResult::Error(
-                    "Python engine removed — pending pure Rust rewrite".to_string(),
-                ));
+
+                match &engine_result {
+                    Ok(engine) => {
+                        let res =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match job {
+                                PythonJob::Ping => unreachable!(),
+                                PythonJob::GetTextBlocks { pdf_path, page_num } => engine
+                                    .get_text_blocks(&pdf_path, page_num)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ReplaceTextInRect {
+                                    pdf_path,
+                                    output_path,
+                                    page_num,
+                                    rect,
+                                    new_text,
+                                    font_path,
+                                } => engine
+                                    .replace_text_in_rect(
+                                        &pdf_path,
+                                        &output_path,
+                                        page_num,
+                                        rect,
+                                        &new_text,
+                                        font_path.as_deref(),
+                                    )
+                                    .map(|opt| {
+                                        opt.map(|reason| {
+                                            PythonJobResult::ReplacedWithReviewWarning { reason }
+                                        })
+                                        .unwrap_or(PythonJobResult::Success)
+                                    }),
+                                PythonJob::FindTextBlockAtClick {
+                                    pdf_path,
+                                    page_num,
+                                    x,
+                                    y,
+                                } => engine
+                                    .find_text_block_at_click(&pdf_path, page_num, x, y)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::GetAllTransactions { pdf_path } => engine
+                                    .get_all_transactions(&pdf_path)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::AnalyzeDocumentLayout { pdf_path } => engine
+                                    .analyze_document_layout(&pdf_path)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::CompleteFontWithAdaption {
+                                    pdf_path,
+                                    font_name,
+                                } => engine
+                                    .complete_font_with_adaption(&pdf_path, &font_name)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::DeepFontReplication {
+                                    pdf_path,
+                                    font_name,
+                                    output_dir,
+                                } => engine
+                                    .deep_font_replication(&pdf_path, &font_name, &output_dir)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ApplyManyEdits {
+                                    pdf_path,
+                                    output_path,
+                                    edits_json,
+                                    font_path,
+                                } => engine
+                                    .apply_many_edits(
+                                        &pdf_path,
+                                        &output_path,
+                                        &edits_json,
+                                        font_path.as_deref(),
+                                    )
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ChunkPdfForDocai {
+                                    pdf_path,
+                                    output_dir,
+                                    max_pages_per_chunk,
+                                } => engine
+                                    .chunk_pdf_for_docai(&pdf_path, &output_dir, max_pages_per_chunk)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::AnalyzeFonts { pdf_path } => engine
+                                    .analyze_fonts(&pdf_path)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ReplicateFontForMissingChars {
+                                    pdf_path,
+                                    font_name,
+                                    missing_chars_csv,
+                                    output_dir,
+                                } => engine
+                                    .replicate_font_for_missing_chars(
+                                        &pdf_path,
+                                        &font_name,
+                                        &missing_chars_csv,
+                                        &output_dir,
+                                    )
+                                    .map(PythonJobResult::Json),
+                                PythonJob::ClonePages {
+                                    pdf_path,
+                                    output_path,
+                                    page_indices,
+                                } => engine
+                                    .clone_pages(&pdf_path, &output_path, &page_indices)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::RemovePages {
+                                    pdf_path,
+                                    output_path,
+                                    page_indices,
+                                } => engine
+                                    .remove_pages(&pdf_path, &output_path, &page_indices)
+                                    .map(PythonJobResult::Json),
+                            }));
+
+                        let final_res = match res {
+                            Ok(Ok(pjr)) => pjr,
+                            Ok(Err(e)) => PythonJobResult::Error(e),
+                            Err(panic) => {
+                                let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                                    s.to_string()
+                                } else if let Some(s) = panic.downcast_ref::<String>() {
+                                    s.clone()
+                                } else {
+                                    "Unknown panic in Python actor".to_string()
+                                };
+                                PythonJobResult::Error(format!("PyO3 panic: {msg}"))
+                            }
+                        };
+                        let _ = reply_tx.send(final_res);
+                        // Stage 2 Memory Management: explicit collection
+                        crate::ai::pyo3_bridge::PyEngine::garbage_collect();
+                    }
+                    Err(e) => {
+                        let _ = reply_tx.send(PythonJobResult::Error(format!(
+                            "Python Engine not initialized: {e}"
+                        )));
+                    }
+                }
             }
         });
 
@@ -932,51 +1070,89 @@ impl Runtime {
 
                                 if !transfer_plan.pages_to_clone.is_empty() {
                                     let temp_path = output_pdf.with_extension("cloned.pdf");
-                                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                                    let _ = py_tx.send((
-                                        PythonJob::ClonePages {
-                                            pdf_path: output_pdf.to_string_lossy().to_string(),
-                                            output_path: temp_path.to_string_lossy().to_string(),
-                                            page_indices: transfer_plan.pages_to_clone.clone(),
-                                        },
-                                        reply_tx,
-                                    ));
-                                    match reply_rx.await {
-                                        Ok(PythonJobResult::Json(json_str)) => {
-                                            if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                                                if res["success"].as_bool().unwrap_or(false) {
-                                                    actual_pages_added = res["cloned"].as_u64().unwrap_or(0) as usize;
-                                                    let _ = std::fs::rename(&temp_path, &output_pdf);
-                                                }
-                                            }
-                                            tracing::info!("[TRANSFER] Cloned {} pages", actual_pages_added);
+                                    let eng = engine_for_tokio.clone();
+                                    let p_in = output_pdf.clone();
+                                    let p_out = temp_path.clone();
+                                    let idxs = transfer_plan.pages_to_clone.clone();
+                                    let native_res = tokio::task::spawn_blocking(move || {
+                                        eng.clone_pages(&p_in, &p_out, idxs)
+                                    }).await.unwrap_or(Ok(0));
+
+                                    if let Ok(c) = native_res {
+                                        if c > 0 {
+                                            actual_pages_added = c;
+                                            let _ = std::fs::rename(&temp_path, &output_pdf);
+                                            tracing::info!("[TRANSFER] (Native) Cloned {} pages", actual_pages_added);
                                         }
-                                        other => tracing::warn!("[TRANSFER] Page cloning failed: {:?}", other),
+                                    }
+                                    
+                                    if actual_pages_added == 0 {
+                                        tracing::warn!("[TRANSFER] Native ClonePages failed or returned 0. Falling back to Python.");
+                                        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                        let _ = py_tx.send((
+                                            PythonJob::ClonePages {
+                                                pdf_path: output_pdf.to_string_lossy().to_string(),
+                                                output_path: temp_path.to_string_lossy().to_string(),
+                                                page_indices: transfer_plan.pages_to_clone.clone(),
+                                            },
+                                            reply_tx,
+                                        ));
+                                        match reply_rx.await {
+                                            Ok(PythonJobResult::Json(json_str)) => {
+                                                if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                                    if res["success"].as_bool().unwrap_or(false) {
+                                                        actual_pages_added = res["cloned"].as_u64().unwrap_or(0) as usize;
+                                                        let _ = std::fs::rename(&temp_path, &output_pdf);
+                                                    }
+                                                }
+                                                tracing::info!("[TRANSFER] (Python) Cloned {} pages", actual_pages_added);
+                                            }
+                                            other => tracing::warn!("[TRANSFER] (Python) Page cloning failed: {:?}", other),
+                                        }
                                     }
                                 }
 
                                 if !transfer_plan.pages_to_remove.is_empty() {
                                     let temp_path = output_pdf.with_extension("removed.pdf");
-                                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                                    let _ = py_tx.send((
-                                        PythonJob::RemovePages {
-                                            pdf_path: output_pdf.to_string_lossy().to_string(),
-                                            output_path: temp_path.to_string_lossy().to_string(),
-                                            page_indices: transfer_plan.pages_to_remove.clone(),
-                                        },
-                                        reply_tx,
-                                    ));
-                                    match reply_rx.await {
-                                        Ok(PythonJobResult::Json(json_str)) => {
-                                            if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                                                if res["success"].as_bool().unwrap_or(false) {
-                                                    actual_pages_removed = res["removed"].as_u64().unwrap_or(0) as usize;
-                                                    let _ = std::fs::rename(&temp_path, &output_pdf);
-                                                }
-                                            }
-                                            tracing::info!("[TRANSFER] Removed {} pages", actual_pages_removed);
+                                    let eng = engine_for_tokio.clone();
+                                    let p_in = output_pdf.clone();
+                                    let p_out = temp_path.clone();
+                                    let idxs = transfer_plan.pages_to_remove.clone();
+                                    let native_res = tokio::task::spawn_blocking(move || {
+                                        eng.remove_pages(&p_in, &p_out, idxs)
+                                    }).await.unwrap_or(Ok(0));
+
+                                    if let Ok(c) = native_res {
+                                        if c > 0 {
+                                            actual_pages_removed = c;
+                                            let _ = std::fs::rename(&temp_path, &output_pdf);
+                                            tracing::info!("[TRANSFER] (Native) Removed {} pages", actual_pages_removed);
                                         }
-                                        other => tracing::warn!("[TRANSFER] Page removal failed: {:?}", other),
+                                    }
+
+                                    if actual_pages_removed == 0 {
+                                        tracing::warn!("[TRANSFER] Native RemovePages failed or returned 0. Falling back to Python.");
+                                        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                        let _ = py_tx.send((
+                                            PythonJob::RemovePages {
+                                                pdf_path: output_pdf.to_string_lossy().to_string(),
+                                                output_path: temp_path.to_string_lossy().to_string(),
+                                                page_indices: transfer_plan.pages_to_remove.clone(),
+                                            },
+                                            reply_tx,
+                                        ));
+                                        match reply_rx.await {
+                                            Ok(PythonJobResult::Json(json_str)) => {
+                                                if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                                    if res["success"].as_bool().unwrap_or(false) {
+                                                        actual_pages_removed = res["removed"].as_u64().unwrap_or(0) as usize;
+                                                        let _ = std::fs::rename(&temp_path, &output_pdf);
+                                                    }
+                                                }
+                                                tracing::info!("[TRANSFER] (Python) Removed {} pages", actual_pages_removed);
+                                            }
+                                            other => tracing::warn!("[TRANSFER] (Python) Page removal failed: {:?}", other),
+                                        }
                                     }
                                 }
 
@@ -1154,35 +1330,57 @@ impl Runtime {
                                         }
                                     } else {
                                         let edits_json = serde_json::to_string(&batch_edits).unwrap_or_default();
-                                        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                                        let _ = py_tx.send((
-                                            PythonJob::ApplyManyEdits {
-                                                pdf_path: output_pdf.to_string_lossy().to_string(),
-                                                output_path: output_pdf.with_extension("temp.pdf").to_string_lossy().to_string(),
-                                                edits_json,
-                                                font_path: font_override_path.clone(),
-                                            },
-                                            reply_tx,
-                                        ));
+                                        let eng = engine_for_tokio.clone();
+                                        let p_in = output_pdf.clone();
+                                        let p_out = output_pdf.with_extension("temp.pdf");
+                                        let f_path = font_override_path.clone();
+                                        
+                                        let native_res = tokio::task::spawn_blocking(move || {
+                                            let fp = f_path.map(std::path::PathBuf::from);
+                                            eng.apply_many_edits(&p_in, &p_out, &edits_json, fp.as_deref())
+                                        }).await.unwrap_or(Ok(0));
 
-                                        match reply_rx.await {
-                                            Ok(PythonJobResult::Json(json_str)) => {
-                                                if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                                                    if res["success"].as_bool().unwrap_or(false) {
-                                                        edits_applied = res["applied"].as_u64().unwrap_or(0) as usize;
-                                                        if let Some(flags) = res["review_flags"].as_array() {
-                                                            for f in flags {
-                                                                if let Some(pg) = f.as_u64() {
-                                                                    fallback_fonts_used.push(pg as usize);
+                                        if let Ok(c) = native_res {
+                                            if c > 0 {
+                                                edits_applied = c;
+                                                let _ = std::fs::rename(output_pdf.with_extension("temp.pdf"), &output_pdf);
+                                                tracing::info!("[TRANSFER] (Native) Batch edit succeeded");
+                                            }
+                                        }
+
+                                        if edits_applied == 0 {
+                                            tracing::warn!("[TRANSFER] Native ApplyManyEdits failed or returned 0. Falling back to Python.");
+                                            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                            let _ = py_tx.send((
+                                                PythonJob::ApplyManyEdits {
+                                                    pdf_path: output_pdf.to_string_lossy().to_string(),
+                                                    output_path: output_pdf.with_extension("temp.pdf").to_string_lossy().to_string(),
+                                                    edits_json,
+                                                    font_path: font_override_path.clone(),
+                                                },
+                                                reply_tx,
+                                            ));
+
+                                            match reply_rx.await {
+                                                Ok(PythonJobResult::Json(json_str)) => {
+                                                    if let Ok(res) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                                        if res["success"].as_bool().unwrap_or(false) {
+                                                            edits_applied = res["applied"].as_u64().unwrap_or(0) as usize;
+                                                            if let Some(flags) = res["review_flags"].as_array() {
+                                                                for f in flags {
+                                                                    if let Some(pg) = f.as_u64() {
+                                                                        fallback_fonts_used.push(pg as usize);
+                                                                    }
                                                                 }
                                                             }
+                                                            let _ = std::fs::rename(output_pdf.with_extension("temp.pdf"), &output_pdf);
+                                                            tracing::info!("[TRANSFER] (Python) Batch edit succeeded");
                                                         }
-                                                        let _ = std::fs::rename(output_pdf.with_extension("temp.pdf"), &output_pdf);
                                                     }
                                                 }
+                                                Ok(PythonJobResult::Error(e)) => tracing::error!("[TRANSFER] (Python) Batch edit failed: {}", e),
+                                                _ => tracing::error!("[TRANSFER] (Python) Batch edit failed with unexpected result"),
                                             }
-                                            Ok(PythonJobResult::Error(e)) => tracing::error!("[TRANSFER] Batch edit failed: {}", e),
-                                            _ => tracing::error!("[TRANSFER] Batch edit failed with unexpected result"),
                                         }
                                     }
                                 }

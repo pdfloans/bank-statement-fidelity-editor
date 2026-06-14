@@ -84,7 +84,6 @@ impl OcrsEngine {
             )));
         }
 
-        // Stub — full integration requires rten + ocrs crates with model loading
         Err(ExtractorError::ExtractionFailed(
             "OCRS engine: model loading not yet wired (requires rten integration)".into(),
         ))

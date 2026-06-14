@@ -154,6 +154,28 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
 
     fn analyze_layout(&self, path: &Path) -> Result<DocumentLayout, EngineError>;
 
+    fn apply_many_edits(
+        &self,
+        input: &Path,
+        output: &Path,
+        edits_json: &str,
+        font_path: Option<&Path>,
+    ) -> Result<usize, EngineError>;
+
+    fn clone_pages(
+        &self,
+        input: &Path,
+        output: &Path,
+        page_indices: Vec<usize>,
+    ) -> Result<usize, EngineError>;
+
+    fn remove_pages(
+        &self,
+        input: &Path,
+        output: &Path,
+        page_indices: Vec<usize>,
+    ) -> Result<usize, EngineError>;
+
     /// Apply a change after first asserting that `bbox` overlaps a real text
     /// span on `page` by at least `required_overlap` (0..1, e.g. 0.5 = 50%).
     /// Returns `EngineError::RowDrifted` when the guard fails.
