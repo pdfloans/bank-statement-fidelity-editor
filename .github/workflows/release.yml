@@ -1,0 +1,41 @@
+name: Release Windows Executable
+
+on:
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+  push:
+    tags:
+      - 'v*' # Triggers when a new version tag is pushed (e.g., v1.0.0)
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Executable
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Upload binary as GitHub Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dual-core-pdf-pipeline-windows-exe
+          path: target/release/dual-core-pdf-pipeline.exe
+          retention-days: 14
+
+      - name: Upload to GitHub Release (If triggered by tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/dual-core-pdf-pipeline.exe
