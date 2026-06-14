@@ -92,7 +92,7 @@ mod tests {
     use crate::engine::model::Provenance;
 
     #[test]
-    fn test_merge_and_tiebreak() {
+    fn test_merge_and_tiebreak() -> anyhow::Result<()> {
         let merger = HybridMerger::new(vec![]);
 
         let tx1 = Transaction {
@@ -134,6 +134,7 @@ mod tests {
         let report = merger.merge(semantic, geometries);
         assert_eq!(report.unmatched_count, 0);
         assert_eq!(report.coverage_pct, 100.0);
-        assert_eq!(report.transactions[0].bbox.unwrap()[0], 12.0); // geo2 won
+        assert_eq!(report.transactions[0].bbox.ok_or_else(|| anyhow::anyhow!("No bbox"))?[0], 12.0); // geo2 won
+        Ok(())
     }
 }

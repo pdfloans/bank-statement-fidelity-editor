@@ -907,7 +907,13 @@ pub fn run(
                     let _ = job_tx.send(Job::ExtractTransactions { path: input });
                     match wait_for_terminal_result(&job_rx) {
                         Ok(JobResult::TransactionsExtracted(transactions)) => {
-                            let json = serde_json::to_string_pretty(&transactions).unwrap();
+                            let json = match serde_json::to_string_pretty(&transactions) {
+                                Ok(j) => j,
+                                Err(e) => {
+                                    tracing::error!("❌ Failed to serialize: {e}");
+                                    return 1;
+                                }
+                            };
                             if std::fs::write(&output, json).is_ok() {
                                 println!("✅ Data extraction successful. Saved to: {output:?}");
                                 0
@@ -968,7 +974,13 @@ pub fn run(
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::VerificationReport(report)) => {
                     let json_path = output_dir.join("verification_report.json");
-                    let json = serde_json::to_string_pretty(&report).unwrap();
+                    let json = match serde_json::to_string_pretty(&report) {
+                        Ok(j) => j,
+                        Err(e) => {
+                            tracing::error!("❌ Failed to serialize report: {e}");
+                            return 1;
+                        }
+                    };
                     let _ = std::fs::write(&json_path, json);
                     println!("{}", report.message);
                     println!("Report saved to: {json_path:?}");
@@ -1288,8 +1300,10 @@ pub fn run(
         Commands::AdjustDates { input, output, mode } => {
             let parsed_mode = if mode == "remap" {
                 crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
-                    from_start: chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-                    to_start: chrono::NaiveDate::from_ymd_opt(2025, 2, 1).unwrap(),
+                    from_start: chrono::NaiveDate::from_ymd_opt(2025, 1, 1)
+                        .unwrap_or_else(|| chrono::NaiveDate::MIN),
+                    to_start: chrono::NaiveDate::from_ymd_opt(2025, 2, 1)
+                        .unwrap_or_else(|| chrono::NaiveDate::MIN),
                 }
             } else {
                 crate::engine::date_adjust::DateAdjustMode::ShiftDays(30)

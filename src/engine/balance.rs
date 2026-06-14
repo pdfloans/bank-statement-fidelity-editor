@@ -99,8 +99,8 @@ pub fn recalculate_and_validate(
     for tx in transactions.iter_mut() {
 
         if tx.debit.is_some() && tx.credit.is_some() {
-            let debit = tx.debit.unwrap();
-            let credit = tx.credit.unwrap();
+            let debit = tx.debit.unwrap_or_default();
+            let credit = tx.credit.unwrap_or_default();
 
             // Option C: Attempt to automatically pick the correct column using the running balance
             if let Some(rb) = tx.running_balance {
@@ -237,33 +237,36 @@ mod tests {
     }
 
     #[test]
-    fn recalculate_simple_running_balances() {
+    fn recalculate_simple_running_balances() -> anyhow::Result<()> {
         let txs = vec![
             make_tx(Some(dec!(10)), None), // balance = 100 + 10 = 110
             make_tx(None, Some(dec!(20))), // balance = 110 - 20 = 90
         ];
-        let res = recalculate_and_validate(txs, dec!(100)).unwrap();
+        let res = recalculate_and_validate(txs, dec!(100))?;
         assert_eq!(res[0].running_balance, Some(dec!(110.00)));
         assert_eq!(res[1].running_balance, Some(dec!(90.00)));
+        Ok(())
     }
 
     #[test]
-    fn recalculate_disambiguates_both_debit_and_credit() {
+    fn recalculate_disambiguates_both_debit_and_credit() -> anyhow::Result<()> {
         // When both debit and credit are the same non-zero value and no
         // running balance hint is available, neither gets cleared.
         // net_delta() handles this safely as debit - credit = 0.
         let txs = vec![make_tx(Some(dec!(10)), Some(dec!(10)))];
-        let res = recalculate_and_validate(txs, dec!(100)).unwrap();
+        let res = recalculate_and_validate(txs, dec!(100))?;
         // Balance unchanged: net_delta = 10 - 10 = 0
         assert_eq!(res[0].running_balance, Some(dec!(100.00)));
+        Ok(())
     }
 
     #[test]
-    fn recalculate_allows_negative_balance() {
+    fn recalculate_allows_negative_balance() -> anyhow::Result<()> {
         // Negative balances are allowed (overdrafts, credit cards, etc.)
         let txs = vec![make_tx(None, Some(dec!(150)))];
-        let res = recalculate_and_validate(txs, dec!(100)).unwrap();
+        let res = recalculate_and_validate(txs, dec!(100))?;
         assert_eq!(res[0].running_balance, Some(dec!(-50.00)));
+        Ok(())
     }
 
     #[test]
@@ -273,51 +276,56 @@ mod tests {
     }
 
     #[test]
-    fn auto_correct_noop_when_already_balanced() {
+    fn auto_correct_noop_when_already_balanced() -> anyhow::Result<()> {
         let mut txs = vec![make_tx(None, None)];
         txs[0].running_balance = Some(dec!(100.00));
-        let (res, msg) = auto_correct_final_balance(txs, dec!(100)).unwrap();
+        let (res, msg) = auto_correct_final_balance(txs, dec!(100))?;
         assert_eq!(res[0].running_balance, Some(dec!(100.00)));
         assert_eq!(msg, "Balances already match perfectly.");
+        Ok(())
     }
 
     #[test]
-    fn auto_correct_adjusts_only_last_running_balance() {
+    fn auto_correct_adjusts_only_last_running_balance() -> anyhow::Result<()> {
         let mut txs = vec![make_tx(None, None), make_tx(None, None)];
         txs[0].running_balance = Some(dec!(100.00));
         txs[1].running_balance = Some(dec!(100.00));
 
-        let (res, _) = auto_correct_final_balance(txs, dec!(120)).unwrap();
+        let (res, _) = auto_correct_final_balance(txs, dec!(120))?;
         assert_eq!(res[0].running_balance, Some(dec!(100.00)));
         assert_eq!(res[1].running_balance, Some(dec!(120)));
+        Ok(())
     }
 
     #[test]
-    fn auto_correct_message_contains_old_new_and_diff() {
+    fn auto_correct_message_contains_old_new_and_diff() -> anyhow::Result<()> {
         let mut txs = vec![make_tx(None, None)];
         txs[0].running_balance = Some(dec!(100.00));
 
-        let (_, msg) = auto_correct_final_balance(txs, dec!(120)).unwrap();
+        let (_, msg) = auto_correct_final_balance(txs, dec!(120))?;
         assert!(msg.contains("100.00"));
         assert!(msg.contains("120.00"));
         assert!(msg.contains("20.00")); // diff
+        Ok(())
     }
 
     #[test]
-    fn process_and_reconcile_no_expected_balance_returns_none_message() {
+    fn process_and_reconcile_no_expected_balance_returns_none_message() -> anyhow::Result<()> {
         let txs = vec![make_tx(Some(dec!(10)), None)]; // balance: 110
-        let (res, msg) = process_and_reconcile(txs, dec!(100), None).unwrap();
+        let (res, msg) = process_and_reconcile(txs, dec!(100), None)?;
         assert_eq!(res[0].running_balance, Some(dec!(110.00)));
         assert!(msg.is_none());
+        Ok(())
     }
 
     #[test]
-    fn process_and_reconcile_with_expected_balance_returns_some_message() {
+    fn process_and_reconcile_with_expected_balance_returns_some_message() -> anyhow::Result<()> {
         let txs = vec![make_tx(Some(dec!(10)), None)]; // computed balance: 110
-        let (res, msg) = process_and_reconcile(txs, dec!(100), Some(dec!(150))).unwrap();
+        let (res, msg) = process_and_reconcile(txs, dec!(100), Some(dec!(150)))?;
         assert_eq!(res[0].running_balance, Some(dec!(150)));
         assert!(msg.is_some());
-        assert!(msg.unwrap().contains("110.00")); // The message contains the old balance
+        assert!(msg.unwrap_or_default().contains("110.00")); // The message contains the old balance
+        Ok(())
     }
 }
 
@@ -414,7 +422,7 @@ mod polars_balance_tests {
     }
 
     #[test]
-    fn polars_recalculate_matches_iterative() {
+    fn polars_recalculate_matches_iterative() -> anyhow::Result<()> {
         let txs = vec![
             make_tx(Some(dec!(10)), None),   // +10 → 110
             make_tx(None, Some(dec!(20))),   // -20 → 90
@@ -423,16 +431,17 @@ mod polars_balance_tests {
         let opening = dec!(100);
 
         // Iterative path
-        let iter_result = recalculate_and_validate(txs.clone(), opening).unwrap();
+        let iter_result = recalculate_and_validate(txs.clone(), opening)?;
 
         // Polars path
-        let polars_result = recalculate_running_balance_df(txs, opening).unwrap();
+        let polars_result = recalculate_running_balance_df(txs, opening)?;
 
         assert_eq!(iter_result.len(), polars_result.len());
         for (a, b) in iter_result.iter().zip(polars_result.iter()) {
             assert_eq!(a.running_balance, b.running_balance,
                 "Mismatch: iterative={:?} polars={:?}", a.running_balance, b.running_balance);
         }
+        Ok(())
     }
 
     #[test]
@@ -442,16 +451,17 @@ mod polars_balance_tests {
     }
 
     #[test]
-    fn polars_recalculate_preserves_metadata() {
+    fn polars_recalculate_preserves_metadata() -> anyhow::Result<()> {
         let mut tx = make_tx(Some(dec!(50)), None);
         tx.raw_text = "Payroll deposit".to_string();
         tx.bbox = Some([10.0, 20.0, 300.0, 40.0]);
         tx.provenance = Provenance::DocumentAI { confidence: 0.95 };
 
-        let result = recalculate_running_balance_df(vec![tx], dec!(1000)).unwrap();
+        let result = recalculate_running_balance_df(vec![tx], dec!(1000))?;
         assert_eq!(result[0].raw_text, "Payroll deposit");
         assert_eq!(result[0].bbox, Some([10.0, 20.0, 300.0, 40.0]));
         assert!(matches!(result[0].provenance, Provenance::DocumentAI { .. }));
         assert_eq!(result[0].running_balance, Some(dec!(1050.00)));
+        Ok(())
     }
 }

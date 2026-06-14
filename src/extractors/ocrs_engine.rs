@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_fails_gracefully_without_models() {
+    fn extract_fails_gracefully_without_models() -> anyhow::Result<()> {
         let engine = OcrsEngine::new(OcrsConfig::default());
         // Create a minimal 1x1 white PNG
         let mut buf = Vec::new();
@@ -131,10 +131,10 @@ mod tests {
         img.write_to(
             &mut std::io::Cursor::new(&mut buf),
             image::ImageFormat::Png,
-        )
-        .unwrap();
+        )?;
 
         let result = engine.extract_text_from_image(&buf);
         assert!(result.is_err());
+        Ok(())
     }
 }

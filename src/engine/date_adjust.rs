@@ -196,9 +196,9 @@ mod tests {
     }
 
     #[test]
-    fn remap_period_jan_to_feb() {
-        let from = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-        let to = NaiveDate::from_ymd_opt(2026, 2, 1).unwrap();
+    fn remap_period_jan_to_feb() -> anyhow::Result<()> {
+        let from = NaiveDate::from_ymd_opt(2026, 1, 1).ok_or_else(|| anyhow::anyhow!("Invalid date"))?;
+        let to = NaiveDate::from_ymd_opt(2026, 2, 1).ok_or_else(|| anyhow::anyhow!("Invalid date"))?;
         let mut txns = vec![
             make_tx("05/01/2026", 0, 0),
             make_tx("25/01/2026", 0, 1),
@@ -207,6 +207,7 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(txns[0].date, "05/02/2026");
         assert_eq!(txns[1].date, "25/02/2026");
+        Ok(())
     }
 
     #[test]

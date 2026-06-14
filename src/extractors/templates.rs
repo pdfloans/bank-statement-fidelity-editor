@@ -222,45 +222,51 @@ pub mod parsers {
         use rust_decimal_macros::dec;
 
         #[test]
-        fn parse_au_date_slash_format() {
+        fn parse_au_date_slash_format() -> anyhow::Result<()> {
             let mut input = "15/01/2024";
-            let result = parse_au_date(&mut input).unwrap();
+            let result = parse_au_date(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             assert_eq!(result, AuDate { day: 15, month: 1, year: 2024 });
+            Ok(())
         }
 
         #[test]
-        fn parse_au_date_month_name_format() {
+        fn parse_au_date_month_name_format() -> anyhow::Result<()> {
             let mut input = "15 Jan 2024";
-            let result = parse_au_date(&mut input).unwrap();
+            let result = parse_au_date(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             assert_eq!(result, AuDate { day: 15, month: 1, year: 2024 });
+            Ok(())
         }
 
         #[test]
-        fn parse_currency_simple() {
+        fn parse_currency_simple() -> anyhow::Result<()> {
             let mut input = "$1,234.56";
-            let result = parse_currency(&mut input).unwrap();
+            let result = parse_currency(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             assert_eq!(result, dec!(1234.56));
+            Ok(())
         }
 
         #[test]
-        fn parse_currency_negative() {
+        fn parse_currency_negative() -> anyhow::Result<()> {
             let mut input = "-$500.00";
-            let result = parse_currency(&mut input).unwrap();
+            let result = parse_currency(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             assert_eq!(result, dec!(-500.00));
+            Ok(())
         }
 
         #[test]
-        fn parse_currency_no_dollar_sign() {
+        fn parse_currency_no_dollar_sign() -> anyhow::Result<()> {
             let mut input = "99.99";
-            let result = parse_currency(&mut input).unwrap();
+            let result = parse_currency(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             assert_eq!(result, dec!(99.99));
+            Ok(())
         }
 
         #[test]
-        fn parse_currency_large_amount() {
+        fn parse_currency_large_amount() -> anyhow::Result<()> {
             let mut input = "$1,234,567.89";
-            let result = parse_currency(&mut input).unwrap();
+            let result = parse_currency(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
             assert_eq!(result, dec!(1234567.89));
+            Ok(())
         }
 
         #[test]
@@ -358,8 +364,8 @@ mod tests {
     }
 
     #[test]
-    fn learn_template_writes_refined_yaml_with_observed_columns() {
-        let dir = tempdir().unwrap();
+    fn learn_template_writes_refined_yaml_with_observed_columns() -> anyhow::Result<()> {
+        let dir = tempdir()?;
         let tmpl = sample_template();
         let observations = vec![
             ("date".to_string(), [42.0, 105.0, 95.0, 120.0]),
@@ -367,51 +373,54 @@ mod tests {
             ("amount".to_string(), [220.0, 105.0, 280.0, 120.0]),
         ];
 
-        let out = learn_template(dir.path(), &tmpl, &observations).unwrap();
+        let out = learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
         assert!(out.ends_with("test_bank.refined.yaml"));
 
-        let raw = std::fs::read_to_string(&out).unwrap();
-        let refined: BankTemplate = serde_yaml::from_str(&raw).unwrap();
+        let raw = std::fs::read_to_string(&out)?;
+        let refined: BankTemplate = serde_yaml::from_str(&raw).map_err(|e| anyhow::anyhow!(e))?;
 
         // date column: observed envelope x0=42, x1=95 → padded ±4 → [38, 99]
-        let date = refined.column_x_ranges.get("date").unwrap();
+        let date = refined.column_x_ranges.get("date").ok_or_else(|| anyhow::anyhow!("No date field"))?;
         assert!((date[0] - 38.0).abs() < 0.1);
         assert!((date[1] - 99.0).abs() < 0.1);
 
         // amount column: observed envelope x0=220, x1=280 → padded → [216, 284]
-        let amt = refined.column_x_ranges.get("amount").unwrap();
+        let amt = refined.column_x_ranges.get("amount").ok_or_else(|| anyhow::anyhow!("No amount field"))?;
         assert!((amt[0] - 216.0).abs() < 0.1);
         assert!((amt[1] - 284.0).abs() < 0.1);
 
         // Other template fields are preserved.
         assert_eq!(refined.id, "test_bank");
         assert_eq!(refined.header_signatures, vec!["TEST BANK".to_string()]);
+        Ok(())
     }
 
     #[test]
-    fn learn_template_clamps_negative_lo_to_zero() {
-        let dir = tempdir().unwrap();
+    fn learn_template_clamps_negative_lo_to_zero() -> anyhow::Result<()> {
+        let dir = tempdir()?;
         let tmpl = sample_template();
         // Observation at x0=2 → padded x0 = -2, must clamp to 0.
         let observations = vec![("date".to_string(), [2.0, 100.0, 95.0, 120.0])];
-        let out = learn_template(dir.path(), &tmpl, &observations).unwrap();
+        let out = learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
         let refined: BankTemplate =
-            serde_yaml::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
-        let date = refined.column_x_ranges.get("date").unwrap();
+            serde_yaml::from_str(&std::fs::read_to_string(&out)?).map_err(|e| anyhow::anyhow!(e))?;
+        let date = refined.column_x_ranges.get("date").ok_or_else(|| anyhow::anyhow!("No date field"))?;
         assert_eq!(date[0], 0.0);
+        Ok(())
     }
 
     #[test]
-    fn learn_template_rejects_empty_observations() {
-        let dir = tempdir().unwrap();
+    fn learn_template_rejects_empty_observations() -> anyhow::Result<()> {
+        let dir = tempdir()?;
         let tmpl = sample_template();
         let out = learn_template(dir.path(), &tmpl, &[]);
         assert!(out.is_err());
+        Ok(())
     }
 
     #[test]
-    fn learn_template_ignores_repeated_field_observations_correctly() {
-        let dir = tempdir().unwrap();
+    fn learn_template_ignores_repeated_field_observations_correctly() -> anyhow::Result<()> {
+        let dir = tempdir()?;
         let tmpl = sample_template();
         // Three rows for "date", varying widths. Refined envelope must cover all.
         let observations = vec![
@@ -419,12 +428,13 @@ mod tests {
             ("date".to_string(), [40.0, 130.0, 95.0, 145.0]),
             ("date".to_string(), [45.0, 160.0, 100.0, 175.0]),
         ];
-        let out = learn_template(dir.path(), &tmpl, &observations).unwrap();
+        let out = learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
         let refined: BankTemplate =
-            serde_yaml::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
-        let date = refined.column_x_ranges.get("date").unwrap();
+            serde_yaml::from_str(&std::fs::read_to_string(&out)?).map_err(|e| anyhow::anyhow!(e))?;
+        let date = refined.column_x_ranges.get("date").ok_or_else(|| anyhow::anyhow!("No date field"))?;
         // min x0 = 40, max x1 = 100 -> padded -> [36, 104]
         assert!((date[0] - 36.0).abs() < 0.1);
         assert!((date[1] - 104.0).abs() < 0.1);
+        Ok(())
     }
 }

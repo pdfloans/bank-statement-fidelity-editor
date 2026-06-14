@@ -229,7 +229,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_a_successful_replication_payload() {
+    fn parses_a_successful_payload_with_metrics() -> anyhow::Result<()> {
         let json = r#"{
             "success": true,
             "metrics": {
@@ -241,20 +241,22 @@ mod tests {
             "images": [{"char": "A", "path": "out/glyph_65.png"}],
             "baseline_y": 200
         }"#;
-        let parsed = DeepFontReplicationResult::from_json(json).unwrap();
+        let parsed = DeepFontReplicationResult::from_json(json).map_err(|e| anyhow::anyhow!(e))?;
         assert!(parsed.success);
         assert_eq!(
-            parsed.font_path().unwrap().to_string_lossy(),
+            parsed.font_path().ok_or_else(|| anyhow::anyhow!("No font path"))?.to_string_lossy(),
             "out/extracted_subset.ttf"
         );
         assert_eq!(parsed.images.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn parses_a_failure_payload() {
+    fn parses_a_failure_payload() -> anyhow::Result<()> {
         let json = r#"{"success": false, "error": "Font not found", "images": []}"#;
-        let parsed = DeepFontReplicationResult::from_json(json).unwrap();
+        let parsed = DeepFontReplicationResult::from_json(json).map_err(|e| anyhow::anyhow!(e))?;
         assert!(!parsed.success);
         assert_eq!(parsed.error.as_deref(), Some("Font not found"));
+        Ok(())
     }
 }

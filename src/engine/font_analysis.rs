@@ -354,7 +354,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn decodes_python_payload_shape() {
+    fn decodes_python_payload_shape() -> anyhow::Result<()> {
         let json = r#"{
             "fonts": [
                 {
@@ -387,16 +387,17 @@ mod tests {
                 "all_fonts_covered": false
             }
         }"#;
-        let analysis = FontAnalysis::from_json(json).unwrap();
+        let analysis = FontAnalysis::from_json(json).map_err(|e| anyhow::anyhow!(e))?;
         assert_eq!(analysis.fonts.len(), 1);
         assert_eq!(analysis.fonts[0].usage_role, UsageRole::Digits);
         assert_eq!(analysis.fonts[0].missing_chars, vec!["$".to_string()]);
         assert_eq!(analysis.summary.fonts_needing_action, 1);
         assert!(!analysis.summary.all_fonts_covered);
+        Ok(())
     }
 
     #[test]
-    fn one_line_summary_clean_when_all_covered() {
+    fn one_line_summary_clean_when_all_covered() -> anyhow::Result<()> {
         let json = r#"{
             "fonts": [],
             "summary": {
@@ -408,13 +409,14 @@ mod tests {
                 "all_fonts_covered": true
             }
         }"#;
-        let analysis = FontAnalysis::from_json(json).unwrap();
+        let analysis = FontAnalysis::from_json(json).map_err(|e| anyhow::anyhow!(e))?;
         assert!(analysis.one_line_summary().contains("✅"));
         assert!(analysis.one_line_summary().contains("already covered"));
+        Ok(())
     }
 
     #[test]
-    fn one_line_summary_lists_each_kind_of_missing() {
+    fn one_line_summary_lists_each_kind_of_missing() -> anyhow::Result<()> {
         let json = r#"{
             "fonts": [],
             "summary": {
@@ -426,11 +428,12 @@ mod tests {
                 "all_fonts_covered": false
             }
         }"#;
-        let analysis = FontAnalysis::from_json(json).unwrap();
+        let analysis = FontAnalysis::from_json(json).map_err(|e| anyhow::anyhow!(e))?;
         let summary = analysis.one_line_summary();
         assert!(summary.contains("3 digit"));
         assert!(summary.contains("4 letter"));
         assert!(summary.contains("1 other"));
+        Ok(())
     }
 
     /// Regression for the user's spec: a font with role=digits and only
@@ -438,7 +441,7 @@ mod tests {
     /// missing letters is the alpha case. The classification helps the GUI
     /// pick the right messaging.
     #[test]
-    fn digit_only_vs_alpha_action_classification() {
+    fn digit_only_vs_alpha_action_classification() -> anyhow::Result<()> {
         let json = r#"{
             "fonts": [
                 {
@@ -475,8 +478,9 @@ mod tests {
                 "all_fonts_covered": false
             }
         }"#;
-        let analysis = FontAnalysis::from_json(json).unwrap();
+        let analysis = FontAnalysis::from_json(json).map_err(|e| anyhow::anyhow!(e))?;
         assert_eq!(analysis.digit_only_action_count(), 1);
         assert_eq!(analysis.alpha_action_count(), 1);
+        Ok(())
     }
 }

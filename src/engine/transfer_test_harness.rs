@@ -165,14 +165,15 @@ mod tests {
     }
 
     #[test]
-    fn test_output_path_format() {
+    fn test_output_path_format() -> anyhow::Result<()> {
         let p = test_output_path(
             std::path::Path::new("statements/fidelity_jan.pdf"),
             std::path::Path::new("statements/chase_feb.pdf"),
         );
-        let name = p.file_name().unwrap().to_string_lossy();
+        let name = p.file_name().ok_or_else(|| anyhow::anyhow!("No file name"))?.to_string_lossy();
         assert!(name.contains("fidelity_jan"));
         assert!(name.contains("chase_feb"));
         assert!(name.ends_with(".pdf"));
+        Ok(())
     }
 }

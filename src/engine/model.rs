@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn proposed_change_roundtrips_with_bbox() {
+    fn proposed_change_roundtrips_with_bbox() -> anyhow::Result<()> {
         let change_with_bbox = ProposedChange {
             page: 1,
             old_text: "100.00".into(),
@@ -174,8 +174,8 @@ mod tests {
             affects_subsequent_balances: true,
             bbox: Some([10.0, 20.0, 50.0, 40.0]),
         };
-        let json = serde_json::to_string(&change_with_bbox).unwrap();
-        let decoded: ProposedChange = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&change_with_bbox)?;
+        let decoded: ProposedChange = serde_json::from_str(&json)?;
         assert_eq!(decoded.bbox, Some([10.0, 20.0, 50.0, 40.0]));
 
         let change_no_bbox = ProposedChange {
@@ -187,9 +187,10 @@ mod tests {
             affects_subsequent_balances: true,
             bbox: None,
         };
-        let json = serde_json::to_string(&change_no_bbox).unwrap();
-        let decoded: ProposedChange = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&change_no_bbox)?;
+        let decoded: ProposedChange = serde_json::from_str(&json)?;
         assert_eq!(decoded.bbox, None);
+        Ok(())
     }
 
     /// Sign-convention regression: this codebase treats `debit` as money in
@@ -383,24 +384,26 @@ mod dataframe_tests {
     }
 
     #[test]
-    fn round_trip_transactions_through_dataframe() {
+    fn round_trip_transactions_through_dataframe() -> anyhow::Result<()> {
         let txs = sample_txs();
-        let df = transactions_to_dataframe(&txs).unwrap();
+        let df = transactions_to_dataframe(&txs)?;
         assert_eq!(df.height(), 2);
         assert_eq!(df.width(), 7);
 
-        let recovered = dataframe_to_transactions(&df).unwrap();
+        let recovered = dataframe_to_transactions(&df)?;
         assert_eq!(recovered.len(), 2);
         assert_eq!(recovered[0].debit, Some(dec!(1000.00)));
         assert_eq!(recovered[0].credit, None);
         assert_eq!(recovered[0].running_balance, Some(dec!(1000.00)));
         assert_eq!(recovered[1].credit, Some(dec!(42.50)));
         assert_eq!(recovered[1].running_balance, Some(dec!(957.50)));
+        Ok(())
     }
 
     #[test]
-    fn empty_transactions_produce_empty_dataframe() {
-        let df = transactions_to_dataframe(&[]).unwrap();
+    fn empty_transactions_produce_empty_dataframe() -> anyhow::Result<()> {
+        let df = transactions_to_dataframe(&[])?;
         assert_eq!(df.height(), 0);
+        Ok(())
     }
 }

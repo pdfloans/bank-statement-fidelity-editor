@@ -298,9 +298,9 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn roundtrip_records() {
-        let dir = tempdir().unwrap();
-        let mut audit = AuditLog::open(dir.path()).unwrap();
+    fn roundtrip_records() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let mut audit = AuditLog::open(dir.path())?;
 
         let rec1 = ChangeRecord {
             id: 123,
@@ -316,10 +316,9 @@ mod tests {
         };
 
         audit
-            .write(&rec1, Path::new("in"), Path::new("out"), "test", false)
-            .unwrap();
+            .write(&rec1, Path::new("in"), Path::new("out"), "test", false)?;
 
-        let parsed = AuditLogParser::parse_file(&audit.log_path).unwrap();
+        let parsed = AuditLogParser::parse_file(&audit.log_path).map_err(|e| anyhow::anyhow!(e))?;
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].id, 123);
         assert_eq!(parsed[0].old_text, "foo");
@@ -329,62 +328,67 @@ mod tests {
             parsed[0].snapshot_path,
             Some(PathBuf::from("audit/snapshots/123.pdf"))
         );
+        Ok(())
     }
 
     #[test]
-    fn value_containing_key_prefix() {
+    fn value_containing_key_prefix() -> anyhow::Result<()> {
         let line = r#"audit_v1 ts=20260526t120000Z page=0 id=456 old="text with id= inside" new="text with ts= inside" op=test prov=Manual bbox=[0,0,0,0] in="in" out="out" review=false"#;
-        let rec = AuditLogParser::parse_line(line).unwrap();
+        let rec = AuditLogParser::parse_line(line).map_err(|e| anyhow::anyhow!(e))?;
         assert_eq!(rec.id, 456);
         assert_eq!(rec.old_text, "text with id= inside");
         assert_eq!(rec.new_text, "text with ts= inside");
+        Ok(())
     }
 
     #[test]
-    fn snapshot_link_creates_either_a_hard_link_or_a_copy_and_content_matches() {
-        let dir = tempdir().unwrap();
+    fn snapshot_link_creates_either_a_hard_link_or_a_copy_and_content_matches() -> anyhow::Result<()> {
+        let dir = tempdir()?;
         let source = dir.path().join("source.pdf");
         let payload = b"%PDF-1.7\nfake snapshot content";
-        std::fs::write(&source, payload).unwrap();
+        std::fs::write(&source, payload)?;
 
         let dest = dir.path().join("snapshots").join("123.pdf");
-        let was_hard_link = snapshot_link_or_copy(&source, &dest).unwrap();
+        let was_hard_link = snapshot_link_or_copy(&source, &dest)?;
 
         // Either path: content must match the source byte-for-byte.
-        let read_back = std::fs::read(&dest).unwrap();
+        let read_back = std::fs::read(&dest)?;
         assert_eq!(read_back, payload);
 
         // If the FS supported hard links, modifying the source must surface
         // through the dest. (NTFS / ext4 do; FAT32 / cross-volume don't.)
         if was_hard_link {
-            std::fs::write(&source, b"modified").unwrap();
-            assert_eq!(std::fs::read(&dest).unwrap(), b"modified");
+            std::fs::write(&source, b"modified")?;
+            assert_eq!(std::fs::read(&dest)?, b"modified");
         }
+        Ok(())
     }
 
     #[test]
-    fn parse_file_missing_returns_read_error() {
-        let dir = tempdir().unwrap();
+    fn parse_file_missing_returns_read_error() -> anyhow::Result<()> {
+        let dir = tempdir()?;
         let missing = dir.path().join("does_not_exist.log");
-        let err = AuditLogParser::parse_file(&missing).unwrap_err();
+        let err = AuditLogParser::parse_file(&missing).map_err(|e| anyhow::anyhow!(e)).unwrap_err();
         assert!(
-            matches!(err, AuditError::Read { .. }),
-            "expected AuditError::Read, got {err:?}"
+            matches!(err.downcast_ref::<AuditError>(), Some(AuditError::Read { .. })),
+            "expected AuditError::Read, got {:?}", err
         );
         // The error message should carry the offending path for diagnosis.
         assert!(err.to_string().contains("does_not_exist.log"));
+        Ok(())
     }
 
     #[test]
-    fn snapshot_link_overwrites_existing_destination() {
-        let dir = tempdir().unwrap();
+    fn snapshot_link_overwrites_existing_destination() -> anyhow::Result<()> {
+        let dir = tempdir()?;
         let source = dir.path().join("source.pdf");
-        std::fs::write(&source, b"new content").unwrap();
+        std::fs::write(&source, b"new content")?;
         let dest = dir.path().join("snapshots").join("456.pdf");
-        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
-        std::fs::write(&dest, b"OLD STALE CONTENT").unwrap();
+        std::fs::create_dir_all(dest.parent().ok_or_else(|| anyhow::anyhow!("No parent"))?)?;
+        std::fs::write(&dest, b"OLD STALE CONTENT")?;
 
-        snapshot_link_or_copy(&source, &dest).unwrap();
-        assert_eq!(std::fs::read(&dest).unwrap(), b"new content");
+        snapshot_link_or_copy(&source, &dest)?;
+        assert_eq!(std::fs::read(&dest)?, b"new content");
+        Ok(())
     }
 }

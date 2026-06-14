@@ -242,8 +242,8 @@ mod tests {
     }
 
     #[test]
-    fn save_and_load_round_trip_preserves_records_and_id_counter() {
-        let dir = tempfile::tempdir().unwrap();
+    fn save_and_load_round_trip_preserves_records_and_id_counter() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
         let path = dir.path().join("history.json");
 
         let mut original = ChangeHistory::new();
@@ -255,9 +255,9 @@ mod tests {
             [1.0, 2.0, 3.0, 4.0],
             "second".into(),
         );
-        original.save_to_file(&path).unwrap();
+        original.save_to_file(&path)?;
 
-        let loaded = ChangeHistory::load_from_file(&path).unwrap();
+        let loaded = ChangeHistory::load_from_file(&path)?;
         assert_eq!(loaded.get_history().len(), 2);
         assert_eq!(loaded.get_history()[1].new_text, "new2");
 
@@ -265,8 +265,9 @@ mod tests {
         let loaded_mut = loaded.clone();
         let new_record =
             loaded_mut.create_record(2, "x".into(), "y".into(), [0.0; 4], "third".into(), None);
-        let max_old_id = loaded.get_history().iter().map(|r| r.id).max().unwrap();
+        let max_old_id = loaded.get_history().iter().map(|r| r.id).max().unwrap_or_default();
         assert!(new_record.id > max_old_id);
         drop(loaded_mut);
+        Ok(())
     }
 }

@@ -488,8 +488,9 @@ mod tests {
     }
 
     #[test]
-    fn pro_key_status_serializes_to_json() {
-        let json = serde_json::to_string(&ProKeyStatus::Available).unwrap();
+    fn pro_key_status_serializes_to_json() -> anyhow::Result<()> {
+        let json = serde_json::to_string(&ProKeyStatus::Available)?;
         assert!(json.contains("available"));
+        Ok(())
     }
 }
