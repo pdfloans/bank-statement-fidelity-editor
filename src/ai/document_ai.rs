@@ -108,7 +108,10 @@ impl DocumentAiClient {
     fn process_url(&self, version: Option<&str>) -> String {
         let base = format!(
             "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
-            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+            self.config.location,
+            self.config.project_id,
+            self.config.location,
+            self.config.processor_id
         );
         match version {
             Some(v) => format!("{base}/processorVersions/{v}:process"),
@@ -119,14 +122,16 @@ impl DocumentAiClient {
     fn batch_process_url(&self, version: Option<&str>) -> String {
         let base = format!(
             "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
-            self.config.location, self.config.project_id, self.config.location, self.config.processor_id
+            self.config.location,
+            self.config.project_id,
+            self.config.location,
+            self.config.processor_id
         );
         match version {
             Some(v) => format!("{base}/processorVersions/{v}:batchProcess"),
             None => format!("{base}:batchProcess"),
         }
     }
-
 
     async fn get_access_token(&self) -> Result<String, DocAiError> {
         let now = SystemTime::now()
@@ -282,7 +287,8 @@ impl DocumentAiClient {
         // ----- Cache lookup --------------------------------------------------
         // Document AI is billed per page; if we've parsed this exact PDF
         // through this exact processor before, return the cached result.
-        let cache = match crate::ai::docai_cache::DocAiCache::open_default(&self.config.passphrase) {
+        let cache = match crate::ai::docai_cache::DocAiCache::open_default(&self.config.passphrase)
+        {
             Ok(c) => Some(c),
             Err(e) => {
                 tracing::warn!("[doc_ai] cache disabled (open failed): {}", e);
@@ -323,7 +329,7 @@ impl DocumentAiClient {
         if !self.config.api_key.is_empty() {
             let url = format!("{}?key={}", self.process_url(version), self.config.api_key);
             tracing::debug!("[doc_ai] trying v1 API-key auth");
-            
+
             let mut attempts = 0;
             let max_attempts = 4;
             let api_key_res;
@@ -333,13 +339,22 @@ impl DocumentAiClient {
                     Ok(resp) => {
                         let status = resp.status();
                         if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
-                            && attempts < max_attempts {
-                                let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
-                                tracing::warn!("[doc_ai] API-key {} error, retrying in {:?}...", status, delay);
-                                tokio::time::sleep(delay).await;
-                                continue;
-                            }
-                        if status == StatusCode::BAD_REQUEST || status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                            && attempts < max_attempts
+                        {
+                            let delay =
+                                std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                            tracing::warn!(
+                                "[doc_ai] API-key {} error, retrying in {:?}...",
+                                status,
+                                delay
+                            );
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                        if status == StatusCode::BAD_REQUEST
+                            || status == StatusCode::UNAUTHORIZED
+                            || status == StatusCode::FORBIDDEN
+                        {
                             tracing::error!("[doc_ai] API Key rejected with {}! Check if your key is valid. Falling back to OAuth.", status);
                         }
                         api_key_res = Some(Ok(resp));
@@ -347,8 +362,13 @@ impl DocumentAiClient {
                     }
                     Err(e) => {
                         if attempts < max_attempts {
-                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
-                            tracing::warn!("[doc_ai] API-key network error {}, retrying in {:?}...", e, delay);
+                            let delay =
+                                std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                            tracing::warn!(
+                                "[doc_ai] API-key network error {}, retrying in {:?}...",
+                                e,
+                                delay
+                            );
                             tokio::time::sleep(delay).await;
                             continue;
                         }
@@ -357,8 +377,13 @@ impl DocumentAiClient {
                     }
                 }
             }
-            
-            let api_key_res = api_key_res.ok_or_else(|| DocAiError::Network("API key request loop failed to yield a response".into()))?;
+
+            let api_key_res = api_key_res.ok_or_else(|| {
+                DocAiError::Api(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "API key request loop failed to yield a response".into(),
+                )
+            })?;
             match api_key_res {
                 Ok(resp) if resp.status().is_success() => {
                     let result: serde_json::Value = resp.json().await?;
@@ -373,7 +398,10 @@ impl DocumentAiClient {
                 Ok(resp) => {
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
-                    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN || status == StatusCode::BAD_REQUEST {
+                    if status == StatusCode::UNAUTHORIZED
+                        || status == StatusCode::FORBIDDEN
+                        || status == StatusCode::BAD_REQUEST
+                    {
                         tracing::warn!(
                             "[doc_ai] API-key auth rejected ({}); falling back to service-account",
                             status
@@ -401,7 +429,7 @@ impl DocumentAiClient {
 
         let url = self.process_url(version);
         tracing::debug!("[doc_ai] using v1 OAuth (ADC or service-account)");
-        
+
         let mut attempts = 0;
         let max_attempts = 4;
         let final_resp;
@@ -413,14 +441,25 @@ impl DocumentAiClient {
                 Ok(resp) => {
                     let status = resp.status();
                     if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
-                        && attempts < max_attempts {
-                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
-                            tracing::warn!("[doc_ai] OAuth {} error, retrying in {:?}...", status, delay);
-                            tokio::time::sleep(delay).await;
-                            continue;
-                        }
-                    if status == StatusCode::BAD_REQUEST || status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-                        tracing::error!("[doc_ai] OAuth rejected with {}! Check your credentials.", status);
+                        && attempts < max_attempts
+                    {
+                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                        tracing::warn!(
+                            "[doc_ai] OAuth {} error, retrying in {:?}...",
+                            status,
+                            delay
+                        );
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    if status == StatusCode::BAD_REQUEST
+                        || status == StatusCode::UNAUTHORIZED
+                        || status == StatusCode::FORBIDDEN
+                    {
+                        tracing::error!(
+                            "[doc_ai] OAuth rejected with {}! Check your credentials.",
+                            status
+                        );
                     }
                     final_resp = Some(Ok(resp));
                     break;
@@ -428,7 +467,11 @@ impl DocumentAiClient {
                 Err(e) => {
                     if attempts < max_attempts {
                         let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
-                        tracing::warn!("[doc_ai] OAuth network error {}, retrying in {:?}...", e, delay);
+                        tracing::warn!(
+                            "[doc_ai] OAuth network error {}, retrying in {:?}...",
+                            e,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -438,7 +481,12 @@ impl DocumentAiClient {
             }
         }
 
-        let final_resp = final_resp.ok_or_else(|| DocAiError::Network("OAuth request loop failed to yield a response".into()))??;
+        let final_resp = final_resp.ok_or_else(|| {
+            DocAiError::Api(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "OAuth request loop failed to yield a response".into(),
+            )
+        })??;
 
         if !final_resp.status().is_success() {
             return Err(DocAiError::Api(
@@ -472,12 +520,21 @@ impl DocumentAiClient {
         }
     }
 
-    async fn upload_to_gcs(&self, pdf_path: &Path, access_token: &str) -> Result<String, DocAiError> {
+    async fn upload_to_gcs(
+        &self,
+        pdf_path: &Path,
+        access_token: &str,
+    ) -> Result<String, DocAiError> {
         let uri = &self.config.gcs_output_uri;
         if uri.is_empty() {
-            return Err(DocAiError::MissingConfig("DOCUMENT_AI_GCS_URI is required for files > 15 pages"));
+            return Err(DocAiError::MissingConfig(
+                "DOCUMENT_AI_GCS_URI is required for files > 15 pages",
+            ));
         }
-        let bucket = uri.strip_prefix("gs://").and_then(|s| s.split('/').next()).unwrap_or_default();
+        let bucket = uri
+            .strip_prefix("gs://")
+            .and_then(|s| s.split('/').next())
+            .unwrap_or_default();
         let filename = pdf_path.file_name().unwrap_or_default().to_string_lossy();
         let object_name = format!("inputs/{}/{}", uuid::Uuid::new_v4(), filename);
         let url = format!(
@@ -490,7 +547,9 @@ impl DocumentAiClient {
         let stream = tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
         let body = reqwest::Body::wrap_stream(stream);
 
-        let resp = self.http.post(&url)
+        let resp = self
+            .http
+            .post(&url)
             .bearer_auth(access_token)
             .header("Content-Type", "application/pdf")
             .body(body)
@@ -498,18 +557,29 @@ impl DocumentAiClient {
             .await?;
 
         if !resp.status().is_success() {
-            return Err(DocAiError::Api(resp.status(), resp.text().await.unwrap_or_default()));
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
         }
 
         Ok(format!("gs://{bucket}/{object_name}"))
     }
 
-    async fn parse_via_lro(&self, pdf_path: &Path, version: Option<&str>) -> Result<BankStatement, DocAiError> {
+    async fn parse_via_lro(
+        &self,
+        pdf_path: &Path,
+        version: Option<&str>,
+    ) -> Result<BankStatement, DocAiError> {
         let access_token = self.get_access_token().await?;
         let gcs_input_uri = self.upload_to_gcs(pdf_path, &access_token).await?;
 
         let output_prefix = format!("outputs/{}/", uuid::Uuid::new_v4());
-        let gcs_output_uri = format!("{}/{}", self.config.gcs_output_uri.trim_end_matches('/'), output_prefix);
+        let gcs_output_uri = format!(
+            "{}/{}",
+            self.config.gcs_output_uri.trim_end_matches('/'),
+            output_prefix
+        );
 
         let url = self.batch_process_url(version);
         let body = serde_json::json!({
@@ -528,14 +598,19 @@ impl DocumentAiClient {
             }
         });
 
-        let resp = self.http.post(&url)
+        let resp = self
+            .http
+            .post(&url)
             .bearer_auth(&access_token)
             .json(&body)
             .send()
             .await?;
 
         if !resp.status().is_success() {
-            return Err(DocAiError::Api(resp.status(), resp.text().await.unwrap_or_default()));
+            return Err(DocAiError::Api(
+                resp.status(),
+                resp.text().await.unwrap_or_default(),
+            ));
         }
 
         let json: serde_json::Value = resp.json().await?;
@@ -543,8 +618,16 @@ impl DocumentAiClient {
 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            let op_url = format!("https://{}-documentai.googleapis.com/v1/{}", self.config.location, op_name);
-            let op_resp = self.http.get(&op_url).bearer_auth(&access_token).send().await?;
+            let op_url = format!(
+                "https://{}-documentai.googleapis.com/v1/{}",
+                self.config.location, op_name
+            );
+            let op_resp = self
+                .http
+                .get(&op_url)
+                .bearer_auth(&access_token)
+                .send()
+                .await?;
             if !op_resp.status().is_success() {
                 continue;
             }
@@ -552,28 +635,49 @@ impl DocumentAiClient {
 
             if op_json["done"].as_bool().unwrap_or(false) {
                 if let Some(error) = op_json.get("error") {
-                    return Err(DocAiError::Api(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()));
+                    return Err(DocAiError::Api(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        error.to_string(),
+                    ));
                 }
                 break;
             }
         }
 
-        self.download_and_merge_gcs_outputs(&gcs_output_uri, &access_token).await
+        self.download_and_merge_gcs_outputs(&gcs_output_uri, &access_token)
+            .await
     }
 
-    async fn download_and_merge_gcs_outputs(&self, gcs_output_uri: &str, access_token: &str) -> Result<BankStatement, DocAiError> {
+    async fn download_and_merge_gcs_outputs(
+        &self,
+        gcs_output_uri: &str,
+        access_token: &str,
+    ) -> Result<BankStatement, DocAiError> {
         let uri = gcs_output_uri;
-        let bucket = uri.strip_prefix("gs://").and_then(|s| s.split('/').next()).unwrap_or_default();
-        let prefix = uri.strip_prefix(&format!("gs://{bucket}/")).unwrap_or_default();
+        let bucket = uri
+            .strip_prefix("gs://")
+            .and_then(|s| s.split('/').next())
+            .unwrap_or_default();
+        let prefix = uri
+            .strip_prefix(&format!("gs://{bucket}/"))
+            .unwrap_or_default();
 
         let list_url = format!(
             "https://storage.googleapis.com/storage/v1/b/{}/o?prefix={}",
             bucket,
             urlencoding::encode(prefix)
         );
-        let list_resp = self.http.get(&list_url).bearer_auth(access_token).send().await?;
+        let list_resp = self
+            .http
+            .get(&list_url)
+            .bearer_auth(access_token)
+            .send()
+            .await?;
         if !list_resp.status().is_success() {
-            return Err(DocAiError::Api(list_resp.status(), list_resp.text().await.unwrap_or_default()));
+            return Err(DocAiError::Api(
+                list_resp.status(),
+                list_resp.text().await.unwrap_or_default(),
+            ));
         }
         let list_json: serde_json::Value = list_resp.json().await?;
 
@@ -587,7 +691,12 @@ impl DocumentAiClient {
                         bucket,
                         urlencoding::encode(name)
                     );
-                    let dl_resp = self.http.get(&dl_url).bearer_auth(access_token).send().await?;
+                    let dl_resp = self
+                        .http
+                        .get(&dl_url)
+                        .bearer_auth(access_token)
+                        .send()
+                        .await?;
                     if !dl_resp.status().is_success() {
                         continue;
                     }
@@ -649,14 +758,11 @@ impl DocumentAiClient {
                                 return (rw, rh, "points".to_string());
                             }
                         }
-                        
+
                         let mut w = p["dimension"]["width"].as_f64().unwrap_or(0.0) as f32;
                         let mut h = p["dimension"]["height"].as_f64().unwrap_or(0.0) as f32;
-                        let unit = p["dimension"]["unit"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string();
-                            
+                        let unit = p["dimension"]["unit"].as_str().unwrap_or("").to_string();
+
                         match unit.as_str() {
                             "inch" | "inches" => {
                                 w *= 72.0;
@@ -674,7 +780,7 @@ impl DocumentAiClient {
                             // PyMuPDF will align with it (PyMuPDF's default is 72 dpi points).
                             _ => {}
                         }
-                        
+
                         (w, h, unit)
                     })
                     .collect()
@@ -741,7 +847,11 @@ impl DocumentAiClient {
                         let field_bboxes = FieldBboxes {
                             date: property_bbox(
                                 entity,
-                                &["transaction_deposit_date", "transaction_withdrawal_date", "transaction_date"],
+                                &[
+                                    "transaction_deposit_date",
+                                    "transaction_withdrawal_date",
+                                    "transaction_date",
+                                ],
                                 &pages_dim,
                             ),
                             description: property_bbox(
@@ -753,8 +863,16 @@ impl DocumentAiClient {
                                 ],
                                 &pages_dim,
                             ),
-                            debit: property_bbox(entity, &["transaction_withdrawal", "debit"], &pages_dim),
-                            credit: property_bbox(entity, &["transaction_deposit", "credit"], &pages_dim),
+                            debit: property_bbox(
+                                entity,
+                                &["transaction_withdrawal", "debit"],
+                                &pages_dim,
+                            ),
+                            credit: property_bbox(
+                                entity,
+                                &["transaction_deposit", "credit"],
+                                &pages_dim,
+                            ),
                             running_balance: property_bbox(
                                 entity,
                                 &["running_balance", "transaction_balance"],
@@ -782,7 +900,11 @@ impl DocumentAiClient {
                         let field_bboxes = FieldBboxes {
                             date: property_bbox(
                                 entity,
-                                &["transaction_date", "transaction_deposit_date", "transaction_withdrawal_date"],
+                                &[
+                                    "transaction_date",
+                                    "transaction_deposit_date",
+                                    "transaction_withdrawal_date",
+                                ],
                                 &pages_dim,
                             ),
                             description: property_bbox(
@@ -794,20 +916,45 @@ impl DocumentAiClient {
                                 ],
                                 &pages_dim,
                             ),
-                            debit: property_bbox(entity, &["debit", "transaction_withdrawal"], &pages_dim),
-                            credit: property_bbox(entity, &["credit", "transaction_deposit"], &pages_dim),
-                            running_balance: property_bbox(entity, &["running_balance"], &pages_dim),
+                            debit: property_bbox(
+                                entity,
+                                &["debit", "transaction_withdrawal"],
+                                &pages_dim,
+                            ),
+                            credit: property_bbox(
+                                entity,
+                                &["credit", "transaction_deposit"],
+                                &pages_dim,
+                            ),
+                            running_balance: property_bbox(
+                                entity,
+                                &["running_balance"],
+                                &pages_dim,
+                            ),
                         };
-                        
+
                         let date = extract_string_property(entity, "transaction_date")
                             .or_else(|| extract_string_property(entity, "transaction_deposit_date"))
-                            .or_else(|| extract_string_property(entity, "transaction_withdrawal_date"))
+                            .or_else(|| {
+                                extract_string_property(entity, "transaction_withdrawal_date")
+                            })
                             .unwrap_or_default();
-                            
-                        let description = extract_string_property(entity, "transaction_description")
-                            .or_else(|| extract_string_property(entity, "transaction_deposit_description"))
-                            .or_else(|| extract_string_property(entity, "transaction_withdrawal_description"))
-                            .unwrap_or_else(|| text.clone());
+
+                        let description =
+                            extract_string_property(entity, "transaction_description")
+                                .or_else(|| {
+                                    extract_string_property(
+                                        entity,
+                                        "transaction_deposit_description",
+                                    )
+                                })
+                                .or_else(|| {
+                                    extract_string_property(
+                                        entity,
+                                        "transaction_withdrawal_description",
+                                    )
+                                })
+                                .unwrap_or_else(|| text.clone());
 
                         transactions.push(Transaction {
                             page: page_idx,
@@ -930,9 +1077,7 @@ impl DocumentAiClient {
                 d["datasetType"].as_str() == Some("DATASET_SPLIT_TRAIN")
                     || d["datasetType"].as_str() == Some("DATASET_SPLIT_TEST")
             })
-            .filter(|d| {
-                d["labelingState"].as_str() == Some("DOCUMENT_LABELED")
-            })
+            .filter(|d| d["labelingState"].as_str() == Some("DOCUMENT_LABELED"))
             .count();
         Ok((labeled, total))
     }
@@ -960,14 +1105,16 @@ impl DocumentAiClient {
             ));
         }
         let body: serde_json::Value = resp.json().await?;
-        body["name"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| DocAiError::Parse(serde::de::Error::custom("training response missing 'name'")))
+        body["name"].as_str().map(|s| s.to_string()).ok_or_else(|| {
+            DocAiError::Parse(serde::de::Error::custom("training response missing 'name'"))
+        })
     }
 
     /// Poll an LRO once. Returns `(done, error_message_if_failed)`.
-    pub async fn poll_operation(&self, op_name: &str) -> Result<(bool, Option<String>), DocAiError> {
+    pub async fn poll_operation(
+        &self,
+        op_name: &str,
+    ) -> Result<(bool, Option<String>), DocAiError> {
         let base = format!(
             "https://{}-documentai.googleapis.com/v1beta3/{}",
             self.config.location, op_name
@@ -1037,12 +1184,7 @@ impl DocumentAiClient {
     pub async fn list_processor_versions(&self) -> Result<Vec<ProcessorVersionInfo>, DocAiError> {
         let url = format!("{}/processorVersions", self.v1_base_url());
         let token = self.get_access_token().await?;
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&token)
-            .send()
-            .await?;
+        let resp = self.http.get(&url).bearer_auth(&token).send().await?;
 
         if !resp.status().is_success() {
             return Err(DocAiError::Api(
@@ -1059,15 +1201,9 @@ impl DocumentAiClient {
                     .filter_map(|v| {
                         Some(ProcessorVersionInfo {
                             name: v["name"].as_str()?.to_string(),
-                            display_name: v["displayName"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
+                            display_name: v["displayName"].as_str().unwrap_or("").to_string(),
                             state: v["state"].as_str().unwrap_or("UNKNOWN").to_string(),
-                            create_time: v["createTime"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
+                            create_time: v["createTime"].as_str().unwrap_or("").to_string(),
                             model_type: if v["googleManaged"].as_bool().unwrap_or(false) {
                                 "google_managed".to_string()
                             } else {
@@ -1084,10 +1220,7 @@ impl DocumentAiClient {
 
     /// Deploy a specific processor version for inference.
     /// Returns the operation name for polling.
-    pub async fn deploy_processor_version(
-        &self,
-        version_id: &str,
-    ) -> Result<String, DocAiError> {
+    pub async fn deploy_processor_version(&self, version_id: &str) -> Result<String, DocAiError> {
         let url = format!(
             "{}/processorVersions/{}:deploy",
             self.v1_base_url(),
@@ -1114,10 +1247,7 @@ impl DocumentAiClient {
     }
 
     /// Undeploy a processor version to stop hosting charges.
-    pub async fn undeploy_processor_version(
-        &self,
-        version_id: &str,
-    ) -> Result<String, DocAiError> {
+    pub async fn undeploy_processor_version(&self, version_id: &str) -> Result<String, DocAiError> {
         let url = format!(
             "{}/processorVersions/{}:undeploy",
             self.v1_base_url(),
@@ -1154,10 +1284,7 @@ impl DocumentAiClient {
         display_name: &str,
         base_version: Option<&str>,
     ) -> Result<String, DocAiError> {
-        let url = format!(
-            "{}/processorVersions:train",
-            self.v1_base_url()
-        );
+        let url = format!("{}/processorVersions:train", self.v1_base_url());
         let token = self.get_access_token().await?;
 
         let mut body = serde_json::json!({
@@ -1190,10 +1317,7 @@ impl DocumentAiClient {
     }
 
     /// Evaluate a trained processor version. Returns the operation name.
-    pub async fn evaluate_processor_version(
-        &self,
-        version_id: &str,
-    ) -> Result<String, DocAiError> {
+    pub async fn evaluate_processor_version(&self, version_id: &str) -> Result<String, DocAiError> {
         let url = format!(
             "{}/processorVersions/{}:evaluateProcessorVersion",
             self.v1_base_url(),
@@ -1226,16 +1350,10 @@ impl DocumentAiClient {
     ) -> Result<(bool, serde_json::Value), DocAiError> {
         let url = format!(
             "https://{}-documentai.googleapis.com/v1/{}",
-            self.config.location,
-            operation_name,
+            self.config.location, operation_name,
         );
         let token = self.get_access_token().await?;
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&token)
-            .send()
-            .await?;
+        let resp = self.http.get(&url).bearer_auth(&token).send().await?;
 
         if !resp.status().is_success() {
             return Err(DocAiError::Api(
@@ -1254,18 +1372,12 @@ impl DocumentAiClient {
         &self,
         version_id: &str,
     ) -> Result<String, DocAiError> {
-        let url = format!(
-            "{}:setDefaultProcessorVersion",
-            self.v1_base_url()
-        );
+        let url = format!("{}:setDefaultProcessorVersion", self.v1_base_url());
         let token = self.get_access_token().await?;
 
         let full_version_name = format!(
             "projects/{}/locations/{}/processors/{}/processorVersions/{}",
-            self.config.project_id,
-            self.config.location,
-            self.config.processor_id,
-            version_id,
+            self.config.project_id, self.config.location, self.config.processor_id, version_id,
         );
 
         let resp = self
@@ -1460,7 +1572,9 @@ fn bbox_from_bounding_poly(
                 y1 *= scale;
                 tracing::debug!(
                     "[DocAI] Scaled pixel vertices to points: scale={:.4}, page_pts=({:.0},{:.0})",
-                    scale, pw, ph,
+                    scale,
+                    pw,
+                    ph,
                 );
             }
         }
@@ -1611,7 +1725,10 @@ mod tests {
             extract_string_property(&entity, "transaction_date").as_deref(),
             Some("2026-05-01")
         );
-        assert_eq!(extract_number_property(&entity, "debit"), Some(f64_to_dec(3.50)));
+        assert_eq!(
+            extract_number_property(&entity, "debit"),
+            Some(f64_to_dec(3.50))
+        );
         assert_eq!(extract_string_property(&entity, "credit"), None);
     }
 
@@ -1626,6 +1743,8 @@ mod tests {
                 service_account_path: String::new(),
                 api_key: String::new(),
                 adc_path: String::new(),
+                gcs_output_uri: String::new(),
+                passphrase: String::new(),
             }),
             ..AppConfig::default()
         };
@@ -1809,13 +1928,25 @@ mod tests {
         assert!((row[3] - 269.28).abs() < 1.0, "y1={}", row[3]);
 
         // Per-field bboxes: each cell is its own narrower rectangle.
-        let credit_box = tx.field_bboxes.credit
+        let credit_box = tx
+            .field_bboxes
+            .credit
             .expect("transaction_deposit bbox should be set");
         // Credit box: 0.60..0.72 of width 612 = 367.2..440.64
-        assert!((credit_box[0] - 367.2).abs() < 1.0, "credit x0={}", credit_box[0]);
-        assert!((credit_box[2] - 440.64).abs() < 1.0, "credit x1={}", credit_box[2]);
+        assert!(
+            (credit_box[0] - 367.2).abs() < 1.0,
+            "credit x0={}",
+            credit_box[0]
+        );
+        assert!(
+            (credit_box[2] - 440.64).abs() < 1.0,
+            "credit x1={}",
+            credit_box[2]
+        );
 
-        let bal_box = tx.field_bboxes.running_balance
+        let bal_box = tx
+            .field_bboxes
+            .running_balance
             .expect("running_balance bbox should be set");
         assert!((bal_box[0] - 477.36).abs() < 1.0, "bal x0={}", bal_box[0]);
         assert!((bal_box[2] - 550.8).abs() < 1.0, "bal x1={}", bal_box[2]);
@@ -1824,7 +1955,10 @@ mod tests {
         assert!(
             credit_box[2] < bal_box[0],
             "credit ({}..{}) and balance ({}..{}) overlap",
-            credit_box[0], credit_box[2], bal_box[0], bal_box[2]
+            credit_box[0],
+            credit_box[2],
+            bal_box[0],
+            bal_box[2]
         );
     }
 

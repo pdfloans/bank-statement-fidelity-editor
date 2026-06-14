@@ -126,9 +126,15 @@ pub mod parsers {
         '/'.parse_next(input)?;
         let year_str = digit1.parse_next(input)?;
 
-        let day: u32 = day_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
-        let month: u32 = month_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
-        let year: u32 = year_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let day: u32 = day_str
+            .parse()
+            .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let month: u32 = month_str
+            .parse()
+            .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let year: u32 = year_str
+            .parse()
+            .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
 
         if day == 0 || day > 31 || month == 0 || month > 12 {
             return fail();
@@ -141,18 +147,31 @@ pub mod parsers {
     fn parse_date_month_name(input: &mut &str) -> PResult<AuDate> {
         let day_str = digit1.parse_next(input)?;
         space0.parse_next(input)?;
-        let month_name: &str = take_while(3, |c: char| c.is_ascii_alphabetic())
-            .parse_next(input)?;
+        let month_name: &str =
+            take_while(3, |c: char| c.is_ascii_alphabetic()).parse_next(input)?;
         space0.parse_next(input)?;
         let year_str = digit1.parse_next(input)?;
 
-        let day: u32 = day_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
-        let year: u32 = year_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let day: u32 = day_str
+            .parse()
+            .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let year: u32 = year_str
+            .parse()
+            .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
 
         let month = match month_name.to_ascii_lowercase().as_str() {
-            "jan" => 1, "feb" => 2, "mar" => 3, "apr" => 4,
-            "may" => 5, "jun" => 6, "jul" => 7, "aug" => 8,
-            "sep" => 9, "oct" => 10, "nov" => 11, "dec" => 12,
+            "jan" => 1,
+            "feb" => 2,
+            "mar" => 3,
+            "apr" => 4,
+            "may" => 5,
+            "jun" => 6,
+            "jul" => 7,
+            "aug" => 8,
+            "sep" => 9,
+            "oct" => 10,
+            "nov" => 11,
+            "dec" => 12,
             _ => return fail(),
         };
 
@@ -212,8 +231,7 @@ pub mod parsers {
             amount_str.insert(0, '-');
         }
 
-        Decimal::from_str(&amount_str)
-            .map_err(|_| ErrMode::Backtrack(ContextError::new()))
+        Decimal::from_str(&amount_str).map_err(|_| ErrMode::Backtrack(ContextError::new()))
     }
 
     #[cfg(test)]
@@ -225,7 +243,14 @@ pub mod parsers {
         fn parse_au_date_slash_format() -> anyhow::Result<()> {
             let mut input = "15/01/2024";
             let result = parse_au_date(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            assert_eq!(result, AuDate { day: 15, month: 1, year: 2024 });
+            assert_eq!(
+                result,
+                AuDate {
+                    day: 15,
+                    month: 1,
+                    year: 2024
+                }
+            );
             Ok(())
         }
 
@@ -233,7 +258,14 @@ pub mod parsers {
         fn parse_au_date_month_name_format() -> anyhow::Result<()> {
             let mut input = "15 Jan 2024";
             let result = parse_au_date(&mut input).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            assert_eq!(result, AuDate { day: 15, month: 1, year: 2024 });
+            assert_eq!(
+                result,
+                AuDate {
+                    day: 15,
+                    month: 1,
+                    year: 2024
+                }
+            );
             Ok(())
         }
 
@@ -276,7 +308,6 @@ pub mod parsers {
         }
     }
 }
-
 
 /// Refine a bank template from observed transaction bboxes.
 ///
@@ -323,19 +354,15 @@ pub fn learn_template(
         // was probably wrong.
         let lo = (*min_x - 4.0).max(0.0);
         let hi = *max_x + 4.0;
-        refined
-            .column_x_ranges
-            .insert(field.clone(), [lo, hi]);
+        refined.column_x_ranges.insert(field.clone(), [lo, hi]);
     }
 
     // Don't rewrite the original; create a sibling file. The
     // `BankTemplateProvider` loads any `*.yaml`, so the refined version
     // ranks alongside the original (and ideally beats it on overlap).
     let out_path = template_dir.join(format!("{}.refined.yaml", template.id));
-    let yaml = serde_yaml::to_string(&refined)
-        .map_err(|e| format!("yaml encode: {e}"))?;
-    std::fs::write(&out_path, yaml)
-        .map_err(|e| format!("write {}: {e}", out_path.display()))?;
+    let yaml = serde_yaml::to_string(&refined).map_err(|e| format!("yaml encode: {e}"))?;
+    std::fs::write(&out_path, yaml).map_err(|e| format!("write {}: {e}", out_path.display()))?;
     tracing::info!(
         "[templates] refined template written: {} (fields: {:?})",
         out_path.display(),
@@ -373,19 +400,26 @@ mod tests {
             ("amount".to_string(), [220.0, 105.0, 280.0, 120.0]),
         ];
 
-        let out = learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
+        let out =
+            learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
         assert!(out.ends_with("test_bank.refined.yaml"));
 
         let raw = std::fs::read_to_string(&out)?;
         let refined: BankTemplate = serde_yaml::from_str(&raw).map_err(|e| anyhow::anyhow!(e))?;
 
         // date column: observed envelope x0=42, x1=95 → padded ±4 → [38, 99]
-        let date = refined.column_x_ranges.get("date").ok_or_else(|| anyhow::anyhow!("No date field"))?;
+        let date = refined
+            .column_x_ranges
+            .get("date")
+            .ok_or_else(|| anyhow::anyhow!("No date field"))?;
         assert!((date[0] - 38.0).abs() < 0.1);
         assert!((date[1] - 99.0).abs() < 0.1);
 
         // amount column: observed envelope x0=220, x1=280 → padded → [216, 284]
-        let amt = refined.column_x_ranges.get("amount").ok_or_else(|| anyhow::anyhow!("No amount field"))?;
+        let amt = refined
+            .column_x_ranges
+            .get("amount")
+            .ok_or_else(|| anyhow::anyhow!("No amount field"))?;
         assert!((amt[0] - 216.0).abs() < 0.1);
         assert!((amt[1] - 284.0).abs() < 0.1);
 
@@ -401,10 +435,14 @@ mod tests {
         let tmpl = sample_template();
         // Observation at x0=2 → padded x0 = -2, must clamp to 0.
         let observations = vec![("date".to_string(), [2.0, 100.0, 95.0, 120.0])];
-        let out = learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
-        let refined: BankTemplate =
-            serde_yaml::from_str(&std::fs::read_to_string(&out)?).map_err(|e| anyhow::anyhow!(e))?;
-        let date = refined.column_x_ranges.get("date").ok_or_else(|| anyhow::anyhow!("No date field"))?;
+        let out =
+            learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
+        let refined: BankTemplate = serde_yaml::from_str(&std::fs::read_to_string(&out)?)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let date = refined
+            .column_x_ranges
+            .get("date")
+            .ok_or_else(|| anyhow::anyhow!("No date field"))?;
         assert_eq!(date[0], 0.0);
         Ok(())
     }
@@ -428,10 +466,14 @@ mod tests {
             ("date".to_string(), [40.0, 130.0, 95.0, 145.0]),
             ("date".to_string(), [45.0, 160.0, 100.0, 175.0]),
         ];
-        let out = learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
-        let refined: BankTemplate =
-            serde_yaml::from_str(&std::fs::read_to_string(&out)?).map_err(|e| anyhow::anyhow!(e))?;
-        let date = refined.column_x_ranges.get("date").ok_or_else(|| anyhow::anyhow!("No date field"))?;
+        let out =
+            learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;
+        let refined: BankTemplate = serde_yaml::from_str(&std::fs::read_to_string(&out)?)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let date = refined
+            .column_x_ranges
+            .get("date")
+            .ok_or_else(|| anyhow::anyhow!("No date field"))?;
         // min x0 = 40, max x1 = 100 -> padded -> [36, 104]
         assert!((date[0] - 36.0).abs() < 0.1);
         assert!((date[1] - 104.0).abs() < 0.1);

@@ -97,7 +97,6 @@ pub fn recalculate_and_validate(
     let mut current_balance = opening_balance;
 
     for tx in transactions.iter_mut() {
-
         if tx.debit.is_some() && tx.credit.is_some() {
             let debit = tx.debit.unwrap_or_default();
             let credit = tx.credit.unwrap_or_default();
@@ -111,7 +110,7 @@ pub fn recalculate_and_validate(
                     // Credit correctly bridges the gap to the extracted running balance
                     tx.debit = None;
                 } else {
-                    // Neither is a perfect match, or math is just wrong. 
+                    // Neither is a perfect match, or math is just wrong.
                     // Fallback to clearing zeros if possible.
                     if debit == Decimal::ZERO {
                         tx.debit = None;
@@ -124,7 +123,7 @@ pub fn recalculate_and_validate(
             } else if credit == Decimal::ZERO {
                 tx.credit = None;
             }
-            
+
             // If they are STILL both Some, we just let it fall through.
             // The net_delta function handles it safely (debit - credit).
         }
@@ -333,9 +332,7 @@ mod tests {
 // Polars-based balance recalculation (Phase 1)
 // ---------------------------------------------------------------------------
 
-use crate::engine::model::{
-    dataframe_to_transactions, dec_to_f64, transactions_to_dataframe,
-};
+use crate::engine::model::{dataframe_to_transactions, dec_to_f64, transactions_to_dataframe};
 use polars::prelude::*;
 
 /// Recalculate running balances using Polars columnar operations.
@@ -371,16 +368,13 @@ pub fn recalculate_running_balance_df(
             (col("debit").fill_null(lit(0.0f64)) - col("credit").fill_null(lit(0.0f64)))
                 .alias("net_delta"),
         )
-        .with_column(
-            (col("net_delta").cum_sum(false) + lit(opening_f64))
-                .alias("running_balance"),
-        )
+        .with_column((col("net_delta").cum_sum(false) + lit(opening_f64)).alias("running_balance"))
         .drop(["net_delta"])
         .collect()
         .map_err(|_| BalanceError::MissingOpeningBalance)?;
 
-    let mut recovered = dataframe_to_transactions(&result)
-        .map_err(|_| BalanceError::MissingOpeningBalance)?;
+    let mut recovered =
+        dataframe_to_transactions(&result).map_err(|_| BalanceError::MissingOpeningBalance)?;
 
     // Preserve bbox/field_bboxes/provenance from the originals
     for (new_tx, orig_tx) in recovered.iter_mut().zip(transactions.iter()) {
@@ -424,9 +418,9 @@ mod polars_balance_tests {
     #[test]
     fn polars_recalculate_matches_iterative() -> anyhow::Result<()> {
         let txs = vec![
-            make_tx(Some(dec!(10)), None),   // +10 → 110
-            make_tx(None, Some(dec!(20))),   // -20 → 90
-            make_tx(Some(dec!(5)), None),    // +5  → 95
+            make_tx(Some(dec!(10)), None), // +10 → 110
+            make_tx(None, Some(dec!(20))), // -20 → 90
+            make_tx(Some(dec!(5)), None),  // +5  → 95
         ];
         let opening = dec!(100);
 
@@ -438,8 +432,11 @@ mod polars_balance_tests {
 
         assert_eq!(iter_result.len(), polars_result.len());
         for (a, b) in iter_result.iter().zip(polars_result.iter()) {
-            assert_eq!(a.running_balance, b.running_balance,
-                "Mismatch: iterative={:?} polars={:?}", a.running_balance, b.running_balance);
+            assert_eq!(
+                a.running_balance, b.running_balance,
+                "Mismatch: iterative={:?} polars={:?}",
+                a.running_balance, b.running_balance
+            );
         }
         Ok(())
     }
@@ -460,7 +457,10 @@ mod polars_balance_tests {
         let result = recalculate_running_balance_df(vec![tx], dec!(1000))?;
         assert_eq!(result[0].raw_text, "Payroll deposit");
         assert_eq!(result[0].bbox, Some([10.0, 20.0, 300.0, 40.0]));
-        assert!(matches!(result[0].provenance, Provenance::DocumentAI { .. }));
+        assert!(matches!(
+            result[0].provenance,
+            Provenance::DocumentAI { .. }
+        ));
         assert_eq!(result[0].running_balance, Some(dec!(1050.00)));
         Ok(())
     }

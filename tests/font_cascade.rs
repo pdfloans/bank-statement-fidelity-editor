@@ -113,10 +113,7 @@ fn font_cascade_extends_subset_via_donor() {
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
-    eprintln!(
-        "[cascade] FONT_CACHE_DIR = {}",
-        cache_dir.display()
-    );
+    eprintln!("[cascade] FONT_CACHE_DIR = {}", cache_dir.display());
 
     // 3) Submit the cascade job. The font_name we pass must substring-match
     //    the canonical name in the manifest so Tier 2 finds the donor; we
@@ -188,13 +185,14 @@ fn font_cascade_extends_subset_via_donor() {
         .and_then(|m| serde_json::from_value(m).ok())
         .unwrap_or_default();
 
-    eprintln!(
-        "[cascade] success={success} tiers={tiers_used:?} donor_extended={donor_extended:?}"
-    );
+    eprintln!("[cascade] success={success} tiers={tiers_used:?} donor_extended={donor_extended:?}");
 
     assert!(success, "cascade should succeed: {payload}");
     assert!(extended_path.is_some(), "extended_font_path must be set");
-    assert!(extended_path.unwrap().exists(), "extended TTF must exist on disk");
+    assert!(
+        extended_path.unwrap().exists(),
+        "extended TTF must exist on disk"
+    );
     assert!(still_missing.is_empty(), "still_missing should be empty");
     assert!(
         donor_extended.iter().any(|c| c == "A"),

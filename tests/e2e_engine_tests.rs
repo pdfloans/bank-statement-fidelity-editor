@@ -21,35 +21,32 @@ fn get_cmd() -> Command {
 #[test]
 fn test_cli_help() {
     let mut cmd = get_cmd();
-    cmd.arg("--help")
-        .assert()
-        .success();
+    cmd.arg("--help").assert().success();
 }
 
 #[test]
 fn test_cli_ping() {
     let mut cmd = get_cmd();
-    cmd.arg("ping")
-        .assert()
-        .success();
+    cmd.arg("ping").assert().success();
 }
 
 #[test]
 fn test_cli_doctor() {
     let mut cmd = get_cmd();
-    cmd.arg("doctor")
-        .assert()
-        .success();
+    cmd.arg("doctor").assert().success();
 }
 
 #[test]
 fn test_cli_analyze_fonts() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
-    
+    if !pdf.exists() {
+        return;
+    }
+
     let mut cmd = get_cmd();
     cmd.arg("analyze-fonts")
-        .arg("--input").arg(&pdf)
+        .arg("--input")
+        .arg(&pdf)
         .assert()
         .success();
 }
@@ -57,17 +54,25 @@ fn test_cli_analyze_fonts() {
 #[test]
 fn test_cli_text() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
+    if !pdf.exists() {
+        return;
+    }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    
+
     let mut cmd = get_cmd();
     cmd.arg("text")
-        .arg("--input").arg(&pdf)
-        .arg("--output").arg(out.as_os_str())
-        .arg("--page").arg("0")
-        .arg("--bbox").arg("0,0,100,100")
-        .arg("--new").arg("Replacement")
-        .arg("--old").arg("Original")
+        .arg("--input")
+        .arg(&pdf)
+        .arg("--output")
+        .arg(out.as_os_str())
+        .arg("--page")
+        .arg("0")
+        .arg("--bbox")
+        .arg("0,0,100,100")
+        .arg("--new")
+        .arg("Replacement")
+        .arg("--old")
+        .arg("Original")
         .assert()
         .code(predicate::eq(0).or(predicate::eq(1)));
 }
@@ -75,14 +80,18 @@ fn test_cli_text() {
 #[test]
 fn test_cli_balance() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
-    
+    if !pdf.exists() {
+        return;
+    }
+
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    
+
     let mut cmd = get_cmd();
     cmd.arg("balance")
-        .arg("--input").arg(&pdf)
-        .arg("--output").arg(out.as_os_str())
+        .arg("--input")
+        .arg(&pdf)
+        .arg("--output")
+        .arg(out.as_os_str())
         .assert()
         .code(predicate::eq(0).or(predicate::eq(1)));
 }
@@ -90,13 +99,17 @@ fn test_cli_balance() {
 #[test]
 fn test_cli_auto_balance() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
+    if !pdf.exists() {
+        return;
+    }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    
+
     let mut cmd = get_cmd();
     cmd.arg("auto-balance")
-        .arg("--input").arg(&pdf)
-        .arg("--output").arg(out.as_os_str())
+        .arg("--input")
+        .arg(&pdf)
+        .arg("--output")
+        .arg(out.as_os_str())
         .assert()
         .code(predicate::eq(0).or(predicate::eq(1)));
 }
@@ -104,14 +117,18 @@ fn test_cli_auto_balance() {
 #[test]
 fn test_cli_extract() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
-    
+    if !pdf.exists() {
+        return;
+    }
+
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    
+
     let mut cmd = get_cmd();
     cmd.arg("extract")
-        .arg("--input").arg(&pdf)
-        .arg("--output").arg(out.as_os_str())
+        .arg("--input")
+        .arg(&pdf)
+        .arg("--output")
+        .arg(out.as_os_str())
         .assert()
         .code(predicate::eq(0).or(predicate::eq(1)));
 }
@@ -119,12 +136,16 @@ fn test_cli_extract() {
 #[test]
 fn test_cli_ai_fix_visual() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
-    
+    if !pdf.exists() {
+        return;
+    }
+
     let mut cmd = get_cmd();
     cmd.arg("ai-fix-visual")
-        .arg("--input").arg(&pdf)
-        .arg("--page").arg("0")
+        .arg("--input")
+        .arg(&pdf)
+        .arg("--page")
+        .arg("0")
         .assert()
         .success();
 }
@@ -132,14 +153,19 @@ fn test_cli_ai_fix_visual() {
 #[test]
 fn test_cli_adjust_dates() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
+    if !pdf.exists() {
+        return;
+    }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    
+
     let mut cmd = get_cmd();
     cmd.arg("adjust-dates")
-        .arg("--input").arg(&pdf)
-        .arg("--output").arg(out.as_os_str())
-        .arg("--mode").arg("remap")
+        .arg("--input")
+        .arg(&pdf)
+        .arg("--output")
+        .arg(out.as_os_str())
+        .arg("--mode")
+        .arg("remap")
         .assert()
         .success();
 }
@@ -147,9 +173,11 @@ fn test_cli_adjust_dates() {
 #[test]
 fn test_cli_transfer_transactions() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
+    if !pdf.exists() {
+        return;
+    }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
-    
+
     let mut cmd = get_cmd();
     // Use the same PDF as source and target just for testing the execution path
     cmd.arg("transfer-transactions")
@@ -164,12 +192,16 @@ fn test_cli_transfer_transactions() {
 #[test]
 fn test_cli_run_transfer_tests() {
     let pdf = get_test_pdf();
-    if !pdf.exists() { return; }
-    
+    if !pdf.exists() {
+        return;
+    }
+
     let mut cmd = get_cmd();
     cmd.arg("run-transfer-tests")
-        .arg("--statements").arg(pdf.to_string_lossy().to_string())
-        .arg("--max-iterations").arg("1")
+        .arg("--statements")
+        .arg(pdf.to_string_lossy().to_string())
+        .arg("--max-iterations")
+        .arg("1")
         .assert()
         .code(predicate::eq(0).or(predicate::eq(1)));
 }

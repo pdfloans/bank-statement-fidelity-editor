@@ -353,11 +353,7 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
 /// End-to-end self-test: render → edit a real text span → re-render, asserting
 /// the edit changed the page (and only locally). Drives the same Job runtime
 /// the GUI uses. Returns a process exit code (0 = PASS).
-fn run_selftest(
-    job_tx: &Sender<Job>,
-    job_rx: &Receiver<JobResult>,
-    input: Option<PathBuf>,
-) -> i32 {
+fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Option<PathBuf>) -> i32 {
     use crate::app::runtime::{PythonJob, PythonJobResult};
 
     let input = input.unwrap_or_else(|| PathBuf::from("examples/sample.pdf"));
@@ -587,7 +583,11 @@ fn run_doctor(
     ] {
         let ok = std::fs::create_dir_all(dir).is_ok();
         fs_ok &= ok;
-        let status = if ok { CheckStatus::Ok } else { CheckStatus::Fail };
+        let status = if ok {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Fail
+        };
         print_status(&status, label, &dir.display().to_string());
     }
 
@@ -627,8 +627,10 @@ fn run_doctor(
             println!("{}\n", indent_block(&env_spec::guidance_for(name)));
         }
         if !runtime_ok {
-            println!("  • Runtime worker did not respond. Check logs in {}.",
-                config.log_dir.display());
+            println!(
+                "  • Runtime worker did not respond. Check logs in {}.",
+                config.log_dir.display()
+            );
         }
         if !fs_ok {
             println!("  • One or more required directories are not writable.");
@@ -714,7 +716,11 @@ pub fn run(
             }
             None
         }
-        Commands::TransferTransactions { source_pdf, target_pdf, .. } => {
+        Commands::TransferTransactions {
+            source_pdf,
+            target_pdf,
+            ..
+        } => {
             if !source_pdf.exists() {
                 eprintln!("❌ Source PDF not found: {}", source_pdf.display());
                 return exit_code::NOT_FOUND;
@@ -1092,9 +1098,7 @@ pub fn run(
                 _ => 1,
             }
         }
-        Commands::Selftest { input } => {
-            run_selftest(&job_tx, &job_rx, input)
-        }
+        Commands::Selftest { input } => run_selftest(&job_tx, &job_rx, input),
         Commands::Doctor => run_doctor(&config, &job_tx, &job_rx),
         Commands::VerifyApiKeys { json } => {
             // Run verification on a fresh tokio runtime
@@ -1217,7 +1221,9 @@ pub fn run(
                     report.print();
                     if report.failed.is_empty() {
                         println!();
-                        println!("✅ Font cache ready. Stage 11 cascade Tier 2/3 will use these donors.");
+                        println!(
+                            "✅ Font cache ready. Stage 11 cascade Tier 2/3 will use these donors."
+                        );
                         0
                     } else {
                         println!();
@@ -1255,7 +1261,10 @@ pub fn run(
                 auto_apply: true,
             });
             match wait_for_terminal_result(&job_rx) {
-                Ok(JobResult::ProposedChangesApplied { changes_applied, failures }) => {
+                Ok(JobResult::ProposedChangesApplied {
+                    changes_applied,
+                    failures,
+                }) => {
                     println!("✅ Applied {changes_applied} changes to {output:?}");
                     if !failures.is_empty() {
                         eprintln!("⚠️ {} failure(s)", failures.len());
@@ -1275,7 +1284,11 @@ pub fn run(
             println!("AiFixVisualFidelity is a stub.");
             0
         }
-        Commands::TransferTransactions { source_pdf, target_pdf, output } => {
+        Commands::TransferTransactions {
+            source_pdf,
+            target_pdf,
+            output,
+        } => {
             let _ = job_tx.send(Job::TransferTransactions {
                 source_pdf,
                 target_pdf,
@@ -1283,7 +1296,10 @@ pub fn run(
             });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::TransferComplete(result)) => {
-                    println!("✅ Transfer complete. Target has {} transactions.", result.target_tx_count);
+                    println!(
+                        "✅ Transfer complete. Target has {} transactions.",
+                        result.target_tx_count
+                    );
                     0
                 }
                 Ok(JobResult::TransferFailed { stage, message }) => {
@@ -1297,7 +1313,11 @@ pub fn run(
                 _ => 1,
             }
         }
-        Commands::AdjustDates { input, output, mode } => {
+        Commands::AdjustDates {
+            input,
+            output,
+            mode,
+        } => {
             let parsed_mode = if mode == "remap" {
                 crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
                     from_start: chrono::NaiveDate::from_ymd_opt(2025, 1, 1)
@@ -1325,7 +1345,10 @@ pub fn run(
                 _ => 1,
             }
         }
-        Commands::RunTransferTests { statements, max_iterations } => {
+        Commands::RunTransferTests {
+            statements,
+            max_iterations,
+        } => {
             let _ = job_tx.send(Job::RunTransferTests {
                 statements,
                 max_iterations,

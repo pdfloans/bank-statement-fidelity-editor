@@ -131,7 +131,9 @@ pub enum GeminiAuthMode {
 impl DocumentAiConfig {
     /// Returns true if the Document AI configuration has valid authentication.
     pub fn has_auth(&self) -> bool {
-        !self.api_key.is_empty() || !self.adc_path.is_empty() || !self.service_account_path.is_empty()
+        !self.api_key.is_empty()
+            || !self.adc_path.is_empty()
+            || !self.service_account_path.is_empty()
     }
 }
 
@@ -479,10 +481,7 @@ mod tests {
             ..AppConfig::default()
         };
         // In dev mode the missing key is not reported as an error.
-        assert!(!cfg
-            .validate()
-            .iter()
-            .any(|e| e.contains("PYMUPDF_PRO_KEY")));
+        assert!(!cfg.validate().iter().any(|e| e.contains("PYMUPDF_PRO_KEY")));
         // And availability is independent of validate().
         assert!(!cfg.pro_editing_available());
     }

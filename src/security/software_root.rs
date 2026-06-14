@@ -7,10 +7,10 @@
 //!   export DUAL_CORE_PASSPHRASE="YourSuperStrongPassphrase2026!@#"
 //!   or create .pipeline_key file with the passphrase (gitignored)
 
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::Path;
-use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 const MIN_PASSPHRASE_LEN: usize = 16;
@@ -40,7 +40,11 @@ pub fn require_software_attestation() -> Result<(), String> {
 
     // Compute SHA-256 hash for verification (cryptographic attestation)
     let hash = compute_hash(&passphrase);
-    tracing::info!("[SECURITY] ✓ Passphrase hash computed: {}...{}", &hash[..8], &hash[hash.len()-8..]);
+    tracing::info!(
+        "[SECURITY] ✓ Passphrase hash computed: {}...{}",
+        &hash[..8],
+        &hash[hash.len() - 8..]
+    );
 
     tracing::info!(
         "[SECURITY] ✓ Strong passphrase verified ({} chars, {:.1} bits entropy)",
@@ -61,9 +65,7 @@ fn compute_hash(passphrase: &str) -> String {
     hasher.update(passphrase.as_bytes());
     let result = hasher.finalize();
     // Encode as hex string without adding hex dependency
-    result.iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    result.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Estimate passphrase entropy in bits based on character set diversity
@@ -79,10 +81,18 @@ fn estimate_entropy(passphrase: &str) -> f64 {
         1_000_000.0
     } else {
         let mut size: f64 = 0.0;
-        if has_lower { size += 26.0; }
-        if has_upper { size += 26.0; }
-        if has_digit { size += 10.0; }
-        if has_special { size += 32.0; }
+        if has_lower {
+            size += 26.0;
+        }
+        if has_upper {
+            size += 26.0;
+        }
+        if has_digit {
+            size += 10.0;
+        }
+        if has_special {
+            size += 32.0;
+        }
         size.max(1.0)
     };
 

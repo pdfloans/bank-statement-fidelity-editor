@@ -213,7 +213,11 @@ mod tests {
                 "{} is missing a setup hint",
                 spec.name
             );
-            assert!(!spec.summary.is_empty(), "{} is missing a summary", spec.name);
+            assert!(
+                !spec.summary.is_empty(),
+                "{} is missing a summary",
+                spec.name
+            );
         }
     }
 

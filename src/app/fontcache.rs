@@ -105,7 +105,10 @@ impl BootstrapReport {
         println!();
         println!(
             "Cache: {} ({} downloaded, {} skipped, {} failed)",
-            self.manifest_path.parent().unwrap_or(Path::new("?")).display(),
+            self.manifest_path
+                .parent()
+                .unwrap_or(Path::new("?"))
+                .display(),
             self.downloaded.len(),
             self.already_cached.len(),
             self.failed.len()
@@ -118,8 +121,7 @@ impl BootstrapReport {
 /// can't pull tokio in here — this CLI subcommand runs synchronously), and
 /// writes `manifest.json`.
 pub fn bootstrap(cache_dir: &Path, force: bool) -> Result<BootstrapReport, String> {
-    std::fs::create_dir_all(cache_dir)
-        .map_err(|e| format!("create cache dir: {e}"))?;
+    std::fs::create_dir_all(cache_dir).map_err(|e| format!("create cache dir: {e}"))?;
 
     let client = reqwest::blocking::Client::builder()
         .user_agent("dual-core-pdf-pipeline/0.4 fontcache-init")
@@ -173,19 +175,15 @@ pub fn bootstrap(cache_dir: &Path, force: bool) -> Result<BootstrapReport, Strin
         }
     }
 
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| format!("manifest serialize: {e}"))?;
+    let manifest_json =
+        serde_json::to_string_pretty(&manifest).map_err(|e| format!("manifest serialize: {e}"))?;
     std::fs::write(&report.manifest_path, manifest_json)
         .map_err(|e| format!("manifest write: {e}"))?;
 
     Ok(report)
 }
 
-fn download_one(
-    client: &reqwest::blocking::Client,
-    url: &str,
-    dest: &Path,
-) -> Result<(), String> {
+fn download_one(client: &reqwest::blocking::Client, url: &str, dest: &Path) -> Result<(), String> {
     // Stage 13 / Item #13: download to a temp side-file first so a partial
     // failure never leaves a half-written TTF in the cache that subsequent
     // runs would treat as "already cached and good".
@@ -236,19 +234,14 @@ mod tests {
 
     #[test]
     fn manifest_path_is_inside_cache_dir() {
-        let dir = std::env::temp_dir().join(format!(
-            "dcpp-fontcache-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("dcpp-fontcache-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let report = BootstrapReport {
             manifest_path: dir.join("manifest.json"),
             ..Default::default()
         };
-        assert!(report
-            .manifest_path
-            .starts_with(&dir));
+        assert!(report.manifest_path.starts_with(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -256,8 +249,16 @@ mod tests {
     fn seed_list_is_non_empty() {
         assert!(!SEED.is_empty());
         for s in SEED {
-            assert!(s.url.starts_with("https://"), "{} url not https", s.canonical_name);
-            assert!(s.filename.ends_with(".ttf"), "{} filename not .ttf", s.canonical_name);
+            assert!(
+                s.url.starts_with("https://"),
+                "{} url not https",
+                s.canonical_name
+            );
+            assert!(
+                s.filename.ends_with(".ttf"),
+                "{} filename not .ttf",
+                s.canonical_name
+            );
         }
     }
 }

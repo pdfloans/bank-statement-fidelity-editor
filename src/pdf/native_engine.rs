@@ -13,8 +13,7 @@
 //!   content stream edits. `pdf-writer` is used for full-page serialization
 //!   when needed.
 //!
-//! - **Rendering:** Stubbed for now — full rasterization will come in a
-//!   later phase using `tiny-skia` or similar.
+//! - **Rendering:** Fallback native renderer drawing bounding boxes using `imageproc`.
 
 use crate::engine::layout::{DocumentLayout, PageLayout};
 use crate::pdf::engine::*;
@@ -32,8 +31,8 @@ impl OxidizePdfEngine {
     /// Load a PDF document via lopdf (which is already a dependency) and
     /// count pages.
     fn page_count(&self, path: &Path) -> Result<usize, EngineError> {
-        let doc = lopdf::Document::load(path)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        let doc =
+            lopdf::Document::load(path).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
         Ok(doc.get_pages().len())
     }
 
@@ -47,8 +46,8 @@ impl OxidizePdfEngine {
         path: &Path,
         page_num: usize,
     ) -> Result<Vec<TextBlock>, EngineError> {
-        let doc = lopdf::Document::load(path)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        let doc =
+            lopdf::Document::load(path).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
 
         let pages = doc.get_pages();
         let page_id = pages
@@ -66,7 +65,9 @@ impl OxidizePdfEngine {
             .map_err(|e| EngineError::ExtractFailed(format!("Failed to get page content: {e}")))?;
 
         let operations = lopdf::content::Content::decode(&content)
-            .map_err(|e| EngineError::ExtractFailed(format!("Failed to decode content stream: {e}")))?
+            .map_err(|e| {
+                EngineError::ExtractFailed(format!("Failed to decode content stream: {e}"))
+            })?
             .operations;
 
         let mut blocks: Vec<TextBlock> = Vec::new();
@@ -92,8 +93,7 @@ impl OxidizePdfEngine {
                     // Set font: Tf <font-name> <size>
                     if op.operands.len() >= 2 {
                         if let lopdf::Object::Name(ref name) = op.operands[0] {
-                            current_font =
-                                String::from_utf8_lossy(name).to_string();
+                            current_font = String::from_utf8_lossy(name).to_string();
                         }
                         font_size = operand_to_f32(&op.operands[1]).unwrap_or(12.0);
                     }
@@ -148,11 +148,9 @@ impl OxidizePdfEngine {
                         for item in arr {
                             match item {
                                 lopdf::Object::String(bytes, _) => {
-                                    combined_text
-                                        .push_str(&String::from_utf8_lossy(bytes));
+                                    combined_text.push_str(&String::from_utf8_lossy(bytes));
                                 }
-                                lopdf::Object::Integer(_)
-                                | lopdf::Object::Real(_) => {
+                                lopdf::Object::Integer(_) | lopdf::Object::Real(_) => {
                                     // Kerning adjustment — skip
                                 }
                                 _ => {}
@@ -161,8 +159,7 @@ impl OxidizePdfEngine {
                         if !combined_text.trim().is_empty() {
                             let x = tm[4];
                             let y = tm[5];
-                            let estimated_width =
-                                combined_text.len() as f32 * font_size * 0.5;
+                            let estimated_width = combined_text.len() as f32 * font_size * 0.5;
                             blocks.push(TextBlock {
                                 page: page_num,
                                 text: combined_text,
@@ -211,44 +208,46 @@ impl PdfEngine for OxidizePdfEngine {
         }
     }
 
-    fn render_page(
-        &self,
-        path: &Path,
-        page: usize,
-        dpi: f32,
-    ) -> Result<RenderedPage, EngineError> {
+    fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
         // Fallback Native Renderer (Structural/Layout mode)
         // Since full PDF rasterization via tiny-skia is Phase 6, we draw text block
         // bounding boxes on a white canvas. This allows UI interaction (clicking,
         // selecting text for edits) without needing external C++ renderers.
-        
+
         let width_pts = 600.0; // Standard A4 estimated width
         let height_pts = 850.0;
         let width_px = (width_pts * dpi / 72.0) as u32;
         let height_px = (height_pts * dpi / 72.0) as u32;
 
-        let mut img = image::RgbaImage::from_pixel(width_px, height_px, image::Rgba([255, 255, 255, 255]));
-        
+        let mut img =
+            image::RgbaImage::from_pixel(width_px, height_px, image::Rgba([255, 255, 255, 255]));
+
         if let Ok(blocks) = self.get_text_blocks(path, page) {
             for b in blocks {
                 let x0 = (b.bbox[0] * dpi / 72.0) as i32;
                 // PDF y=0 is bottom; image y=0 is top
-                let y0 = (height_px as f32 - (b.bbox[3] * dpi / 72.0)) as i32; 
+                let y0 = (height_px as f32 - (b.bbox[3] * dpi / 72.0)) as i32;
                 let x1 = (b.bbox[2] * dpi / 72.0) as i32;
                 let y1 = (height_px as f32 - (b.bbox[1] * dpi / 72.0)) as i32;
 
                 let rect = imageproc::rect::Rect::at(x0.max(0), y0.max(0))
                     .of_size(((x1 - x0).max(1)) as u32, ((y1 - y0).max(1)) as u32);
-                
-                imageproc::drawing::draw_hollow_rect_mut(&mut img, rect, image::Rgba([0, 0, 0, 100]));
+
+                imageproc::drawing::draw_hollow_rect_mut(
+                    &mut img,
+                    rect,
+                    image::Rgba([0, 0, 0, 100]),
+                );
             }
         }
 
         let mut bytes = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut bytes);
         img.write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| EngineError::RenderFailed(format!("Failed to encode fallback PNG: {}", e)))?;
-        
+            .map_err(|e| {
+                EngineError::RenderFailed(format!("Failed to encode fallback PNG: {}", e))
+            })?;
+
         Ok(RenderedPage {
             png_bytes: bytes,
             width_pts,
@@ -256,11 +255,7 @@ impl PdfEngine for OxidizePdfEngine {
         })
     }
 
-    fn get_text_blocks(
-        &self,
-        path: &Path,
-        page: usize,
-    ) -> Result<Vec<TextBlock>, EngineError> {
+    fn get_text_blocks(&self, path: &Path, page: usize) -> Result<Vec<TextBlock>, EngineError> {
         self.extract_text_blocks_from_page(path, page)
     }
 
@@ -272,9 +267,9 @@ impl PdfEngine for OxidizePdfEngine {
         y: f32,
     ) -> Result<Option<TextBlock>, EngineError> {
         let blocks = self.get_text_blocks(path, page)?;
-        Ok(blocks.into_iter().find(|b| {
-            x >= b.bbox[0] && x <= b.bbox[2] && y >= b.bbox[1] && y <= b.bbox[3]
-        }))
+        Ok(blocks
+            .into_iter()
+            .find(|b| x >= b.bbox[0] && x <= b.bbox[2] && y >= b.bbox[1] && y <= b.bbox[3]))
     }
 
     fn apply_change(
@@ -287,19 +282,17 @@ impl PdfEngine for OxidizePdfEngine {
         _font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
         // Load the document
-        let mut doc = lopdf::Document::load(input)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        let mut doc =
+            lopdf::Document::load(input).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
 
         let pages = doc.get_pages();
-        let page_id = *pages
-            .get(&(page as u32 + 1))
-            .ok_or_else(|| {
-                EngineError::ApplyFailed(format!(
-                    "Page {} not found (document has {} pages)",
-                    page,
-                    pages.len()
-                ))
-            })?;
+        let page_id = *pages.get(&(page as u32 + 1)).ok_or_else(|| {
+            EngineError::ApplyFailed(format!(
+                "Page {} not found (document has {} pages)",
+                page,
+                pages.len()
+            ))
+        })?;
 
         // Get the page content
         let content_bytes = doc
@@ -400,7 +393,8 @@ impl PdfEngine for OxidizePdfEngine {
         }
 
         // Re-encode the content stream and set it back on the page
-        let new_content_bytes = content.encode()
+        let new_content_bytes = content
+            .encode()
             .map_err(|e| EngineError::ApplyFailed(format!("Failed to encode content: {e}")))?;
 
         doc.change_page_content(page_id, new_content_bytes)
@@ -422,7 +416,9 @@ impl PdfEngine for OxidizePdfEngine {
 
         let mut pages = Vec::with_capacity(page_count);
         for i in 0..page_count {
-            let blocks = self.extract_text_blocks_from_page(path, i).unwrap_or_default();
+            let blocks = self
+                .extract_text_blocks_from_page(path, i)
+                .unwrap_or_default();
 
             // Simple heuristic: check for header/footer by position
             let has_header = blocks.iter().any(|b| b.bbox[1] < 72.0); // top inch
@@ -456,6 +452,188 @@ impl PdfEngine for OxidizePdfEngine {
             layout_confidence: 0.7,
         })
     }
+
+    fn apply_many_edits(
+        &self,
+        input: &std::path::Path,
+        output: &std::path::Path,
+        edits_json: &str,
+        _font_path: Option<&std::path::Path>,
+    ) -> Result<usize, EngineError> {
+        let edits: Vec<serde_json::Value> = serde_json::from_str(edits_json)
+            .map_err(|e| EngineError::ApplyFailed(format!("Invalid edits JSON: {}", e)))?;
+
+        let mut doc =
+            lopdf::Document::load(input).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+
+        let mut applied_count = 0;
+        let mut modified_pages = std::collections::HashSet::new();
+
+        let mut edits_by_page: std::collections::HashMap<usize, Vec<&serde_json::Value>> = std::collections::HashMap::new();
+        for edit in &edits {
+            if let Some(page) = edit["page"].as_u64() {
+                edits_by_page.entry(page as usize).or_default().push(edit);
+            }
+        }
+
+        let pages = doc.get_pages();
+
+        for (page_idx, page_edits) in edits_by_page {
+            let page_id = *pages.get(&(page_idx as u32 + 1)).ok_or_else(|| {
+                EngineError::ApplyFailed(format!(
+                    "Page {} not found",
+                    page_idx
+                ))
+            })?;
+
+            let content_bytes = doc.get_page_content(page_id).unwrap_or_default();
+            if content_bytes.is_empty() {
+                continue;
+            }
+
+            let mut content = match lopdf::content::Content::decode(&content_bytes) {
+                Ok(c) => c,
+                Err(e) => return Err(EngineError::ApplyFailed(format!("Failed to decode content: {e}"))),
+            };
+
+            let mut tm = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
+            let mut tlm = tm;
+            let mut font_size: f32 = 12.0;
+            let mut in_text = false;
+
+            for op in &mut content.operations {
+                match op.operator.as_str() {
+                    "BT" => {
+                        in_text = true;
+                        tm = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+                        tlm = tm;
+                    }
+                    "ET" => {
+                        in_text = false;
+                    }
+                    "Tf" if in_text => {
+                        if op.operands.len() >= 2 {
+                            font_size = operand_to_f32(&op.operands[1]).unwrap_or(12.0);
+                        }
+                    }
+                    "Tm" if in_text => {
+                        if op.operands.len() >= 6 {
+                            for (i, operand) in op.operands.iter().enumerate().take(6) {
+                                tm[i] = operand_to_f32(operand).unwrap_or(0.0);
+                            }
+                            tlm = tm;
+                        }
+                    }
+                    "Td" | "TD" if in_text => {
+                        if op.operands.len() >= 2 {
+                            let tx = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
+                            let ty = operand_to_f32(&op.operands[1]).unwrap_or(0.0);
+                            tlm[4] += tx;
+                            tlm[5] += ty;
+                            tm = tlm;
+                        }
+                    }
+                    "T*" if in_text => {
+                        tlm[5] -= font_size;
+                        tm = tlm;
+                    }
+                    "Tj" | "TJ" if in_text => {
+                        let x = tm[4];
+                        let y = tm[5];
+                        for edit in &page_edits {
+                            if let Some(rect) = edit["rect"].as_array() {
+                                if rect.len() == 4 {
+                                    let bbox = [
+                                        rect[0].as_f64().unwrap_or(0.0) as f32,
+                                        rect[1].as_f64().unwrap_or(0.0) as f32,
+                                        rect[2].as_f64().unwrap_or(0.0) as f32,
+                                        rect[3].as_f64().unwrap_or(0.0) as f32,
+                                    ];
+                                    if x >= bbox[0] - 1.0
+                                        && y >= bbox[1] - 1.0
+                                        && x <= bbox[2] + 1.0
+                                        && y <= bbox[3] + 1.0
+                                    {
+                                        if let Some(new_text) = edit["new_text"].as_str() {
+                                            op.operator = "Tj".to_string();
+                                            op.operands = vec![lopdf::Object::String(
+                                                new_text.as_bytes().to_vec(),
+                                                lopdf::StringFormat::Literal,
+                                            )];
+                                            applied_count += 1;
+                                            modified_pages.insert(page_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if modified_pages.contains(&page_id) {
+                let new_content_bytes = content
+                    .encode()
+                    .map_err(|e| EngineError::ApplyFailed(format!("Failed to encode content: {e}")))?;
+
+                doc.change_page_content(page_id, new_content_bytes)
+                    .map_err(|e| EngineError::ApplyFailed(format!("Failed to update page: {e}")))?;
+            }
+        }
+
+        doc.save(output)
+            .map_err(|e| EngineError::ApplyFailed(format!("Failed to save: {e}")))?;
+
+        Ok(applied_count)
+    }
+
+    fn clone_pages(
+        &self,
+        input: &std::path::Path,
+        output: &std::path::Path,
+        page_indices: Vec<usize>,
+    ) -> Result<usize, EngineError> {
+        let mut doc = lopdf::Document::load(input)
+            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        
+        let pages = doc.get_pages();
+        let mut cloned = 0;
+        
+        for &idx in &page_indices {
+            if let Some(&page_id) = pages.get(&(idx as u32 + 1)) {
+                if let Ok(page_dict) = doc.get_object(page_id) {
+                    let page_dict_clone = page_dict.clone();
+                    let new_page_id = doc.add_object(page_dict_clone);
+                    if doc.insert_page((doc.get_pages().len() as u32) + 1, new_page_id).is_ok() {
+                        cloned += 1;
+                    }
+                }
+            }
+        }
+        
+        doc.save(output).map_err(|e| EngineError::ApplyFailed(format!("Failed to save: {e}")))?;
+        Ok(cloned)
+    }
+
+    fn remove_pages(
+        &self,
+        input: &std::path::Path,
+        output: &std::path::Path,
+        page_indices: Vec<usize>,
+    ) -> Result<usize, EngineError> {
+        let mut doc = lopdf::Document::load(input)
+            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        
+        let mut page_nums = Vec::new();
+        for &idx in &page_indices {
+            page_nums.push(idx as u32 + 1);
+        }
+        
+        doc.delete_pages(&page_nums);
+        doc.save(output).map_err(|e| EngineError::ApplyFailed(format!("Failed to save: {e}")))?;
+        Ok(page_nums.len())
+    }
 }
 
 #[cfg(test)]
@@ -463,7 +641,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stub_capabilities() {
+    fn test_capabilities() {
         let engine = OxidizePdfEngine::new();
         let caps = engine.capabilities();
         assert!(caps.supports_redaction);
@@ -471,12 +649,7 @@ mod tests {
         assert!(!caps.supports_cjk); // Not yet
     }
 
-    #[test]
-    fn render_page_returns_unsupported() {
-        let engine = OxidizePdfEngine::new();
-        let result = engine.render_page(Path::new("test.pdf"), 0, 72.0);
-        assert!(matches!(result, Err(EngineError::Unsupported)));
-    }
+
 
     #[test]
     fn operand_to_f32_converts_correctly() {

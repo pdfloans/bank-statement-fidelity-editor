@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 /// A single edit requested by the user in global document coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +32,10 @@ pub struct LocalEdit {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GroupEditsError {
     #[error("edit references global page {global_page} which is out of range (total_pages = {total_pages})")]
-    OutOfRange { global_page: usize, total_pages: usize },
+    OutOfRange {
+        global_page: usize,
+        total_pages: usize,
+    },
 }
 
 /// Metadata for a single PDF segment (at most `max_pages_per_segment` pages).
@@ -115,10 +118,7 @@ impl SegmentMap {
     pub fn locate(&self, global_page: usize) -> Option<(PathBuf, usize)> {
         let (seg_idx, local_page) = self.resolve(global_page)?;
         let seg = &self.segments[seg_idx];
-        let path = seg
-            .edited_path
-            .clone()
-            .unwrap_or_else(|| seg.path.clone());
+        let path = seg.edited_path.clone().unwrap_or_else(|| seg.path.clone());
         Some((path, local_page))
     }
 
@@ -149,11 +149,10 @@ impl SegmentMap {
 
         for edit in edits {
             let (seg_idx, local_page) =
-                self.resolve(edit.page)
-                    .ok_or(GroupEditsError::OutOfRange {
-                        global_page: edit.page,
-                        total_pages: self.total_pages,
-                    })?;
+                self.resolve(edit.page).ok_or(GroupEditsError::OutOfRange {
+                    global_page: edit.page,
+                    total_pages: self.total_pages,
+                })?;
             groups.entry(seg_idx).or_default().push(LocalEdit {
                 local_page,
                 bbox: edit.bbox,
@@ -201,9 +200,7 @@ pub struct SegmentManager {
 
 impl SegmentManager {
     pub fn new() -> Result<Self, std::io::Error> {
-        let temp_dir = tempfile::Builder::new()
-            .prefix("bank-stmt-")
-            .tempdir()?;
+        let temp_dir = tempfile::Builder::new().prefix("bank-stmt-").tempdir()?;
         Ok(Self { temp_dir })
     }
 
@@ -226,8 +223,16 @@ impl SegmentManager {
     /// original source file is never written by `split_pdf` (it only reads
     /// `src_path` and writes into the temp `out_dir`), so it is left unmodified
     /// at its original path (Requirement 12.3).
-    pub fn prepare(&self, src_path: &Path, max_pages: usize) -> Result<SegmentMap, crate::engine::pdf_split_merge::SplitMergeError> {
-        let segments = match crate::engine::pdf_split_merge::split_pdf(src_path, self.temp_path(), max_pages) {
+    pub fn prepare(
+        &self,
+        src_path: &Path,
+        max_pages: usize,
+    ) -> Result<SegmentMap, crate::engine::pdf_split_merge::SplitMergeError> {
+        let segments = match crate::engine::pdf_split_merge::split_pdf(
+            src_path,
+            self.temp_path(),
+            max_pages,
+        ) {
             Ok(segments) => segments,
             Err(e) => {
                 // Proactively remove partial segment files and the temp dir so
@@ -305,9 +310,9 @@ impl SegmentManager {
     where
         F: FnMut(&PathBuf, &PathBuf, Vec<LocalEdit>) -> Result<(), String>,
     {
-        let grouped = map
-            .group_edits_by_segment(&edits)
-            .map_err(|e| crate::engine::pdf_split_merge::SplitMergeError::Structure(e.to_string()))?;
+        let grouped = map.group_edits_by_segment(&edits).map_err(|e| {
+            crate::engine::pdf_split_merge::SplitMergeError::Structure(e.to_string())
+        })?;
         let segments_edited = grouped.len();
         let mut final_paths = Vec::new();
 
@@ -316,8 +321,11 @@ impl SegmentManager {
 
             if !segment_edits.is_empty() {
                 let edited_path = self.temp_path().join(format!("segment_{i:03}_edited.pdf"));
-                apply_fn(&seg.path, &edited_path, segment_edits)
-                    .map_err(|e| crate::engine::pdf_split_merge::SplitMergeError::Structure(format!("Failed to apply edits to segment {i}: {e}")))?;
+                apply_fn(&seg.path, &edited_path, segment_edits).map_err(|e| {
+                    crate::engine::pdf_split_merge::SplitMergeError::Structure(format!(
+                        "Failed to apply edits to segment {i}: {e}"
+                    ))
+                })?;
                 final_paths.push(edited_path);
             } else {
                 final_paths.push(seg.path.clone());

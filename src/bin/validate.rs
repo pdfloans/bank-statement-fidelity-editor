@@ -26,7 +26,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // --- GEMINI VERIFICATION ---
     println!("\n--- Verifying Gemini API ---");
-    if cfg.gemini_api_key.is_some() || cfg.gemini_auth_mode == dual_core_pdf_pipeline::app::config::GeminiAuthMode::Vertex {
+    if cfg.gemini_api_key.is_some()
+        || cfg.gemini_auth_mode == dual_core_pdf_pipeline::app::config::GeminiAuthMode::Vertex
+    {
         match GeminiClient::from_app_config_async(&cfg).await {
             Ok(gemini) => {
                 // Ping the Gemini API with a dummy payload

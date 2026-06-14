@@ -36,27 +36,46 @@ fn test_three_page_mode_transparency() {
     let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
     // 1. Load with three_page_mode = true
-    job_tx.send(Job::LoadDocument { path: pdf.clone(), three_page_mode: true }).unwrap();
-    let res = drain_until(&job_rx, |r| matches!(r, JobResult::DocumentLoaded { .. }), Duration::from_secs(5));
+    job_tx
+        .send(Job::LoadDocument {
+            path: pdf.clone(),
+            three_page_mode: true,
+        })
+        .unwrap();
+    let res = drain_until(
+        &job_rx,
+        |r| matches!(r, JobResult::DocumentLoaded { .. }),
+        Duration::from_secs(5),
+    );
     assert!(res.is_some(), "Document failed to load in 3-page mode");
 
     // 2. Apply a change
     let output = dir.path().join("segmented_output.pdf");
-    job_tx.send(Job::ApplyChange {
-        input: pdf.clone(),
-        output: output.clone(),
-        page: 0,
-        bbox: [100.0, 100.0, 200.0, 120.0],
-        new_text: "SEGMENTED".into(),
-        old_text: "ORIGINAL".into(),
-        description: "Test segmented edit".into(),
-        deep_font_replication: false,
-    }).unwrap();
+    job_tx
+        .send(Job::ApplyChange {
+            input: pdf.clone(),
+            output: output.clone(),
+            page: 0,
+            bbox: [100.0, 100.0, 200.0, 120.0],
+            new_text: "SEGMENTED".into(),
+            old_text: "ORIGINAL".into(),
+            description: "Test segmented edit".into(),
+            deep_font_replication: false,
+        })
+        .unwrap();
 
-    let res = drain_until(&job_rx, |r| matches!(r, JobResult::ChangeApplied { .. } | JobResult::Error { .. }), Duration::from_secs(10));
+    let res = drain_until(
+        &job_rx,
+        |r| matches!(r, JobResult::ChangeApplied { .. } | JobResult::Error { .. }),
+        Duration::from_secs(10),
+    );
     match res {
-        Some(JobResult::ChangeApplied { .. }) => println!("✅ Change applied successfully in 3-page mode"),
-        Some(JobResult::Error { message, .. }) => panic!("Change failed to apply in 3-page mode: {message}"),
+        Some(JobResult::ChangeApplied { .. }) => {
+            println!("✅ Change applied successfully in 3-page mode")
+        }
+        Some(JobResult::Error { message, .. }) => {
+            panic!("Change failed to apply in 3-page mode: {message}")
+        }
         _ => panic!("Change application timed out in 3-page mode"),
     }
     assert!(output.exists(), "Output PDF not created in 3-page mode");
@@ -79,27 +98,46 @@ fn test_standard_mode_transparency() {
     let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
     // 1. Load with three_page_mode = false
-    job_tx.send(Job::LoadDocument { path: pdf.clone(), three_page_mode: false }).unwrap();
-    let res = drain_until(&job_rx, |r| matches!(r, JobResult::DocumentLoaded { .. }), Duration::from_secs(5));
+    job_tx
+        .send(Job::LoadDocument {
+            path: pdf.clone(),
+            three_page_mode: false,
+        })
+        .unwrap();
+    let res = drain_until(
+        &job_rx,
+        |r| matches!(r, JobResult::DocumentLoaded { .. }),
+        Duration::from_secs(5),
+    );
     assert!(res.is_some(), "Document failed to load in standard mode");
 
     // 2. Apply a change
     let output = dir.path().join("standard_output.pdf");
-    job_tx.send(Job::ApplyChange {
-        input: pdf.clone(),
-        output: output.clone(),
-        page: 0,
-        bbox: [100.0, 100.0, 200.0, 120.0],
-        new_text: "STANDARD".into(),
-        old_text: "ORIGINAL".into(),
-        description: "Test standard edit".into(),
-        deep_font_replication: false,
-    }).unwrap();
+    job_tx
+        .send(Job::ApplyChange {
+            input: pdf.clone(),
+            output: output.clone(),
+            page: 0,
+            bbox: [100.0, 100.0, 200.0, 120.0],
+            new_text: "STANDARD".into(),
+            old_text: "ORIGINAL".into(),
+            description: "Test standard edit".into(),
+            deep_font_replication: false,
+        })
+        .unwrap();
 
-    let res = drain_until(&job_rx, |r| matches!(r, JobResult::ChangeApplied { .. } | JobResult::Error { .. }), Duration::from_secs(10));
+    let res = drain_until(
+        &job_rx,
+        |r| matches!(r, JobResult::ChangeApplied { .. } | JobResult::Error { .. }),
+        Duration::from_secs(10),
+    );
     match res {
-        Some(JobResult::ChangeApplied { .. }) => println!("✅ Change applied successfully in standard mode"),
-        Some(JobResult::Error { message, .. }) => panic!("Change failed to apply in standard mode: {message}"),
+        Some(JobResult::ChangeApplied { .. }) => {
+            println!("✅ Change applied successfully in standard mode")
+        }
+        Some(JobResult::Error { message, .. }) => {
+            panic!("Change failed to apply in standard mode: {message}")
+        }
         _ => panic!("Change application timed out in standard mode"),
     }
     assert!(output.exists(), "Output PDF not created in standard mode");
@@ -122,38 +160,62 @@ fn test_batch_edit_transparency() {
     let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
     // 1. Load with three_page_mode = true
-    job_tx.send(Job::LoadDocument { path: pdf.clone(), three_page_mode: true }).unwrap();
-    let _ = drain_until(&job_rx, |r| matches!(r, JobResult::DocumentLoaded { .. }), Duration::from_secs(5));
+    job_tx
+        .send(Job::LoadDocument {
+            path: pdf.clone(),
+            three_page_mode: true,
+        })
+        .unwrap();
+    let _ = drain_until(
+        &job_rx,
+        |r| matches!(r, JobResult::DocumentLoaded { .. }),
+        Duration::from_secs(5),
+    );
 
     // 2. WorkflowConfirmAndRender (batch edit)
     let output = dir.path().join("batch_output.pdf");
-    let edits = vec![
-        UserEdit {
-            page: 0,
-            line_on_page: 0,
-            bbox: [100.0, 100.0, 200.0, 120.0],
-            old_text: "A".into(),
-            new_text: "B".into(),
-            field: EditField::Description,
-        }
-    ];
+    let edits = vec![UserEdit {
+        page: 0,
+        line_on_page: 0,
+        bbox: [100.0, 100.0, 200.0, 120.0],
+        old_text: "A".into(),
+        new_text: "B".into(),
+        field: EditField::Description,
+    }];
 
-    job_tx.send(Job::WorkflowConfirmAndRender {
-        input: pdf.clone(),
-        output: output.clone(),
-        edits,
-        deep_font_replication: false,
-        max_visual_attempts: 1,
-        visual_threshold: 0.1,
-    }).unwrap();
+    job_tx
+        .send(Job::WorkflowConfirmAndRender {
+            input: pdf.clone(),
+            output: output.clone(),
+            edits,
+            deep_font_replication: false,
+            max_visual_attempts: 1,
+            visual_threshold: 0.1,
+        })
+        .unwrap();
 
     // Since visual validation might fail without real rendering, we just wait for something
-    let res = drain_until(&job_rx, |r| matches!(r, JobResult::WorkflowStageChanged { .. } | JobResult::Error { .. } | JobResult::WorkflowFailed(..)), Duration::from_secs(30));
-    
+    let res = drain_until(
+        &job_rx,
+        |r| {
+            matches!(
+                r,
+                JobResult::WorkflowStageChanged { .. }
+                    | JobResult::Error { .. }
+                    | JobResult::WorkflowFailed(..)
+            )
+        },
+        Duration::from_secs(30),
+    );
+
     // We expect it to reach at least Rendering stage or fail due to visual diff (which is fine for this test)
     match res {
-        Some(JobResult::WorkflowStageChanged { stage: dual_core_pdf_pipeline::engine::workflow::WorkflowStage::Rendering { .. } }) => println!("✅ Batch reached Rendering stage"),
-        Some(JobResult::WorkflowFailed(..)) => println!("✅ Batch edit triggered (failed as expected due to missing validation environment)"),
+        Some(JobResult::WorkflowStageChanged {
+            stage: dual_core_pdf_pipeline::engine::workflow::WorkflowStage::Rendering { .. },
+        }) => println!("✅ Batch reached Rendering stage"),
+        Some(JobResult::WorkflowFailed(..)) => println!(
+            "✅ Batch edit triggered (failed as expected due to missing validation environment)"
+        ),
         Some(JobResult::Error { message, .. }) => panic!("Batch edit errored: {message}"),
         _ => {}
     }

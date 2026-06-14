@@ -4,7 +4,6 @@
 //! between a set of bank statement PDFs in every possible direction, checks
 //! fidelity, and loops until perfection or a retry ceiling is reached.
 
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -87,7 +86,10 @@ pub fn build_report(
     results: Vec<TransferTestResult>,
     total_duration_secs: f64,
 ) -> TestHarnessReport {
-    let passed = results.iter().filter(|r| r.converged && r.final_math_ok).count();
+    let passed = results
+        .iter()
+        .filter(|r| r.converged && r.final_math_ok)
+        .count();
     let failed = results.len() - passed;
     TestHarnessReport {
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -170,7 +172,10 @@ mod tests {
             std::path::Path::new("statements/fidelity_jan.pdf"),
             std::path::Path::new("statements/chase_feb.pdf"),
         );
-        let name = p.file_name().ok_or_else(|| anyhow::anyhow!("No file name"))?.to_string_lossy();
+        let name = p
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("No file name"))?
+            .to_string_lossy();
         assert!(name.contains("fidelity_jan"));
         assert!(name.contains("chase_feb"));
         assert!(name.ends_with(".pdf"));

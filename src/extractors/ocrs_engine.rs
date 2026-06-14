@@ -48,8 +48,9 @@ impl OcrsEngine {
     /// implementation instead.
     pub fn extract_text_from_image(&self, image_bytes: &[u8]) -> Result<String, ExtractorError> {
         // Load the image
-        let img = image::load_from_memory(image_bytes)
-            .map_err(|e| ExtractorError::ExtractionFailed(format!("Failed to decode image: {e}")))?;
+        let img = image::load_from_memory(image_bytes).map_err(|e| {
+            ExtractorError::ExtractionFailed(format!("Failed to decode image: {e}"))
+        })?;
 
         let gray = img.to_luma8();
 
@@ -79,12 +80,10 @@ impl OcrsEngine {
             return Err(ExtractorError::ExtractionFailed(format!(
                 "OCRS model files not found. Expected:\n  Detection: {}\n  Recognition: {}\n\
                  Download models from https://github.com/nicholaskell/ocrs-models",
-                self.config.detection_model_path,
-                self.config.recognition_model_path,
+                self.config.detection_model_path, self.config.recognition_model_path,
             )));
         }
 
-        // Stub — full integration requires rten + ocrs crates with model loading
         Err(ExtractorError::ExtractionFailed(
             "OCRS engine: model loading not yet wired (requires rten integration)".into(),
         ))
@@ -128,10 +127,7 @@ mod tests {
         // Create a minimal 1x1 white PNG
         let mut buf = Vec::new();
         let img = image::DynamicImage::new_luma8(1, 1);
-        img.write_to(
-            &mut std::io::Cursor::new(&mut buf),
-            image::ImageFormat::Png,
-        )?;
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)?;
 
         let result = engine.extract_text_from_image(&buf);
         assert!(result.is_err());

@@ -119,7 +119,10 @@ pub fn detect_format(old_text: &str) -> NumberFormat {
         (Some(d), None) => {
             let right = &stripped[d + 1..];
             // Heuristic: "1.234" looks like thousands sep; "12.34" like decimals.
-            if right.len() == 3 && digits_only.len() >= 4 && right.chars().all(|c| c.is_ascii_digit()) {
+            if right.len() == 3
+                && digits_only.len() >= 4
+                && right.chars().all(|c| c.is_ascii_digit())
+            {
                 fmt.thousand_sep = ".".into();
                 fmt.decimal_sep = ",".into();
                 fmt.decimals = 0;
@@ -130,7 +133,10 @@ pub fn detect_format(old_text: &str) -> NumberFormat {
         }
         (None, Some(c)) => {
             let right = &stripped[c + 1..];
-            if right.len() == 3 && digits_only.len() >= 4 && right.chars().all(|c| c.is_ascii_digit()) {
+            if right.len() == 3
+                && digits_only.len() >= 4
+                && right.chars().all(|c| c.is_ascii_digit())
+            {
                 fmt.thousand_sep = ",".into();
                 fmt.decimal_sep = ".".into();
                 fmt.decimals = 0;
@@ -184,8 +190,12 @@ pub fn format_decimal(value: Decimal, fmt: &NumberFormat) -> String {
             .chunks(3)
             .map(|c| c.iter().rev().collect::<String>())
             .collect();
-        
-        chunks.into_iter().rev().collect::<Vec<_>>().join(&fmt.thousand_sep)
+
+        chunks
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(&fmt.thousand_sep)
     };
 
     // Pad / trim fractional part to fmt.decimals.
@@ -260,16 +270,17 @@ pub fn detect_format_from_neighbours(neighbours: &[&str]) -> NumberFormat {
     }
     let best = counts.into_iter().max_by_key(|(_, c)| *c);
     match best {
-        Some(((currency, currency_position, thousand_sep, decimal_sep, negative_style, decimals), _)) => {
-            NumberFormat {
-                currency,
-                currency_position,
-                thousand_sep,
-                decimal_sep,
-                negative_style,
-                decimals,
-            }
-        }
+        Some((
+            (currency, currency_position, thousand_sep, decimal_sep, negative_style, decimals),
+            _,
+        )) => NumberFormat {
+            currency,
+            currency_position,
+            thousand_sep,
+            decimal_sep,
+            negative_style,
+            decimals,
+        },
         None => NumberFormat::default(),
     }
 }

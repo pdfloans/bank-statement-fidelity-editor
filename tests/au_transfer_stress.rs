@@ -102,8 +102,14 @@ fn test_all_au_transfer_pairs() {
 
     eprintln!("\n╔══════════════════════════════════════════════════════════════╗");
     eprintln!("║  AU Bank Statement Cross-Transfer Stress Test              ║");
-    eprintln!("║  Statements: {}                                            ║", pdfs.len());
-    eprintln!("║  Pairs:      {} (N×(N-1))                                  ║", pdfs.len() * (pdfs.len() - 1));
+    eprintln!(
+        "║  Statements: {}                                            ║",
+        pdfs.len()
+    );
+    eprintln!(
+        "║  Pairs:      {} (N×(N-1))                                  ║",
+        pdfs.len() * (pdfs.len() - 1)
+    );
     eprintln!("╚══════════════════════════════════════════════════════════════╝\n");
 
     for (i, p) in pdfs.iter().enumerate() {
@@ -123,9 +129,7 @@ fn test_all_au_transfer_pairs() {
             }
             pair_idx += 1;
 
-            eprintln!(
-                "\n┌─────────────────────────────────────────────────────────┐"
-            );
+            eprintln!("\n┌─────────────────────────────────────────────────────────┐");
             eprintln!(
                 "│  PAIR {}/{}: {} → {}",
                 pair_idx,
@@ -133,9 +137,7 @@ fn test_all_au_transfer_pairs() {
                 stem(source),
                 stem(target)
             );
-            eprintln!(
-                "└─────────────────────────────────────────────────────────┘"
-            );
+            eprintln!("└─────────────────────────────────────────────────────────┘");
 
             let pair_start = Instant::now();
 
@@ -196,11 +198,7 @@ fn test_all_au_transfer_pairs() {
                     PairOutcome::Failed { stage, message }
                 }
                 Some(JobResult::Error { message, .. }) => {
-                    eprintln!(
-                        "  ❌ ERROR in {:.1}s: {}",
-                        duration.as_secs_f64(),
-                        message
-                    );
+                    eprintln!("  ❌ ERROR in {:.1}s: {}", duration.as_secs_f64(), message);
                     PairOutcome::Failed {
                         stage: "Runtime".into(),
                         message,
@@ -213,7 +211,10 @@ fn test_all_au_transfer_pairs() {
                 _ => {
                     // Unexpected JobResult variant — should not happen since
                     // drain_until filters, but handle gracefully.
-                    eprintln!("  ⚠ UNEXPECTED result variant in {:.1}s", duration.as_secs_f64());
+                    eprintln!(
+                        "  ⚠ UNEXPECTED result variant in {:.1}s",
+                        duration.as_secs_f64()
+                    );
                     PairOutcome::Failed {
                         stage: "Unknown".into(),
                         message: "Unexpected JobResult variant".into(),
@@ -271,7 +272,11 @@ fn test_all_au_transfer_pairs() {
                     .iter()
                     .position(|r| r.source == *sp && r.target == pdfs[ti])
                     .unwrap();
-                let sym = if results[idx].passed() { "  ✓" } else { "  ✗" };
+                let sym = if results[idx].passed() {
+                    "  ✓"
+                } else {
+                    "  ✗"
+                };
                 eprint!("  {}", sym);
             }
         }
@@ -327,7 +332,10 @@ fn test_all_au_transfer_pairs() {
         "pairs": report_json,
     });
 
-    if let Err(e) = std::fs::write(&report_path, serde_json::to_string_pretty(&full_report).unwrap_or_default()) {
+    if let Err(e) = std::fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&full_report).unwrap_or_default(),
+    ) {
         eprintln!("Failed to write stress test report: {}", e);
     } else {
         eprintln!("Report written to: {}", report_path.display());

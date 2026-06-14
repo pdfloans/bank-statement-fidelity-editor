@@ -262,14 +262,8 @@ pub fn transactions_to_dataframe(txs: &[Transaction]) -> Result<DataFrame, DataF
     let dates: Vec<&str> = txs.iter().map(|t| t.date.as_str()).collect();
     let raw_texts: Vec<&str> = txs.iter().map(|t| t.raw_text.as_str()).collect();
 
-    let debits: Vec<Option<f64>> = txs
-        .iter()
-        .map(|t| t.debit.map(dec_to_f64))
-        .collect();
-    let credits: Vec<Option<f64>> = txs
-        .iter()
-        .map(|t| t.credit.map(dec_to_f64))
-        .collect();
+    let debits: Vec<Option<f64>> = txs.iter().map(|t| t.debit.map(dec_to_f64)).collect();
+    let credits: Vec<Option<f64>> = txs.iter().map(|t| t.credit.map(dec_to_f64)).collect();
     let balances: Vec<Option<f64>> = txs
         .iter()
         .map(|t| t.running_balance.map(dec_to_f64))
@@ -333,10 +327,7 @@ pub fn dataframe_to_transactions(df: &DataFrame) -> Result<Vec<Transaction>, Dat
             page: pages.get(i).unwrap_or(0) as usize,
             line_on_page: lines.get(i).unwrap_or(0) as usize,
             date: dates.get(i).unwrap_or("").to_string(),
-            raw_text: raw_texts
-                .and_then(|rt| rt.get(i))
-                .unwrap_or("")
-                .to_string(),
+            raw_text: raw_texts.and_then(|rt| rt.get(i)).unwrap_or("").to_string(),
             debit: debits.get(i).map(f64_to_dec),
             credit: credits.get(i).map(f64_to_dec),
             running_balance: balances.get(i).map(f64_to_dec),

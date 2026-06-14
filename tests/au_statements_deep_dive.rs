@@ -28,17 +28,19 @@ fn drain_until<F: Fn(&JobResult) -> bool>(
 fn test_all_au_statements() {
     let cfg = Arc::new(AppConfig::from_env().unwrap());
     let dir_path = Path::new("AU Bank Statements");
-    
+
     let mut passed = 0u32;
     let mut failed = 0u32;
     let mut skipped = 0u32;
     let mut total = 0u32;
-    
+
     for entry in std::fs::read_dir(dir_path).unwrap() {
         let entry = entry.unwrap();
         let pdf = entry.path();
-        if pdf.extension().unwrap_or_default() != "pdf" { continue; }
-        
+        if pdf.extension().unwrap_or_default() != "pdf" {
+            continue;
+        }
+
         total += 1;
         eprintln!("\n============================================");
         eprintln!("TESTING: {}", pdf.display());
@@ -50,19 +52,35 @@ fn test_all_au_statements() {
         let output = dir.path().join("edited.pdf");
 
         job_tx
-            .send(Job::LoadDocument { path: pdf.clone(), three_page_mode: true })
+            .send(Job::LoadDocument {
+                path: pdf.clone(),
+                three_page_mode: true,
+            })
             .unwrap();
 
         let load_res = drain_until(
             &job_rx,
-            |r| matches!(r, JobResult::DocumentLoaded { .. } | JobResult::Error { .. }),
+            |r| {
+                matches!(
+                    r,
+                    JobResult::DocumentLoaded { .. } | JobResult::Error { .. }
+                )
+            },
             Duration::from_secs(60),
         );
 
         match load_res {
-            Some(JobResult::DocumentLoaded { .. }) => {},
-            Some(JobResult::Error { message, .. }) => { eprintln!("Load error: {}", message); skipped += 1; continue; },
-            _ => { eprintln!("Load timeout"); skipped += 1; continue; }
+            Some(JobResult::DocumentLoaded { .. }) => {}
+            Some(JobResult::Error { message, .. }) => {
+                eprintln!("Load error: {}", message);
+                skipped += 1;
+                continue;
+            }
+            _ => {
+                eprintln!("Load timeout");
+                skipped += 1;
+                continue;
+            }
         }
 
         // Use default v5.0 parser
@@ -72,34 +90,56 @@ fn test_all_au_statements() {
                 version: Some("pretrained-bankstatement-v5.0-2023-12-06".to_string()),
             })
             .unwrap();
-            
+
         // Increased parse timeout to 300s for complex multi-page statements
         let parse = drain_until(
             &job_rx,
-            |r| matches!(r, JobResult::WorkflowParseValidated { .. } | JobResult::WorkflowFailed(_) | JobResult::Error { .. }),
+            |r| {
+                matches!(
+                    r,
+                    JobResult::WorkflowParseValidated { .. }
+                        | JobResult::WorkflowFailed(_)
+                        | JobResult::Error { .. }
+                )
+            },
             Duration::from_secs(300),
         );
-        
+
         let (validation, transactions) = match parse {
-            Some(JobResult::WorkflowParseValidated { validation, transactions }) => (validation, transactions),
-            Some(JobResult::WorkflowFailed(e)) => { eprintln!("Parse failed: {:?}", e); failed += 1; continue; },
-            Some(JobResult::Error { message, .. }) => { eprintln!("Parse error: {}", message); failed += 1; continue; },
-            _ => { eprintln!("Parse timeout (300s)"); failed += 1; continue; }
+            Some(JobResult::WorkflowParseValidated {
+                validation,
+                transactions,
+            }) => (validation, transactions),
+            Some(JobResult::WorkflowFailed(e)) => {
+                eprintln!("Parse failed: {:?}", e);
+                failed += 1;
+                continue;
+            }
+            Some(JobResult::Error { message, .. }) => {
+                eprintln!("Parse error: {}", message);
+                failed += 1;
+                continue;
+            }
+            _ => {
+                eprintln!("Parse timeout (300s)");
+                failed += 1;
+                continue;
+            }
         };
-        
+
         eprintln!(
             "  Parsed: {} transactions, opening={}, closing={}",
             transactions.len(),
             validation.opening_balance,
             validation.closing_balance
         );
-        
+
         if transactions.is_empty() {
             eprintln!("No transactions found.");
             skipped += 1;
             continue;
         }
-        
+
         // Pick a transaction with a non-zero debit to mutate.
         let target_idx = transactions
             .iter()
@@ -109,13 +149,13 @@ fn test_all_au_statements() {
                     .iter()
                     .position(|t| t.credit.is_some() && t.bbox.is_some())
             });
-            
+
         if target_idx.is_none() {
             eprintln!("No editable transaction with bbox found.");
             skipped += 1;
             continue;
         }
-        
+
         let target = &transactions[target_idx.unwrap()];
         let (field, old_value) = if let Some(d) = target.debit {
             (EditField::Debit, d)
@@ -131,7 +171,7 @@ fn test_all_au_statements() {
             new_text: format!("{:.2}", new_value),
             field,
         };
-        
+
         eprintln!(
             "  Edit: line {} on page {}, {:?} {:.2} -> {:.2}",
             target.line_on_page, target.page, field, old_value, new_value
@@ -142,25 +182,45 @@ fn test_all_au_statements() {
                 original_transactions: transactions.clone(),
                 edits: vec![edit.clone()],
                 opening_balance: validation.opening_balance,
-                expected_closing: if validation.closing_balance.abs() > rust_decimal::Decimal::ZERO {
+                expected_closing: if validation.closing_balance.abs() > rust_decimal::Decimal::ZERO
+                {
                     Some(validation.closing_balance)
                 } else {
                     None
                 },
             })
             .unwrap();
-            
+
         let preview = drain_until(
             &job_rx,
-            |r| matches!(r, JobResult::WorkflowPreviewBuilt(_) | JobResult::WorkflowFailed(_) | JobResult::Error { .. }),
+            |r| {
+                matches!(
+                    r,
+                    JobResult::WorkflowPreviewBuilt(_)
+                        | JobResult::WorkflowFailed(_)
+                        | JobResult::Error { .. }
+                )
+            },
             Duration::from_secs(60),
         );
-        
+
         match preview {
-            Some(JobResult::WorkflowPreviewBuilt(_p)) => {},
-            Some(JobResult::WorkflowFailed(f)) => { eprintln!("Preview failed: {f:?}"); failed += 1; continue; },
-            Some(JobResult::Error { message, .. }) => { eprintln!("Preview error: {message}"); failed += 1; continue; },
-            _ => { eprintln!("Preview timed out"); failed += 1; continue; },
+            Some(JobResult::WorkflowPreviewBuilt(_p)) => {}
+            Some(JobResult::WorkflowFailed(f)) => {
+                eprintln!("Preview failed: {f:?}");
+                failed += 1;
+                continue;
+            }
+            Some(JobResult::Error { message, .. }) => {
+                eprintln!("Preview error: {message}");
+                failed += 1;
+                continue;
+            }
+            _ => {
+                eprintln!("Preview timed out");
+                failed += 1;
+                continue;
+            }
         };
 
         job_tx
@@ -169,8 +229,8 @@ fn test_all_au_statements() {
                 output: output.clone(),
                 edits: vec![edit],
                 deep_font_replication: false,
-                max_visual_attempts: 5,     // Increased from 3
-                visual_threshold: 0.05,      // Relaxed from 0.02 for robustness
+                max_visual_attempts: 5, // Increased from 3
+                visual_threshold: 0.05, // Relaxed from 0.02 for robustness
             })
             .unwrap();
 
@@ -178,7 +238,8 @@ fn test_all_au_statements() {
         let mut failure_message: Option<String> = None;
         // Increased render timeout to 600s for complex multi-page statements
         let deadline = std::time::Instant::now() + Duration::from_secs(600);
-        while std::time::Instant::now() < deadline && outcome.is_none() && failure_message.is_none() {
+        while std::time::Instant::now() < deadline && outcome.is_none() && failure_message.is_none()
+        {
             if let Ok(res) = job_rx.recv_timeout(Duration::from_millis(500)) {
                 match res {
                     JobResult::WorkflowComplete(o) => outcome = Some(o),
@@ -193,38 +254,42 @@ fn test_all_au_statements() {
             eprintln!("FAILED: {}", msg);
             failed += 1;
         } else if let Some(o) = outcome {
-            eprintln!("SUCCESS! Visual attempts: {}, final imbalance: {}", o.visual_attempts, o.final_imbalance);
-            
+            eprintln!(
+                "SUCCESS! Visual attempts: {}, final imbalance: {}",
+                o.visual_attempts, o.final_imbalance
+            );
+
             // Explicit Fidelity Assertions
             let input_bytes = std::fs::read(&pdf).unwrap();
             let output_bytes = std::fs::read(&output).unwrap();
-            
+
             let input_doc = lopdf::Document::load(&pdf).unwrap();
             let output_doc = lopdf::Document::load(&output).unwrap();
-            
+
             assert_eq!(
-                input_doc.get_pages().len(), 
-                output_doc.get_pages().len(), 
+                input_doc.get_pages().len(),
+                output_doc.get_pages().len(),
                 "Page counts must match precisely"
             );
-            
+
             let ratio = output_bytes.len() as f64 / input_bytes.len() as f64;
             assert!(
-                ratio > 0.6 && ratio < 1.4, 
-                "AST serialization should maintain roughly the same byte footprint (ratio: {})", ratio
+                ratio > 0.6 && ratio < 1.4,
+                "AST serialization should maintain roughly the same byte footprint (ratio: {})",
+                ratio
             );
-            
+
             passed += 1;
         } else {
             eprintln!("TIMEOUT (600s)");
             failed += 1;
         }
     }
-    
+
     eprintln!("\n============================");
     eprintln!("SUMMARY: {passed} passed, {failed} failed, {skipped} skipped out of {total} total");
     eprintln!("============================");
-    
+
     // Don't assert — let all statements run even if some fail.
     // The eprintln output gives us the full picture.
 }
