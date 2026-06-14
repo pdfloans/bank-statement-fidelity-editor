@@ -111,7 +111,7 @@ fn four_page_doc_spans_two_segments_with_edge_boundary() {
     assert_eq!(map.resolve(0), Some((0, 0))); // first page
     assert_eq!(map.resolve(2), Some((0, 2))); // last page of seg 0
     assert_eq!(map.resolve(3), Some((1, 0))); // first page of seg 1 == last page (total-1)
-    // Round-trip the boundary both directions.
+                                              // Round-trip the boundary both directions.
     assert_eq!(map.to_global(0, 2), Some(2));
     assert_eq!(map.to_global(1, 0), Some(3));
 }

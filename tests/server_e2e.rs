@@ -8,7 +8,7 @@ use std::time::Duration;
 fn test_headless_server_e2e() {
     // We set a custom port to avoid clashing with anything else running
     std::env::set_var("PORT", "8181");
-    
+
     let cfg = Arc::new(dual_core_pdf_pipeline::app::config::AppConfig::default());
     let (job_tx, job_rx) = mpsc::channel::<Job>();
     let (res_tx, res_rx) = mpsc::channel::<JobResult>();
@@ -32,12 +32,14 @@ fn test_headless_server_e2e() {
     thread::sleep(Duration::from_millis(500));
 
     // Test 1: Liveness probe
-    let health_resp = reqwest::blocking::get("http://localhost:8181/health").expect("Failed to fetch /health");
+    let health_resp =
+        reqwest::blocking::get("http://localhost:8181/health").expect("Failed to fetch /health");
     assert_eq!(health_resp.status(), 200);
     assert_eq!(health_resp.text().unwrap(), r#"{"status":"ok"}"#);
 
     // Test 2: Readiness probe
-    let ready_resp = reqwest::blocking::get("http://localhost:8181/readyz").expect("Failed to fetch /readyz");
+    let ready_resp =
+        reqwest::blocking::get("http://localhost:8181/readyz").expect("Failed to fetch /readyz");
     assert_eq!(ready_resp.status(), 200);
     assert_eq!(ready_resp.text().unwrap(), r#"{"status":"ready"}"#);
 

@@ -33,8 +33,6 @@ pub enum Theme {
     Solarized,
 }
 
-
-
 struct Palette {
     bg: egui::Color32,
     panel: egui::Color32,
@@ -94,9 +92,9 @@ impl Theme {
                 weak: egui::Color32::from_rgb(150, 150, 160),
                 accent: egui::Color32::from_rgb(99, 102, 241), // Indigo 500
                 success: egui::Color32::from_rgb(34, 197, 94), // Green 500
-                warn: egui::Color32::from_rgb(245, 158, 11), // Amber 500
-                error: egui::Color32::from_rgb(239, 68, 68), // Red 500
-                info: egui::Color32::from_rgb(56, 189, 248), // Sky 400
+                warn: egui::Color32::from_rgb(245, 158, 11),   // Amber 500
+                error: egui::Color32::from_rgb(239, 68, 68),   // Red 500
+                info: egui::Color32::from_rgb(56, 189, 248),   // Sky 400
             },
             Theme::Solarized => Palette {
                 bg: egui::Color32::from_rgb(253, 246, 227),
@@ -125,7 +123,7 @@ impl Theme {
 
     fn apply(self, ctx: &egui::Context) {
         let p = self.palette();
-        
+
         let resolved = if self == Theme::System {
             if dark_light::detect().unwrap_or(dark_light::Mode::Dark) == dark_light::Mode::Light {
                 Theme::Light
@@ -174,7 +172,7 @@ impl Theme {
         style.spacing.button_padding = egui::vec2(16.0, 8.0);
         style.spacing.window_margin = egui::Margin::same(16.0);
         style.spacing.menu_margin = egui::Margin::same(8.0);
-        
+
         // Modern typography sizing
         style.text_styles.insert(
             egui::TextStyle::Heading,
@@ -417,10 +415,8 @@ pub struct MyApp {
     workflow_input_hash: Option<(String, String)>,
     /// Per-cell text buffers for the inline edit table. Keyed by
     /// (page, line_on_page, field). Stage 5 / Item #6.
-    workflow_cell_buffers: std::collections::HashMap<
-        (usize, usize, crate::engine::workflow::EditField),
-        String,
-    >,
+    workflow_cell_buffers:
+        std::collections::HashMap<(usize, usize, crate::engine::workflow::EditField), String>,
 
     // Config (read-only)
     config: std::sync::Arc<crate::app::config::AppConfig>,
@@ -553,10 +549,15 @@ impl MyApp {
             edit_docai_project_id: std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default(),
             edit_docai_location: {
                 let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
-                if l.is_empty() { "us".to_string() } else { l }
+                if l.is_empty() {
+                    "us".to_string()
+                } else {
+                    l
+                }
             },
             edit_docai_processor_id: std::env::var("DOCUMENT_AI_PROCESSOR_ID").unwrap_or_default(),
-            edit_docai_service_account: std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default(),
+            edit_docai_service_account: std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
+                .unwrap_or_default(),
             edit_docai_api_key: std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default(),
             edit_pymupdf_pro_key: std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default(),
             edit_gemini_use_vertex: matches!(
@@ -592,16 +593,41 @@ impl MyApp {
     fn save_credentials(&mut self) {
         // (env var name, value) pairs to upsert.
         let pairs: Vec<(&str, String)> = vec![
-            ("GEMINI_API_KEY", self.edit_gemini_api_key.trim().to_string()),
-            ("DOCUMENT_AI_PROJECT_ID", self.edit_docai_project_id.trim().to_string()),
-            ("DOCUMENT_AI_LOCATION", self.edit_docai_location.trim().to_string()),
-            ("DOCUMENT_AI_PROCESSOR_ID", self.edit_docai_processor_id.trim().to_string()),
-            ("GOOGLE_APPLICATION_CREDENTIALS", self.edit_docai_service_account.trim().to_string()),
-            ("DOCUMENT_AI_API_KEY", self.edit_docai_api_key.trim().to_string()),
-            ("PYMUPDF_PRO_KEY", self.edit_pymupdf_pro_key.trim().to_string()),
+            (
+                "GEMINI_API_KEY",
+                self.edit_gemini_api_key.trim().to_string(),
+            ),
+            (
+                "DOCUMENT_AI_PROJECT_ID",
+                self.edit_docai_project_id.trim().to_string(),
+            ),
+            (
+                "DOCUMENT_AI_LOCATION",
+                self.edit_docai_location.trim().to_string(),
+            ),
+            (
+                "DOCUMENT_AI_PROCESSOR_ID",
+                self.edit_docai_processor_id.trim().to_string(),
+            ),
+            (
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                self.edit_docai_service_account.trim().to_string(),
+            ),
+            (
+                "DOCUMENT_AI_API_KEY",
+                self.edit_docai_api_key.trim().to_string(),
+            ),
+            (
+                "PYMUPDF_PRO_KEY",
+                self.edit_pymupdf_pro_key.trim().to_string(),
+            ),
             (
                 "GEMINI_AUTH_MODE",
-                if self.edit_gemini_use_vertex { "vertex".to_string() } else { "api_key".to_string() },
+                if self.edit_gemini_use_vertex {
+                    "vertex".to_string()
+                } else {
+                    "api_key".to_string()
+                },
             ),
         ];
 
@@ -641,7 +667,13 @@ impl MyApp {
     }
 
     #[allow(dead_code)]
-    fn toast_with_action(&mut self, kind: ToastKind, msg: impl Into<String>, label: impl Into<String>, id: impl Into<String>) {
+    fn toast_with_action(
+        &mut self,
+        kind: ToastKind,
+        msg: impl Into<String>,
+        label: impl Into<String>,
+        id: impl Into<String>,
+    ) {
         self.toasts.push_back(Toast {
             kind,
             text: msg.into(),
@@ -689,7 +721,8 @@ impl MyApp {
         self.in_flight += 1;
     }
 
-    fn update_recent_files(&mut self, path: String) {        self.settings.recent_files.retain(|f| f != &path);
+    fn update_recent_files(&mut self, path: String) {
+        self.settings.recent_files.retain(|f| f != &path);
         self.settings.recent_files.insert(0, path);
         if self.settings.recent_files.len() > 10 {
             self.settings.recent_files.pop();
@@ -797,7 +830,8 @@ impl eframe::App for MyApp {
                 .show(ctx, |ui| {
                     let rect = ctx.screen_rect();
                     ui.allocate_rect(rect, egui::Sense::click());
-                    ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(150));
+                    ui.painter()
+                        .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(150));
                 });
 
             egui::Window::new("Working…")
@@ -808,7 +842,7 @@ impl eframe::App for MyApp {
                     ui.label(&p.label);
                     let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
                     let mut text = format!("{pct}%");
-                    
+
                     if p.fraction > 0.0 {
                         let elapsed = p.started_at.elapsed().as_secs_f32();
                         let eta = (elapsed / p.fraction) * (1.0 - p.fraction);
@@ -816,7 +850,7 @@ impl eframe::App for MyApp {
                             text = format!("{pct}% (ETA: {eta:.0}s)");
                         }
                     }
-                    
+
                     ui.add(
                         egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
                             .desired_width(300.0)
@@ -829,15 +863,12 @@ impl eframe::App for MyApp {
         //   Ctrl+1 → Parse + AI validate
         //   Ctrl+2 → Balance Out Preview
         //   Ctrl+3 → Confirm and Render
-        let want_parse = ctx.input(|i| {
-            i.modifiers.command_only() && i.key_pressed(egui::Key::Num1)
-        });
-        let want_preview = ctx.input(|i| {
-            i.modifiers.command_only() && i.key_pressed(egui::Key::Num2)
-        });
-        let want_confirm = ctx.input(|i| {
-            i.modifiers.command_only() && i.key_pressed(egui::Key::Num3)
-        });
+        let want_parse =
+            ctx.input(|i| i.modifiers.command_only() && i.key_pressed(egui::Key::Num1));
+        let want_preview =
+            ctx.input(|i| i.modifiers.command_only() && i.key_pressed(egui::Key::Num2));
+        let want_confirm =
+            ctx.input(|i| i.modifiers.command_only() && i.key_pressed(egui::Key::Num3));
         if want_parse && !self.input_path.is_empty() {
             let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
                 input: PathBuf::from(&self.input_path),
@@ -887,15 +918,15 @@ impl eframe::App for MyApp {
 
         // Stage 13 / Item #15: Ctrl+Shift+Z removes the last queued edit
         // (regular Ctrl+Z is reserved by egui::TextEdit for buffer undo).
-        let want_undo_last_edit = ctx.input(|i| {
-            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z)
-        });
+        let want_undo_last_edit =
+            ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z));
         if want_undo_last_edit && !self.workflow_edits.is_empty() {
             let removed = self.workflow_edits.pop();
             if let Some(e) = removed {
                 // Drop the matching cell-buffer entry so the table shows
                 // the original value next frame.
-                self.workflow_cell_buffers.remove(&(e.page, e.line_on_page, e.field));
+                self.workflow_cell_buffers
+                    .remove(&(e.page, e.line_on_page, e.field));
                 self.workflow_dirty = true;
                 self.toast(
                     ToastKind::Info,
@@ -993,12 +1024,23 @@ impl eframe::App for MyApp {
                             if let Ok(entries) = std::fs::read_dir(path) {
                                 for entry in entries.filter_map(|e| e.ok()) {
                                     let p = entry.path();
-                                    if p.is_file() && p.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()) == Some("pdf".to_string()) {
+                                    if p.is_file()
+                                        && p.extension()
+                                            .and_then(|s| s.to_str())
+                                            .map(|s| s.to_lowercase())
+                                            == Some("pdf".to_string())
+                                    {
                                         self.batch_files.push(p);
                                     }
                                 }
                             }
-                        } else if path.is_file() && path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()) == Some("pdf".to_string()) {
+                        } else if path.is_file()
+                            && path
+                                .extension()
+                                .and_then(|s| s.to_str())
+                                .map(|s| s.to_lowercase())
+                                == Some("pdf".to_string())
+                        {
                             self.current_view = AppView::SingleDocument;
                             self.open_pdf(path.clone());
                         }
@@ -1086,7 +1128,10 @@ impl eframe::App for MyApp {
 impl MyApp {
     fn handle_job_result(&mut self, ctx: &egui::Context, res: JobResult) {
         match res {
-            JobResult::ValidationStatus { gemini_ok, docai_ok } => {
+            JobResult::ValidationStatus {
+                gemini_ok,
+                docai_ok,
+            } => {
                 self.credential_validation_status = Some((gemini_ok, docai_ok));
             }
             JobResult::DocumentLoaded { total_pages, .. } => {
@@ -1164,7 +1209,8 @@ impl MyApp {
                 self.request_render("before");
                 self.request_render("after");
             }
-            JobResult::BalanceProposed { imbalance, changes } => {                self.last_imbalance = Some(imbalance);
+            JobResult::BalanceProposed { imbalance, changes } => {
+                self.last_imbalance = Some(imbalance);
                 self.proposed_changes = changes.into_iter().map(|c| (c, true)).collect();
                 if self.proposed_changes.is_empty() {
                     self.status = "Statement is already perfectly balanced.".into();
@@ -1206,8 +1252,11 @@ impl MyApp {
                 gemini_configured,
                 pro_editing_available,
             } => {
-                self.config_status =
-                    Some((document_ai_configured, gemini_configured, pro_editing_available));
+                self.config_status = Some((
+                    document_ai_configured,
+                    gemini_configured,
+                    pro_editing_available,
+                ));
                 let mut parts = Vec::new();
                 parts.push(format!(
                     "Document AI {}",
@@ -1281,16 +1330,16 @@ impl MyApp {
                 self.progress = None;
                 self.status = format!("❌ [{job_label}] {message}");
                 self.toast(ToastKind::Error, format!("[{job_label}] {message}"));
-                
+
                 // Autofix interception
                 if let Some(err) = crate::app::error::AppError::parse_msg(&message) {
                     if err.suggested_action().is_some() {
                         self.pending_autofix = Some(err);
                     }
                 }
-                
+
                 tracing::error!("[gui] runtime error in '{}': {}", job_label, message);
-                
+
                 // Write comprehensive error sink
                 let dir = std::path::PathBuf::from("audit/error_reports");
                 let _ = std::fs::create_dir_all(&dir);
@@ -1302,7 +1351,10 @@ impl MyApp {
                     "message": message,
                     "input_path": self.input_path,
                 });
-                let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
+                let _ = std::fs::write(
+                    dir.join(filename),
+                    serde_json::to_string_pretty(&report).unwrap_or_default(),
+                );
             }
             JobResult::Pong => {
                 self.toast(ToastKind::Info, "pong");
@@ -1319,7 +1371,11 @@ impl MyApp {
             }
             JobResult::FontCascadeUsed(report) => {
                 let summary = report.one_line_summary();
-                let kind = if report.success { ToastKind::Success } else { ToastKind::Warn };
+                let kind = if report.success {
+                    ToastKind::Success
+                } else {
+                    ToastKind::Warn
+                };
                 self.toast(kind, summary);
                 self.font_cascade_reports.push(report);
             }
@@ -1433,7 +1489,7 @@ impl MyApp {
                     }
                     crate::engine::workflow::WorkflowFailure::Other(s) => s.clone(),
                 };
-                
+
                 // Autofix interception
                 if let Some(err) = crate::app::error::AppError::parse_msg(&msg) {
                     if err.suggested_action().is_some() {
@@ -1443,7 +1499,7 @@ impl MyApp {
 
                 self.toast(ToastKind::Error, &msg);
                 self.workflow_stage = crate::engine::workflow::WorkflowStage::Failed(failure);
-                
+
                 let dir = std::path::PathBuf::from("audit/error_reports");
                 let _ = std::fs::create_dir_all(&dir);
                 let filename = format!("report_{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S"));
@@ -1453,7 +1509,10 @@ impl MyApp {
                     "message": msg,
                     "input_path": self.input_path,
                 });
-                let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
+                let _ = std::fs::write(
+                    dir.join(filename),
+                    serde_json::to_string_pretty(&report).unwrap_or_default(),
+                );
             }
             JobResult::JobCompleted(_label) => {
                 self.progress = None;
@@ -1505,7 +1564,10 @@ impl MyApp {
                 // Write error report
                 let dir = std::path::PathBuf::from("audit/error_reports");
                 let _ = std::fs::create_dir_all(&dir);
-                let filename = format!("transfer_{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S"));
+                let filename = format!(
+                    "transfer_{}.json",
+                    chrono::Utc::now().format("%Y%m%d%H%M%S")
+                );
                 let report = serde_json::json!({
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                     "kind": "TransferFailed",
@@ -1513,11 +1575,21 @@ impl MyApp {
                     "message": message,
                     "input_path": self.input_path,
                 });
-                let _ = std::fs::write(dir.join(filename), serde_json::to_string_pretty(&report).unwrap_or_default());
+                let _ = std::fs::write(
+                    dir.join(filename),
+                    serde_json::to_string_pretty(&report).unwrap_or_default(),
+                );
             }
-            JobResult::DatesAdjusted { records, output_path } => {
+            JobResult::DatesAdjusted {
+                records,
+                output_path,
+            } => {
                 self.progress = None;
-                let msg = format!("📅 Adjusted {} dates → {}", records.len(), output_path.display());
+                let msg = format!(
+                    "📅 Adjusted {} dates → {}",
+                    records.len(),
+                    output_path.display()
+                );
                 self.status = msg.clone();
                 self.toast(ToastKind::Success, &msg);
                 // Auto-load the output
@@ -1544,9 +1616,15 @@ impl MyApp {
             JobResult::DocAiVersionsListed(versions) => {
                 self.docai_versions = versions;
                 self.docai_versions_loading = false;
-                self.toast(ToastKind::Info, format!("Found {} processor versions", self.docai_versions.len()));
+                self.toast(
+                    ToastKind::Info,
+                    format!("Found {} processor versions", self.docai_versions.len()),
+                );
             }
-            JobResult::DocAiVersionOperationStarted { operation_name, description } => {
+            JobResult::DocAiVersionOperationStarted {
+                operation_name,
+                description,
+            } => {
                 self.docai_training_status = Some(description.clone());
                 self.docai_active_operation = Some(operation_name);
                 self.toast(ToastKind::Info, &description);
@@ -1578,8 +1656,11 @@ impl MyApp {
                             .pick_file()
                         {
                             match dotenvy::from_path(&path) {
-                                Ok(_) => self.toast(ToastKind::Success, "Loaded .env file successfully"),
-                                Err(e) => self.toast(ToastKind::Error, format!("Failed to load .env: {e}")),
+                                Ok(_) => {
+                                    self.toast(ToastKind::Success, "Loaded .env file successfully")
+                                }
+                                Err(e) => self
+                                    .toast(ToastKind::Error, format!("Failed to load .env: {e}")),
                             }
                         }
                         ui.close_menu();
@@ -1602,7 +1683,9 @@ impl MyApp {
                     }
                     if ui
                         .button("📋 Resume workflow draft")
-                        .on_hover_text("Reload audit/workflow.json — restores parse, queued edits and stage")
+                        .on_hover_text(
+                            "Reload audit/workflow.json — restores parse, queued edits and stage",
+                        )
                         .clicked()
                     {
                         self.resume_workflow_draft();
@@ -1665,9 +1748,21 @@ impl MyApp {
                 ui.heading("Bank Statement Fidelity Editor");
                 ui.separator();
 
-                ui.selectable_value(&mut self.current_view, AppView::SingleDocument, "Single Statement");
-                ui.selectable_value(&mut self.current_view, AppView::BatchProcessing, "Batch Processing");
-                ui.selectable_value(&mut self.current_view, AppView::AuditExplorer, "Audit Explorer");
+                ui.selectable_value(
+                    &mut self.current_view,
+                    AppView::SingleDocument,
+                    "Single Statement",
+                );
+                ui.selectable_value(
+                    &mut self.current_view,
+                    AppView::BatchProcessing,
+                    "Batch Processing",
+                );
+                ui.selectable_value(
+                    &mut self.current_view,
+                    AppView::AuditExplorer,
+                    "Audit Explorer",
+                );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("⚙️ Settings & Tools").clicked() {
@@ -1676,18 +1771,18 @@ impl MyApp {
                     if self.settings.advanced_mode && ui.button("🌐 Remote Engine").clicked() {
                         // Stub for remote engine connect
                         if self.settings.remote_engine_url.is_empty() {
-                            self.settings.remote_engine_url = "https://engine.example.com".to_string();
+                            self.settings.remote_engine_url =
+                                "https://engine.example.com".to_string();
                             self.toast(ToastKind::Info, "Configured remote engine (stub)");
                         } else {
                             self.settings.remote_engine_url.clear();
                             self.toast(ToastKind::Info, "Disconnected from remote engine");
                         }
                     }
-                    
+
                     if let Some(p) = &self.progress {
                         ui.add(
-                            egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
-                                .desired_width(220.0),
+                            egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0)).desired_width(220.0),
                         );
                     } else if self.in_flight > 0 {
                         ui.spinner();
@@ -1726,7 +1821,10 @@ impl MyApp {
                 if self.settings.remote_engine_url.is_empty() {
                     ui.colored_label(egui::Color32::LIGHT_GREEN, "🟢 Local");
                 } else {
-                    ui.colored_label(egui::Color32::LIGHT_BLUE, format!("🔵 Remote ({})", self.settings.remote_engine_url));
+                    ui.colored_label(
+                        egui::Color32::LIGHT_BLUE,
+                        format!("🔵 Remote ({})", self.settings.remote_engine_url),
+                    );
                 }
                 ui.separator();
                 ui.small(&self.status);
@@ -1760,32 +1858,54 @@ impl MyApp {
                         self.current_page -= 1;
                         self.request_render("current");
                     }
-                    ui.label(format!("{} / {}", self.current_page + 1, self.total_pages.max(1)));
+                    ui.label(format!(
+                        "{} / {}",
+                        self.current_page + 1,
+                        self.total_pages.max(1)
+                    ));
                     if ui.button("▶").clicked() && self.current_page + 1 < self.total_pages {
                         self.current_page += 1;
                         self.request_render("current");
                     }
                 });
 
-                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                    for i in 0..self.total_pages {
-                        let selected = i == self.current_page;
-                        if ui.selectable_label(selected, format!("Page {}", i + 1)).clicked() {
-                            self.current_page = i;
-                            self.request_render("current");
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for i in 0..self.total_pages {
+                            let selected = i == self.current_page;
+                            if ui
+                                .selectable_label(selected, format!("Page {}", i + 1))
+                                .clicked()
+                            {
+                                self.current_page = i;
+                                self.request_render("current");
+                            }
                         }
-                    }
-                });
+                    });
 
                 ui.separator();
                 ui.heading("Targeted Edit");
                 if let Some(block) = self.selected_block.clone() {
-                    ui.small(format!("Font: {}", if block.font.is_empty() { "(unknown)" } else { &block.font }));
+                    ui.small(format!(
+                        "Font: {}",
+                        if block.font.is_empty() {
+                            "(unknown)"
+                        } else {
+                            &block.font
+                        }
+                    ));
                     ui.small(format!("Size: {:.1}", block.size));
-                    ui.add_enabled(false, egui::TextEdit::multiline(&mut block.text.clone()).desired_rows(2));
+                    ui.add_enabled(
+                        false,
+                        egui::TextEdit::multiline(&mut block.text.clone()).desired_rows(2),
+                    );
                     ui.text_edit_multiline(&mut self.new_text);
                     if self.settings.advanced_mode {
-                        ui.checkbox(&mut self.settings.deep_font_replication, "Deep Font Replication (AI)");
+                        ui.checkbox(
+                            &mut self.settings.deep_font_replication,
+                            "Deep Font Replication (AI)",
+                        );
                     }
                 } else {
                     ui.weak("Click any text on the canvas to edit.");
@@ -2073,22 +2193,21 @@ impl MyApp {
 
                 let source_ok = !self.transfer_source_path.is_empty()
                     && std::path::Path::new(&self.transfer_source_path).exists();
-                let target_ok = !self.input_path.is_empty()
-                    && std::path::Path::new(&self.input_path).exists();
+                let target_ok =
+                    !self.input_path.is_empty() && std::path::Path::new(&self.input_path).exists();
 
                 ui.horizontal(|ui| {
                     let can_start = source_ok && target_ok;
 
                     let btn = ui.add_enabled(
                         can_start,
-                        egui::Button::new(
-                            egui::RichText::new("▶ Begin Transfer")
-                                .color(if can_start {
-                                    self.settings.theme.palette().bg
-                                } else {
-                                    self.settings.theme.palette().text
-                                }),
-                        )
+                        egui::Button::new(egui::RichText::new("▶ Begin Transfer").color(
+                            if can_start {
+                                self.settings.theme.palette().bg
+                            } else {
+                                self.settings.theme.palette().text
+                            },
+                        ))
                         .fill(if can_start {
                             self.settings.theme.palette().accent
                         } else {
@@ -2115,7 +2234,10 @@ impl MyApp {
                         });
                         self.in_flight += 1;
                         self.status = "Starting transaction transfer…".into();
-                        self.toast(ToastKind::Info, "Transaction transfer started — this may take 2–3 minutes.");
+                        self.toast(
+                            ToastKind::Info,
+                            "Transaction transfer started — this may take 2–3 minutes.",
+                        );
                         self.show_transfer_dialog = false;
                     }
 
@@ -2201,8 +2323,14 @@ impl MyApp {
                 let has_input = !self.input_path.is_empty();
 
                 ui.horizontal(|ui| {
-                    let btn = ui.add_enabled(has_input, egui::Button::new("▶ Apply Date Adjustment")
-                        .fill(if has_input { self.settings.theme.palette().accent } else { self.settings.theme.palette().panel }));
+                    let btn = ui.add_enabled(
+                        has_input,
+                        egui::Button::new("▶ Apply Date Adjustment").fill(if has_input {
+                            self.settings.theme.palette().accent
+                        } else {
+                            self.settings.theme.palette().panel
+                        }),
+                    );
 
                     if btn.clicked() {
                         let input = std::path::PathBuf::from(&self.input_path);
@@ -2213,18 +2341,26 @@ impl MyApp {
                             crate::engine::date_adjust::DateAdjustMode::ShiftDays(days)
                         } else {
                             let from = chrono::NaiveDate::parse_from_str(
-                                self.date_adjust_from.trim(), "%d/%m/%Y"
-                            ).unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
+                                self.date_adjust_from.trim(),
+                                "%d/%m/%Y",
+                            )
+                            .unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
                             let to = chrono::NaiveDate::parse_from_str(
-                                self.date_adjust_to.trim(), "%d/%m/%Y"
-                            ).unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 2, 1).unwrap());
+                                self.date_adjust_to.trim(),
+                                "%d/%m/%Y",
+                            )
+                            .unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 2, 1).unwrap());
                             crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
                                 from_start: from,
                                 to_start: to,
                             }
                         };
 
-                        let _ = self.job_tx.send(Job::AdjustDatePeriods { input, output, mode });
+                        let _ = self.job_tx.send(Job::AdjustDatePeriods {
+                            input,
+                            output,
+                            mode,
+                        });
                         self.in_flight += 1;
                         self.status = "Adjusting dates…".into();
                         self.toast(ToastKind::Info, "Date adjustment started.");
@@ -2265,13 +2401,16 @@ impl MyApp {
                             .color(self.settings.theme.palette().weak),
                     );
                     ui.label(
-                        egui::RichText::new(format!("AI Confidence: {:.0}%", confirmation.confidence * 100.0))
-                            .small()
-                            .color(if confirmation.confidence < 0.5 {
-                                self.settings.theme.palette().warn
-                            } else {
-                                self.settings.theme.palette().weak
-                            }),
+                        egui::RichText::new(format!(
+                            "AI Confidence: {:.0}%",
+                            confirmation.confidence * 100.0
+                        ))
+                        .small()
+                        .color(if confirmation.confidence < 0.5 {
+                            self.settings.theme.palette().warn
+                        } else {
+                            self.settings.theme.palette().weak
+                        }),
                     );
 
                     ui.add_space(8.0);
@@ -2341,7 +2480,8 @@ impl MyApp {
                         .add_filter("PDF", &["pdf"])
                         .pick_file()
                     {
-                        self.transfer_test_paths.push(path.to_string_lossy().to_string());
+                        self.transfer_test_paths
+                            .push(path.to_string_lossy().to_string());
                     }
                 }
 
@@ -2354,11 +2494,18 @@ impl MyApp {
 
                 ui.horizontal(|ui| {
                     let can_run = n >= 2;
-                    let btn = ui.add_enabled(can_run, egui::Button::new("▶ Run All Tests")
-                        .fill(if can_run { self.settings.theme.palette().accent } else { self.settings.theme.palette().panel }));
+                    let btn = ui.add_enabled(
+                        can_run,
+                        egui::Button::new("▶ Run All Tests").fill(if can_run {
+                            self.settings.theme.palette().accent
+                        } else {
+                            self.settings.theme.palette().panel
+                        }),
+                    );
 
                     if btn.clicked() {
-                        let statements: Vec<std::path::PathBuf> = self.transfer_test_paths
+                        let statements: Vec<std::path::PathBuf> = self
+                            .transfer_test_paths
                             .iter()
                             .map(std::path::PathBuf::from)
                             .collect();
@@ -2368,7 +2515,10 @@ impl MyApp {
                         });
                         self.in_flight += 1;
                         self.status = format!("Running {pairs} transfer tests…");
-                        self.toast(ToastKind::Info, format!("Running {pairs} transfer test pairs…"));
+                        self.toast(
+                            ToastKind::Info,
+                            format!("Running {pairs} transfer test pairs…"),
+                        );
                     }
 
                     if ui.button("Close").clicked() {
@@ -2389,26 +2539,34 @@ impl MyApp {
                     };
                     ui.colored_label(color, report.summary());
 
-                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                        for r in &report.results {
-                            let icon = if r.converged && r.final_math_ok { "✅" } else { "❌" };
-                            let src = r.source.file_stem().unwrap_or_default().to_string_lossy();
-                            let tgt = r.target.file_stem().unwrap_or_default().to_string_lossy();
-                            ui.label(format!(
-                                "{} {} → {} ({}iter, {:.1}s)",
-                                icon, src, tgt, r.iterations, r.duration_secs
-                            ));
-                            if !r.corrections.is_empty() {
-                                for c in &r.corrections {
-                                    ui.label(
-                                        egui::RichText::new(format!("  ↳ {c}"))
-                                            .small()
-                                            .color(self.settings.theme.palette().weak),
-                                    );
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .show(ui, |ui| {
+                            for r in &report.results {
+                                let icon = if r.converged && r.final_math_ok {
+                                    "✅"
+                                } else {
+                                    "❌"
+                                };
+                                let src =
+                                    r.source.file_stem().unwrap_or_default().to_string_lossy();
+                                let tgt =
+                                    r.target.file_stem().unwrap_or_default().to_string_lossy();
+                                ui.label(format!(
+                                    "{} {} → {} ({}iter, {:.1}s)",
+                                    icon, src, tgt, r.iterations, r.duration_secs
+                                ));
+                                if !r.corrections.is_empty() {
+                                    for c in &r.corrections {
+                                        ui.label(
+                                            egui::RichText::new(format!("  ↳ {c}"))
+                                                .small()
+                                                .color(self.settings.theme.palette().weak),
+                                        );
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
                 }
             });
         self.show_transfer_test_dialog = open;
@@ -2600,11 +2758,9 @@ impl MyApp {
 
         // Snapshot what we need; the closure below mutates self.workflow_edits
         // and self.workflow_cell_buffers, so collect transaction copies first.
-        let txs: Vec<crate::engine::model::Transaction> =
-            self.workflow_transactions.clone();
+        let txs: Vec<crate::engine::model::Transaction> = self.workflow_transactions.clone();
 
-        let mut cell_changes: Vec<(usize, usize, EditField, String, [f32; 4], String)> =
-            Vec::new();
+        let mut cell_changes: Vec<(usize, usize, EditField, String, [f32; 4], String)> = Vec::new();
         let mut row_reverts: Vec<(usize, usize)> = Vec::new();
 
         egui::ScrollArea::both()
@@ -2798,7 +2954,9 @@ impl MyApp {
         buffers.entry(key).or_insert_with(|| {
             edits
                 .iter()
-                .find(|e| e.page == tx.page && e.line_on_page == tx.line_on_page && e.field == field)
+                .find(|e| {
+                    e.page == tx.page && e.line_on_page == tx.line_on_page && e.field == field
+                })
                 .map(|e| e.new_text.clone())
                 .unwrap_or_else(default)
         })
@@ -2871,12 +3029,14 @@ impl MyApp {
             .map(|t| match edit.field {
                 crate::engine::workflow::EditField::Date => t.date.clone(),
                 crate::engine::workflow::EditField::Description => t.raw_text.clone(),
-                crate::engine::workflow::EditField::Debit => {
-                    t.debit.map(|v| format!("{:.2}", v.round_dp(2))).unwrap_or_default()
-                }
-                crate::engine::workflow::EditField::Credit => {
-                    t.credit.map(|v| format!("{:.2}", v.round_dp(2))).unwrap_or_default()
-                }
+                crate::engine::workflow::EditField::Debit => t
+                    .debit
+                    .map(|v| format!("{:.2}", v.round_dp(2)))
+                    .unwrap_or_default(),
+                crate::engine::workflow::EditField::Credit => t
+                    .credit
+                    .map(|v| format!("{:.2}", v.round_dp(2)))
+                    .unwrap_or_default(),
                 crate::engine::workflow::EditField::RunningBalance => t
                     .running_balance
                     .map(|v| format!("{:.2}", v.round_dp(2)))
@@ -2892,7 +3052,9 @@ impl MyApp {
         // No-op if the user typed back to the original — drop it.
         if edit.new_text == original_text {
             self.workflow_edits.retain(|e| {
-                !(e.page == edit.page && e.line_on_page == edit.line_on_page && e.field == edit.field)
+                !(e.page == edit.page
+                    && e.line_on_page == edit.line_on_page
+                    && e.field == edit.field)
             });
             self.workflow_dirty = true;
             return;
@@ -2924,7 +3086,12 @@ impl MyApp {
             self.workflow_dirty = true;
             self.toast(
                 ToastKind::Info,
-                format!("Reverted {} edit(s) on P{} L{}", removed, page + 1, line_on_page + 1),
+                format!(
+                    "Reverted {} edit(s) on P{} L{}",
+                    removed,
+                    page + 1,
+                    line_on_page + 1
+                ),
             );
         }
     }
@@ -3054,8 +3221,7 @@ impl MyApp {
                             // the panel.
                             let used_preview: String = if font.characters_used.chars().count() > 80
                             {
-                                let head: String =
-                                    font.characters_used.chars().take(80).collect();
+                                let head: String = font.characters_used.chars().take(80).collect();
                                 format!("{head}…")
                             } else {
                                 font.characters_used.clone()
@@ -3063,10 +3229,7 @@ impl MyApp {
                             ui.small(format!("Used characters: {used_preview}"));
                             if !font.missing_chars.is_empty() {
                                 let missing_str = font.missing_chars.join(" ");
-                                ui.colored_label(
-                                    palette.warn,
-                                    format!("Missing: {missing_str}"),
-                                );
+                                ui.colored_label(palette.warn, format!("Missing: {missing_str}"));
                                 let bd = &font.missing_breakdown;
                                 if !bd.digits.is_empty() {
                                     ui.small(format!("  Digits: {}", bd.digits.join(" ")));
@@ -3821,9 +3984,11 @@ impl MyApp {
                     ui.vertical_centered(|ui| {
                         ui.add(egui::Spinner::new().size(40.0).color(p.accent));
                         ui.add_space(20.0);
-                        ui.label(egui::RichText::new("Rendering page asynchronously...")
-                            .color(p.weak)
-                            .size(16.0));
+                        ui.label(
+                            egui::RichText::new("Rendering page asynchronously...")
+                                .color(p.weak)
+                                .size(16.0),
+                        );
                     });
                 });
             });
@@ -4025,7 +4190,16 @@ impl MyApp {
                                     ui.colored_label(egui::Color32::WHITE, &toast.text);
                                     if let Some(label) = &toast.action_label {
                                         ui.add_space(8.0);
-                                        if ui.add(egui::Button::new(egui::RichText::new(label).color(egui::Color32::WHITE)).fill(egui::Color32::from_black_alpha(100))).clicked() {
+                                        if ui
+                                            .add(
+                                                egui::Button::new(
+                                                    egui::RichText::new(label)
+                                                        .color(egui::Color32::WHITE),
+                                                )
+                                                .fill(egui::Color32::from_black_alpha(100)),
+                                            )
+                                            .clicked()
+                                        {
                                             clicked_id = toast.action_id.clone();
                                         }
                                     }
@@ -4039,7 +4213,7 @@ impl MyApp {
         if let Some(id) = &clicked_id {
             self.toasts.retain(|t| t.action_id.as_ref() != Some(id));
         }
-        
+
         clicked_id
     }
 
@@ -4064,11 +4238,15 @@ impl MyApp {
                 output: PathBuf::from(&self.export_path),
             });
         }
-        if (input.key_pressed(egui::Key::PageDown) || input.key_pressed(egui::Key::ArrowRight)) && self.current_page + 1 < self.total_pages {
+        if (input.key_pressed(egui::Key::PageDown) || input.key_pressed(egui::Key::ArrowRight))
+            && self.current_page + 1 < self.total_pages
+        {
             self.current_page += 1;
             self.request_render("current");
         }
-        if (input.key_pressed(egui::Key::PageUp) || input.key_pressed(egui::Key::ArrowLeft)) && self.current_page > 0 {
+        if (input.key_pressed(egui::Key::PageUp) || input.key_pressed(egui::Key::ArrowLeft))
+            && self.current_page > 0
+        {
             self.current_page -= 1;
             self.request_render("current");
         }
@@ -4228,10 +4406,7 @@ impl MyApp {
         if !pdf_path.exists() {
             self.toast(
                 ToastKind::Warn,
-                format!(
-                    "PDF missing: {} — please pick the file",
-                    pdf_path.display()
-                ),
+                format!("PDF missing: {} — please pick the file", pdf_path.display()),
             );
             match rfd::FileDialog::new()
                 .add_filter("PDF", &["pdf"])
@@ -4341,7 +4516,6 @@ fn upsert_env_file(path: &std::path::Path, pairs: &[(&str, String)]) -> std::io:
     contents.push('\n');
     std::fs::write(path, contents)
 }
-
 
 // ---------------------------------------------------------------------------
 // Entry point

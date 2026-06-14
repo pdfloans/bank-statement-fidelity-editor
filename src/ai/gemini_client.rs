@@ -1,4 +1,4 @@
-use crate::app::config::{AppConfig, GeminiAuthMode, global_http_client};
+use crate::app::config::{global_http_client, AppConfig, GeminiAuthMode};
 use crate::engine::layout::DocumentLayout;
 use crate::engine::model::Transaction;
 use reqwest::StatusCode;
@@ -25,11 +25,17 @@ pub struct GeminiBalancePlan {
 impl GeminiBalancePlan {
     pub fn validate(&mut self) -> Result<(), GeminiError> {
         if self.confidence < 0.0 || self.confidence > 1.0 {
-            return Err(GeminiError::Format(format!("BalancePlan confidence {} out of range", self.confidence)));
+            return Err(GeminiError::Format(format!(
+                "BalancePlan confidence {} out of range",
+                self.confidence
+            )));
         }
         for adj in &mut self.adjustments {
             if adj.confidence < 0.0 || adj.confidence > 1.0 {
-                return Err(GeminiError::Format(format!("Adjustment confidence {} out of range", adj.confidence)));
+                return Err(GeminiError::Format(format!(
+                    "Adjustment confidence {} out of range",
+                    adj.confidence
+                )));
             }
         }
         Ok(())
@@ -54,7 +60,10 @@ pub struct GeminiCompletenessReport {
 impl GeminiCompletenessReport {
     pub fn validate(&mut self) -> Result<(), GeminiError> {
         if self.completeness_score < 0.0 || self.completeness_score > 1.0 {
-            return Err(GeminiError::Format(format!("Completeness score {} out of range", self.completeness_score)));
+            return Err(GeminiError::Format(format!(
+                "Completeness score {} out of range",
+                self.completeness_score
+            )));
         }
         Ok(())
     }
@@ -93,11 +102,7 @@ impl GeminiVisionReport {
     /// Rejects when overall `anomaly_score >= reject_threshold` OR when any
     /// hotspot lies outside every intended bbox (i.e. the renderer changed
     /// something we didn't ask it to).
-    pub fn should_reject(
-        &self,
-        intended_bboxes: &[[f32; 4]],
-        reject_threshold: f32,
-    ) -> bool {
+    pub fn should_reject(&self, intended_bboxes: &[[f32; 4]], reject_threshold: f32) -> bool {
         if self.anomaly_score >= reject_threshold {
             return true;
         }
@@ -114,11 +119,17 @@ impl GeminiVisionReport {
 
     pub fn validate(&mut self) -> Result<(), GeminiError> {
         if self.anomaly_score < 0.0 || self.anomaly_score > 1.0 {
-            return Err(GeminiError::Format(format!("Vision anomaly score {} out of range", self.anomaly_score)));
+            return Err(GeminiError::Format(format!(
+                "Vision anomaly score {} out of range",
+                self.anomaly_score
+            )));
         }
         for h in &mut self.hotspots {
             if h.confidence < 0.0 || h.confidence > 1.0 {
-                return Err(GeminiError::Format(format!("Hotspot confidence {} out of range", h.confidence)));
+                return Err(GeminiError::Format(format!(
+                    "Hotspot confidence {} out of range",
+                    h.confidence
+                )));
             }
         }
         Ok(())
@@ -288,7 +299,9 @@ impl GeminiClient {
             GeminiAuth::ApiKey => (
                 format!(
                     "{}/v1beta/models/{}:generateContent?key={}",
-                    self.base_url, model, self.api_key.trim()
+                    self.base_url,
+                    model,
+                    self.api_key.trim()
                 ),
                 None,
             ),
@@ -314,7 +327,7 @@ impl GeminiClient {
         body: &serde_json::Value,
     ) -> Result<reqwest::Response, GeminiError> {
         let (url, bearer) = self.endpoint(model);
-        
+
         let mut attempts = 0;
         let max_attempts = 4; // 1 initial + 3 retries
         loop {
@@ -331,7 +344,7 @@ impl GeminiClient {
                     }
                 }
             }
-            
+
             match req.send().await {
                 Ok(resp) => {
                     let status = resp.status();
@@ -343,11 +356,19 @@ impl GeminiClient {
                             return Ok(resp);
                         }
                         let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
-                        tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
+                        tracing::warn!(
+                            "Gemini {} error for model {}, retrying in {:?}...",
+                            status,
+                            model,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
-                    if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+                    if status == reqwest::StatusCode::BAD_REQUEST
+                        || status == reqwest::StatusCode::UNAUTHORIZED
+                        || status == reqwest::StatusCode::FORBIDDEN
+                    {
                         tracing::error!("Gemini API rejected request with {} for model {}! Please verify your GEMINI_API_KEY and quota.", status, model);
                     }
                     return Ok(resp);
@@ -436,7 +457,7 @@ impl GeminiClient {
             ],
             "generationConfig": { "maxOutputTokens": 1 }
         });
-        
+
         // Use the cheapest/fastest model for the ping.
         let _ = self.post_generate(GEMINI_FLASH_FALLBACK, &body).await?;
         Ok(())
@@ -530,8 +551,6 @@ impl GeminiClient {
 
         Ok(plan)
     }
-
-
 
     /// Ask Gemini to validate that Document AI captured every transaction on
     /// the page and that the resulting numbers are internally consistent.
@@ -868,16 +887,20 @@ impl GeminiClient {
     ) -> Result<bool, GeminiError> {
         use crate::engine::model::dec_to_f64;
 
-        let tx_summary: Vec<serde_json::Value> = mapped_transactions.iter().enumerate().map(|(i, tx)| {
-            json!({
-                "row": i,
-                "date": tx.date,
-                "description": tx.description,
-                "debit": tx.debit.map(dec_to_f64),
-                "credit": tx.credit.map(dec_to_f64),
-                "running_balance": dec_to_f64(tx.running_balance),
+        let tx_summary: Vec<serde_json::Value> = mapped_transactions
+            .iter()
+            .enumerate()
+            .map(|(i, tx)| {
+                json!({
+                    "row": i,
+                    "date": tx.date,
+                    "description": tx.description,
+                    "debit": tx.debit.map(dec_to_f64),
+                    "credit": tx.credit.map(dec_to_f64),
+                    "running_balance": dec_to_f64(tx.running_balance),
+                })
             })
-        }).collect();
+            .collect();
 
         let prompt = format!(
             "You are a forensic accountant verifying a bank statement after a transaction \
@@ -965,7 +988,10 @@ pub async fn mint_gcp_access_token_async(
         .map_err(|e| format!("clock error: {e}"))?;
 
     let post_form = |url: String, form: Vec<(String, String)>| async move {
-        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default();
         let resp = client
             .post(&url)
             .form(&form)
@@ -973,9 +999,15 @@ pub async fn mint_gcp_access_token_async(
             .await
             .map_err(|e| format!("token request: {e}"))?;
         if !resp.status().is_success() {
-            return Err(format!("token endpoint {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+            return Err(format!(
+                "token endpoint {}: {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            ));
         }
-        resp.json::<serde_json::Value>().await.map_err(|e| format!("token json: {e}"))
+        resp.json::<serde_json::Value>()
+            .await
+            .map_err(|e| format!("token json: {e}"))
     };
 
     if !doc_ai.service_account_path.is_empty() {
@@ -1010,16 +1042,20 @@ pub async fn mint_gcp_access_token_async(
         header.typ = Some("JWT".to_string());
         let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
             .map_err(|e| format!("bad private key: {e}"))?;
-        let signed = encode(&header, &claims, &encoding_key)
-            .map_err(|e| format!("jwt sign: {e}"))?;
+        let signed =
+            encode(&header, &claims, &encoding_key).map_err(|e| format!("jwt sign: {e}"))?;
 
         let v = post_form(
             "https://oauth2.googleapis.com/token".to_string(),
             vec![
-                ("grant_type".to_string(), "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string()),
+                (
+                    "grant_type".to_string(),
+                    "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
+                ),
                 ("assertion".to_string(), signed),
             ],
-        ).await?;
+        )
+        .await?;
         return v["access_token"]
             .as_str()
             .map(|s| s.to_string())
@@ -1048,7 +1084,8 @@ pub async fn mint_gcp_access_token_async(
                 ("refresh_token".to_string(), refresh_token.to_string()),
                 ("grant_type".to_string(), "refresh_token".to_string()),
             ],
-        ).await?;
+        )
+        .await?;
         return resp_json["access_token"]
             .as_str()
             .map(|s| s.to_string())
@@ -1066,9 +1103,7 @@ pub async fn mint_gcp_access_token_async(
 ///
 /// This is a synchronous, one-shot exchange (used at client construction)
 /// implemented with `reqwest::blocking` so `from_app_config` stays non-async.
-fn mint_gcp_access_token(
-    doc_ai: &crate::app::config::DocumentAiConfig,
-) -> Result<String, String> {
+fn mint_gcp_access_token(doc_ai: &crate::app::config::DocumentAiConfig) -> Result<String, String> {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1086,7 +1121,12 @@ fn mint_gcp_access_token(
                 // We return a thin wrapper that uses the async client synchronously.
                 None // signal to use async path below
             }
-            Err(_) => Some(reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default()),
+            Err(_) => Some(
+                reqwest::blocking::Client::builder()
+                    .timeout(std::time::Duration::from_secs(60))
+                    .build()
+                    .unwrap_or_default(),
+            ),
         }
     };
 
@@ -1100,7 +1140,11 @@ fn mint_gcp_access_token(
                 .send()
                 .map_err(|e| format!("token request: {e}"))?;
             if !resp.status().is_success() {
-                return Err(format!("token endpoint {}: {}", resp.status(), resp.text().unwrap_or_default()));
+                return Err(format!(
+                    "token endpoint {}: {}",
+                    resp.status(),
+                    resp.text().unwrap_or_default()
+                ));
             }
             resp.json().map_err(|e| format!("token json: {e}"))
         } else {
@@ -1108,7 +1152,10 @@ fn mint_gcp_access_token(
             tokio::task::block_in_place(|| {
                 let handle = tokio::runtime::Handle::current();
                 handle.block_on(async {
-                    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default();
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(60))
+                        .build()
+                        .unwrap_or_default();
                     let resp = client
                         .post(url)
                         .form(form)
@@ -1116,7 +1163,11 @@ fn mint_gcp_access_token(
                         .await
                         .map_err(|e| format!("token request: {e}"))?;
                     if !resp.status().is_success() {
-                        return Err(format!("token endpoint {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+                        return Err(format!(
+                            "token endpoint {}: {}",
+                            resp.status(),
+                            resp.text().await.unwrap_or_default()
+                        ));
                     }
                     resp.json().await.map_err(|e| format!("token json: {e}"))
                 })
@@ -1156,8 +1207,8 @@ fn mint_gcp_access_token(
         header.typ = Some("JWT".to_string());
         let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
             .map_err(|e| format!("bad private key: {e}"))?;
-        let signed = encode(&header, &claims, &encoding_key)
-            .map_err(|e| format!("jwt sign: {e}"))?;
+        let signed =
+            encode(&header, &claims, &encoding_key).map_err(|e| format!("jwt sign: {e}"))?;
 
         let v = post_form(
             "https://oauth2.googleapis.com/token",
@@ -1174,8 +1225,8 @@ fn mint_gcp_access_token(
 
     // Fallback: ADC authorized_user refresh-token grant.
     if !doc_ai.adc_path.is_empty() {
-        let raw = std::fs::read_to_string(&doc_ai.adc_path)
-            .map_err(|e| format!("read ADC: {e}"))?;
+        let raw =
+            std::fs::read_to_string(&doc_ai.adc_path).map_err(|e| format!("read ADC: {e}"))?;
         let adc: serde_json::Value =
             serde_json::from_str(&raw).map_err(|e| format!("parse ADC json: {e}"))?;
         let client_id = adc["client_id"].as_str().ok_or("ADC missing client_id")?;
@@ -1368,10 +1419,15 @@ mod tests {
 fn scrub_pii(transactions: &[Transaction]) -> Vec<Transaction> {
     // Basic scrubbing: replace sequences of 6+ digits (potential account/routing numbers)
     let re_digits = regex::Regex::new(r"\b\d{6,}\b").unwrap();
-    
-    transactions.iter().map(|t| {
-        let mut scrubbed = t.clone();
-        scrubbed.raw_text = re_digits.replace_all(&scrubbed.raw_text, "[REDACTED_ACCOUNT]").into_owned();
-        scrubbed
-    }).collect()
+
+    transactions
+        .iter()
+        .map(|t| {
+            let mut scrubbed = t.clone();
+            scrubbed.raw_text = re_digits
+                .replace_all(&scrubbed.raw_text, "[REDACTED_ACCOUNT]")
+                .into_owned();
+            scrubbed
+        })
+        .collect()
 }

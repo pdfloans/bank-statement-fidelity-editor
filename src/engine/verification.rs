@@ -97,9 +97,9 @@ pub async fn verify_edit_pages_with_padding(
     _mask_padding_pts: f32,
 ) -> Result<VerificationReport, VerificationError> {
     // Math validity check remains active
-    let has_balance_data = !math_inputs.transactions.is_empty()
-        && math_inputs.opening_balance != Decimal::ZERO;
-        
+    let has_balance_data =
+        !math_inputs.transactions.is_empty() && math_inputs.opening_balance != Decimal::ZERO;
+
     let (math_valid, math_message) = if !has_balance_data {
         (
             true,

@@ -21,7 +21,10 @@
 
 use std::path::{Path, PathBuf};
 
-use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Nonce};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Nonce,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -58,7 +61,10 @@ pub struct DocAiCache {
 impl DocAiCache {
     /// Open (or create) the cache rooted at `audit/cache/docai/`.
     pub fn open_default(passphrase: &str) -> Result<Self, CacheError> {
-        Self::open(PathBuf::from("audit").join("cache").join("docai"), passphrase)
+        Self::open(
+            PathBuf::from("audit").join("cache").join("docai"),
+            passphrase,
+        )
     }
 
     pub fn open(root: PathBuf, passphrase: &str) -> Result<Self, CacheError> {
@@ -104,23 +110,27 @@ impl DocAiCache {
     pub fn get(&self, key: &str) -> Option<BankStatement> {
         let path = self.path_for(key);
         let file_data = std::fs::read(&path).ok()?;
-        
+
         if file_data.len() < 12 {
             tracing::warn!("[docai_cache] file too short: {}", path.display());
             return None;
         }
-        
+
         let nonce = Nonce::from_slice(&file_data[0..12]);
         let ciphertext = &file_data[12..];
-        
+
         let plaintext = match self.cipher.decrypt(nonce, ciphertext) {
             Ok(pt) => pt,
             Err(e) => {
-                tracing::warn!("[docai_cache] decryption failed for {}: {}", path.display(), e);
+                tracing::warn!(
+                    "[docai_cache] decryption failed for {}: {}",
+                    path.display(),
+                    e
+                );
                 return None;
             }
         };
-        
+
         match serde_json::from_slice::<CacheEntry>(&plaintext) {
             Ok(entry) if entry.format_version == CACHE_FORMAT_VERSION => {
                 tracing::debug!(cache.hit = true, cache.key = %key, "[docai_cache] hit");
@@ -148,14 +158,16 @@ impl DocAiCache {
             statement: statement.clone(),
         };
         let plaintext = serde_json::to_vec(&entry)?;
-        
+
         let uuid = Uuid::new_v4();
         let nonce_bytes = &uuid.as_bytes()[0..12];
         let nonce = Nonce::from_slice(nonce_bytes);
-        
-        let ciphertext = self.cipher.encrypt(nonce, plaintext.as_slice())
+
+        let ciphertext = self
+            .cipher
+            .encrypt(nonce, plaintext.as_slice())
             .map_err(|e| CacheError::Encryption(e.to_string()))?;
-            
+
         // Store [12-byte nonce][ciphertext]
         let mut file_data = Vec::with_capacity(12 + ciphertext.len());
         file_data.extend_from_slice(nonce_bytes);
@@ -254,7 +266,7 @@ mod tests {
     #[test]
     fn corrupt_entry_is_treated_as_miss() {
         let dir = tempdir().unwrap();
-        let cache = DocAiCache::open(dir.path().to_path_buf()).unwrap();
+        let cache = DocAiCache::open(dir.path().to_path_buf(), "testpass").unwrap();
         std::fs::write(dir.path().join("badkey.json"), "{not json").unwrap();
         assert!(cache.get("badkey").is_none());
     }

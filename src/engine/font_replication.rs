@@ -47,12 +47,8 @@ impl DeepFontReplicationResult {
 /// Walks the font descriptor chain: Font → FontDescriptor → FontFile2 (TrueType)
 /// or FontFile3 (CFF/OpenType). Returns the raw byte stream suitable for
 /// loading into `skrifa::FontRef` or `write_fonts::FontBuilder`.
-pub fn extract_font_bytes_from_pdf(
-    pdf_path: &Path,
-    font_name: &str,
-) -> Result<Vec<u8>, String> {
-    let doc = lopdf::Document::load(pdf_path)
-        .map_err(|e| format!("Failed to load PDF: {e}"))?;
+pub fn extract_font_bytes_from_pdf(pdf_path: &Path, font_name: &str) -> Result<Vec<u8>, String> {
+    let doc = lopdf::Document::load(pdf_path).map_err(|e| format!("Failed to load PDF: {e}"))?;
 
     let pages = doc.get_pages();
 
@@ -96,7 +92,11 @@ pub fn extract_font_bytes_from_pdf(
 
                 if let Some(desc) = descriptor {
                     // Try FontFile2 (TrueType) first, then FontFile3 (CFF/OTF)
-                    for key in &[b"FontFile2".as_ref(), b"FontFile3".as_ref(), b"FontFile".as_ref()] {
+                    for key in &[
+                        b"FontFile2".as_ref(),
+                        b"FontFile3".as_ref(),
+                        b"FontFile".as_ref(),
+                    ] {
                         if let Ok(stream_ref) = desc.get(key) {
                             if let Ok((_, stream_obj)) = doc.dereference(stream_ref) {
                                 if let Ok(stream) = stream_obj.as_stream() {
@@ -115,7 +115,9 @@ pub fn extract_font_bytes_from_pdf(
         }
     }
 
-    Err(format!("Font '{font_name}' not found or has no embedded data"))
+    Err(format!(
+        "Font '{font_name}' not found or has no embedded data"
+    ))
 }
 
 /// Phase 3: Measure glyph advance widths using skrifa for a given font.
@@ -123,18 +125,20 @@ pub fn extract_font_bytes_from_pdf(
 /// Returns a map of character → advance width (in font design units).
 /// Used by the text editor to calculate pixel-perfect text placement.
 pub fn measure_advances(font_data: &[u8], text: &str) -> Result<Vec<(char, f32)>, String> {
+    use skrifa::raw::TableProvider;
     use skrifa::FontRef;
     use skrifa::MetadataProvider;
-    use skrifa::raw::TableProvider;
 
-    let font = FontRef::new(font_data)
-        .map_err(|e| format!("Failed to parse font: {e}"))?;
+    let font = FontRef::new(font_data).map_err(|e| format!("Failed to parse font: {e}"))?;
 
     let upem = font.head().map(|h| h.units_per_em()).unwrap_or(1000) as f32;
     let charmap = font.charmap();
 
     let mut advances = Vec::new();
-    let glyph_metrics = font.glyph_metrics(skrifa::instance::Size::unscaled(), skrifa::instance::LocationRef::default());
+    let glyph_metrics = font.glyph_metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
 
     for ch in text.chars() {
         let gid = charmap.map(ch);
@@ -207,8 +211,8 @@ pub fn check_glyph_coverage(
     font_bytes: &[u8],
     required_text: &str,
 ) -> Result<(Vec<char>, Vec<char>), String> {
-    let face = ttf_parser::Face::parse(font_bytes, 0)
-        .map_err(|e| format!("Failed to parse font: {e}"))?;
+    let face =
+        ttf_parser::Face::parse(font_bytes, 0).map_err(|e| format!("Failed to parse font: {e}"))?;
 
     let mut covered = Vec::new();
     let mut missing = Vec::new();
@@ -244,7 +248,10 @@ mod tests {
         let parsed = DeepFontReplicationResult::from_json(json).map_err(|e| anyhow::anyhow!(e))?;
         assert!(parsed.success);
         assert_eq!(
-            parsed.font_path().ok_or_else(|| anyhow::anyhow!("No font path"))?.to_string_lossy(),
+            parsed
+                .font_path()
+                .ok_or_else(|| anyhow::anyhow!("No font path"))?
+                .to_string_lossy(),
             "out/extracted_subset.ttf"
         );
         assert_eq!(parsed.images.len(), 1);

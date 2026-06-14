@@ -30,15 +30,15 @@ pub enum DateAdjustMode {
 
 /// Common date format patterns for parsing/formatting.
 const DATE_FORMATS: &[&str] = &[
-    "%d/%m/%Y",   // DD/MM/YYYY
-    "%m/%d/%Y",   // MM/DD/YYYY
-    "%Y-%m-%d",   // YYYY-MM-DD
-    "%d-%m-%Y",   // DD-MM-YYYY
-    "%m-%d-%Y",   // MM-DD-YYYY
-    "%d %b %Y",   // 01 Jan 2026
-    "%b %d, %Y",  // Jan 01, 2026
-    "%d/%m/%y",   // DD/MM/YY
-    "%m/%d/%y",   // MM/DD/YY
+    "%d/%m/%Y",  // DD/MM/YYYY
+    "%m/%d/%Y",  // MM/DD/YYYY
+    "%Y-%m-%d",  // YYYY-MM-DD
+    "%d-%m-%Y",  // DD-MM-YYYY
+    "%m-%d-%Y",  // MM-DD-YYYY
+    "%d %b %Y",  // 01 Jan 2026
+    "%b %d, %Y", // Jan 01, 2026
+    "%d/%m/%y",  // DD/MM/YY
+    "%m/%d/%y",  // MM/DD/YY
 ];
 
 /// Try to parse a date string using all known formats.
@@ -55,10 +55,7 @@ pub fn parse_date(date_str: &str) -> Option<(NaiveDate, &'static str)> {
 
 /// Shift all transaction dates by a fixed number of days.
 /// Returns a record of every shift applied.
-pub fn shift_dates(
-    transactions: &mut [Transaction],
-    days: i64,
-) -> Vec<DateShiftRecord> {
+pub fn shift_dates(transactions: &mut [Transaction], days: i64) -> Vec<DateShiftRecord> {
     let offset = chrono::Duration::days(days);
     let mut records = Vec::new();
 
@@ -108,10 +105,7 @@ pub fn remap_date_period(
 }
 
 /// Preview what the date shifts would look like without mutating.
-pub fn preview_shift(
-    transactions: &[Transaction],
-    days: i64,
-) -> Vec<DateShiftRecord> {
+pub fn preview_shift(transactions: &[Transaction], days: i64) -> Vec<DateShiftRecord> {
     let offset = chrono::Duration::days(days);
     let mut records = Vec::new();
 
@@ -177,10 +171,7 @@ mod tests {
 
     #[test]
     fn shift_dates_by_30_days() {
-        let mut txns = vec![
-            make_tx("15/01/2026", 0, 0),
-            make_tx("20/01/2026", 0, 1),
-        ];
+        let mut txns = vec![make_tx("15/01/2026", 0, 0), make_tx("20/01/2026", 0, 1)];
         let records = shift_dates(&mut txns, 30);
         assert_eq!(records.len(), 2);
         assert_eq!(txns[0].date, "14/02/2026");
@@ -197,12 +188,11 @@ mod tests {
 
     #[test]
     fn remap_period_jan_to_feb() -> anyhow::Result<()> {
-        let from = NaiveDate::from_ymd_opt(2026, 1, 1).ok_or_else(|| anyhow::anyhow!("Invalid date"))?;
-        let to = NaiveDate::from_ymd_opt(2026, 2, 1).ok_or_else(|| anyhow::anyhow!("Invalid date"))?;
-        let mut txns = vec![
-            make_tx("05/01/2026", 0, 0),
-            make_tx("25/01/2026", 0, 1),
-        ];
+        let from =
+            NaiveDate::from_ymd_opt(2026, 1, 1).ok_or_else(|| anyhow::anyhow!("Invalid date"))?;
+        let to =
+            NaiveDate::from_ymd_opt(2026, 2, 1).ok_or_else(|| anyhow::anyhow!("Invalid date"))?;
+        let mut txns = vec![make_tx("05/01/2026", 0, 0), make_tx("25/01/2026", 0, 1)];
         let records = remap_date_period(&mut txns, from, to);
         assert_eq!(records.len(), 2);
         assert_eq!(txns[0].date, "05/02/2026");

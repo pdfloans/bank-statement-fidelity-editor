@@ -265,7 +265,12 @@ mod tests {
         let loaded_mut = loaded.clone();
         let new_record =
             loaded_mut.create_record(2, "x".into(), "y".into(), [0.0; 4], "third".into(), None);
-        let max_old_id = loaded.get_history().iter().map(|r| r.id).max().unwrap_or_default();
+        let max_old_id = loaded
+            .get_history()
+            .iter()
+            .map(|r| r.id)
+            .max()
+            .unwrap_or_default();
         assert!(new_record.id > max_old_id);
         drop(loaded_mut);
         Ok(())

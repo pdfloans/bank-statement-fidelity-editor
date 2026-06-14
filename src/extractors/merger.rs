@@ -45,8 +45,8 @@ impl HybridMerger {
             // anything else we prefer Document AI's bbox (which already
             // matches the entity that produced the row's content).
             if let Some(m) = best_match {
-                let prefer_geo = matches!(m.source, GeometrySource::BankTemplate { .. })
-                    || tx.bbox.is_none();
+                let prefer_geo =
+                    matches!(m.source, GeometrySource::BankTemplate { .. }) || tx.bbox.is_none();
                 if prefer_geo {
                     tx.bbox = Some(m.bbox);
                 }
@@ -134,7 +134,12 @@ mod tests {
         let report = merger.merge(semantic, geometries);
         assert_eq!(report.unmatched_count, 0);
         assert_eq!(report.coverage_pct, 100.0);
-        assert_eq!(report.transactions[0].bbox.ok_or_else(|| anyhow::anyhow!("No bbox"))?[0], 12.0); // geo2 won
+        assert_eq!(
+            report.transactions[0]
+                .bbox
+                .ok_or_else(|| anyhow::anyhow!("No bbox"))?[0],
+            12.0
+        ); // geo2 won
         Ok(())
     }
 }

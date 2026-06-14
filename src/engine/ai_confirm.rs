@@ -68,10 +68,7 @@ pub fn parsing_uncertain(
 }
 
 /// Build a confirmation request for format detection.
-pub fn format_uncertain(
-    detected_format: &str,
-    confidence: f32,
-) -> AiConfirmation {
+pub fn format_uncertain(detected_format: &str, confidence: f32) -> AiConfirmation {
     AiConfirmation {
         id: Uuid::new_v4(),
         stage: "FormatDetection".to_string(),

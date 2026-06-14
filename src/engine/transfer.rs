@@ -179,10 +179,7 @@ impl TransferStage {
 /// Recompute running balances from an opening balance and a set of
 /// transactions (using the codebase's sign convention: debit = money in,
 /// credit = money out).
-pub fn recompute_running_balances(
-    opening: Decimal,
-    txns: &mut [MappedTransaction],
-) {
+pub fn recompute_running_balances(opening: Decimal, txns: &mut [MappedTransaction]) {
     let mut balance = opening;
     for tx in txns.iter_mut() {
         let delta_in = tx.debit.unwrap_or(Decimal::ZERO);

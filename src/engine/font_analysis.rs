@@ -148,10 +148,7 @@ impl FontCascadeReport {
     ) -> Result<Self, String> {
         let v: serde_json::Value =
             serde_json::from_str(raw).map_err(|e| format!("cascade decode: {e}"))?;
-        let success = v
-            .get("success")
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false);
+        let success = v.get("success").and_then(|b| b.as_bool()).unwrap_or(false);
         let extended_font_path = v
             .get("extended_font_path")
             .and_then(|s| s.as_str())
@@ -205,8 +202,7 @@ impl FontAnalysis {
     /// Phase 3: Extract embedded font streams from a PDF using lopdf and
     /// analyse glyph coverage using skrifa.
     pub fn from_pdf(path: &std::path::Path) -> Result<Self, String> {
-        let doc = lopdf::Document::load(path)
-            .map_err(|e| format!("Failed to load PDF: {e}"))?;
+        let doc = lopdf::Document::load(path).map_err(|e| format!("Failed to load PDF: {e}"))?;
 
         let mut fonts = Vec::new();
         let pages = doc.get_pages();
@@ -238,8 +234,8 @@ impl FontAnalysis {
                             .map(|n| String::from_utf8_lossy(n).to_string())
                             .unwrap_or_else(|| font_name.clone());
 
-                        let is_subset = base_name.len() > 7
-                            && base_name.as_bytes().get(6) == Some(&b'+');
+                        let is_subset =
+                            base_name.len() > 7 && base_name.as_bytes().get(6) == Some(&b'+');
                         let clean_name = if is_subset {
                             base_name[7..].to_string()
                         } else {
@@ -248,14 +244,26 @@ impl FontAnalysis {
 
                         let is_standard_14 = matches!(
                             clean_name.as_str(),
-                            "Times-Roman" | "Times-Bold" | "Times-Italic" | "Times-BoldItalic"
-                            | "Helvetica" | "Helvetica-Bold" | "Helvetica-Oblique" | "Helvetica-BoldOblique"
-                            | "Courier" | "Courier-Bold" | "Courier-Oblique" | "Courier-BoldOblique"
-                            | "Symbol" | "ZapfDingbats"
+                            "Times-Roman"
+                                | "Times-Bold"
+                                | "Times-Italic"
+                                | "Times-BoldItalic"
+                                | "Helvetica"
+                                | "Helvetica-Bold"
+                                | "Helvetica-Oblique"
+                                | "Helvetica-BoldOblique"
+                                | "Courier"
+                                | "Courier-Bold"
+                                | "Courier-Oblique"
+                                | "Courier-BoldOblique"
+                                | "Symbol"
+                                | "ZapfDingbats"
                         );
 
                         // Check if this font already exists in our list
-                        let existing = fonts.iter_mut().find(|f: &&mut FontInfo| f.name == base_name);
+                        let existing = fonts
+                            .iter_mut()
+                            .find(|f: &&mut FontInfo| f.name == base_name);
                         if let Some(info) = existing {
                             if !info.pages_used_on.contains(&(page_num as usize - 1)) {
                                 info.pages_used_on.push(page_num as usize - 1);
@@ -285,7 +293,8 @@ impl FontAnalysis {
         }
 
         let total_fonts = fonts.len() as u32;
-        let fonts_needing_action = fonts.iter().filter(|f| !f.missing_chars.is_empty()).count() as u32;
+        let fonts_needing_action =
+            fonts.iter().filter(|f| !f.missing_chars.is_empty()).count() as u32;
 
         Ok(FontAnalysis {
             fonts,
@@ -338,7 +347,10 @@ impl FontAnalysis {
             parts.push(format!("{} letter(s)", self.summary.missing_letter_count));
         }
         if self.summary.missing_other_count > 0 {
-            parts.push(format!("{} other glyph(s)", self.summary.missing_other_count));
+            parts.push(format!(
+                "{} other glyph(s)",
+                self.summary.missing_other_count
+            ));
         }
         format!(
             "⚠ {} of {} font(s) need attention — missing {}",

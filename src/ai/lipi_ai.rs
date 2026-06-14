@@ -53,7 +53,9 @@ impl LipiClient {
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            return Err(LipiAIError::ApiError(format!("Lipi API failed with status {status}: {body}")));
+            return Err(LipiAIError::ApiError(format!(
+                "Lipi API failed with status {status}: {body}"
+            )));
         }
 
         let resp: LipiFontResponse = res

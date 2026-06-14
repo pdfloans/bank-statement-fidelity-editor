@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-use lopdf::{Dictionary, Document, Object, ObjectId, dictionary};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId};
 use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
 
 /// Metadata returned for one produced segment.
 #[derive(Debug, Clone)]
@@ -33,8 +33,10 @@ pub fn split_pdf(
         return Err(SplitMergeError::Structure("max_pages must be > 0".into()));
     }
 
-    let mut doc = Document::load(src_path)
-        .map_err(|e| SplitMergeError::Load { path: src_path.to_path_buf(), source: e })?;
+    let mut doc = Document::load(src_path).map_err(|e| SplitMergeError::Load {
+        path: src_path.to_path_buf(),
+        source: e,
+    })?;
 
     doc.decompress();
 
@@ -264,11 +266,9 @@ fn normalize_pages(doc: &mut Document) -> Result<(), SplitMergeError> {
         // 1) Resolve inherited `/Pages`-node attributes by walking the
         //    `/Parent` chain, then set any that the leaf lacks directly on it.
         let resolved = resolve_inherited_attrs(doc, page_id)?;
-        let page_dict = doc
-            .get_dictionary_mut(page_id)
-            .map_err(|e| SplitMergeError::Structure(format!(
-                "page {page_id:?} is not a dictionary: {e}"
-            )))?;
+        let page_dict = doc.get_dictionary_mut(page_id).map_err(|e| {
+            SplitMergeError::Structure(format!("page {page_id:?} is not a dictionary: {e}"))
+        })?;
 
         for (key, value) in resolved {
             if !page_dict.has(&key) {
@@ -280,11 +280,9 @@ fn normalize_pages(doc: &mut Document) -> Result<(), SplitMergeError> {
         //    `/MediaBox` must exist on a standalone page; if neither the leaf
         //    nor any ancestor provided one, fall back to US Letter so the
         //    segment still renders rather than failing to open.
-        let page_dict = doc
-            .get_dictionary_mut(page_id)
-            .map_err(|e| SplitMergeError::Structure(format!(
-                "page {page_id:?} is not a dictionary: {e}"
-            )))?;
+        let page_dict = doc.get_dictionary_mut(page_id).map_err(|e| {
+            SplitMergeError::Structure(format!("page {page_id:?} is not a dictionary: {e}"))
+        })?;
 
         if !page_dict.has(b"MediaBox") {
             page_dict.set(
@@ -332,11 +330,9 @@ fn resolve_inherited_attrs(
 ) -> Result<Vec<(Vec<u8>, Object)>, SplitMergeError> {
     let mut collected: BTreeMap<Vec<u8>, Object> = BTreeMap::new();
 
-    let leaf = doc
-        .get_dictionary(page_id)
-        .map_err(|e| SplitMergeError::Structure(format!(
-            "page {page_id:?} is not a dictionary: {e}"
-        )))?;
+    let leaf = doc.get_dictionary(page_id).map_err(|e| {
+        SplitMergeError::Structure(format!("page {page_id:?} is not a dictionary: {e}"))
+    })?;
 
     // Start the walk at the leaf's parent; attributes on the leaf itself are
     // already authoritative and handled by the caller.
@@ -377,10 +373,7 @@ fn resolve_inherited_attrs(
 /// its `/Resources` (and the `/Font`, `/XObject`, `/ExtGState` sub-resources
 /// within) plus its content streams. Returns a structural error on the first
 /// dangling reference so a corrupt segment is never written.
-fn confirm_resources_present(
-    doc: &Document,
-    page_id: ObjectId,
-) -> Result<(), SplitMergeError> {
+fn confirm_resources_present(doc: &Document, page_id: ObjectId) -> Result<(), SplitMergeError> {
     // Content streams.
     for content_id in doc.get_page_contents(page_id) {
         if !doc.has_object(content_id) {
@@ -393,11 +386,9 @@ fn confirm_resources_present(
     // Resources dictionary plus its sub-resource categories. The leaf has been
     // normalized to carry `/Resources` directly when it was inherited, but it
     // may still be a reference, so resolve it explicitly.
-    let page_dict = doc
-        .get_dictionary(page_id)
-        .map_err(|e| SplitMergeError::Structure(format!(
-            "page {page_id:?} is not a dictionary: {e}"
-        )))?;
+    let page_dict = doc.get_dictionary(page_id).map_err(|e| {
+        SplitMergeError::Structure(format!("page {page_id:?} is not a dictionary: {e}"))
+    })?;
 
     let resources_dict = match page_dict.get(b"Resources") {
         Ok(Object::Reference(id)) => {
@@ -474,11 +465,9 @@ fn resolve_page_geometry(
     doc: &Document,
     page_id: ObjectId,
 ) -> Result<Vec<(Vec<u8>, Object)>, SplitMergeError> {
-    let leaf = doc
-        .get_dictionary(page_id)
-        .map_err(|e| SplitMergeError::Structure(format!(
-            "page {page_id:?} is not a dictionary: {e}"
-        )))?;
+    let leaf = doc.get_dictionary(page_id).map_err(|e| {
+        SplitMergeError::Structure(format!("page {page_id:?} is not a dictionary: {e}"))
+    })?;
 
     // Values inherited from ancestor `/Pages` nodes; the leaf's own entries
     // take precedence over anything found on the way up the `/Parent` chain.
@@ -515,10 +504,7 @@ fn resolve_page_geometry(
 /// before it is appended. Pages keep the same 0-based global index they held
 /// in source order. Returns the merged page count so the caller can assert it
 /// against `total_pages`.
-pub fn merge_pdfs(
-    ordered_paths: &[PathBuf],
-    output_path: &Path,
-) -> Result<usize, SplitMergeError> {
+pub fn merge_pdfs(ordered_paths: &[PathBuf], output_path: &Path) -> Result<usize, SplitMergeError> {
     let mut merged_doc = Document::with_version("1.7");
     let mut total_pages = 0usize;
 
@@ -529,19 +515,21 @@ pub fn merge_pdfs(
         "Count" => 0,
         "Kids" => vec![],
     )));
-    
+
     let catalog_id = merged_doc.add_object(Object::Dictionary(dictionary!(
         "Type" => "Catalog",
         "Pages" => pages_id,
     )));
-    
+
     merged_doc.trailer.set("Root", catalog_id);
 
     let mut next_object_id = merged_doc.max_id + 1;
 
     for path in ordered_paths {
-        let mut doc = Document::load(path)
-            .map_err(|e| SplitMergeError::Load { path: path.clone(), source: e })?;
+        let mut doc = Document::load(path).map_err(|e| SplitMergeError::Load {
+            path: path.clone(),
+            source: e,
+        })?;
         doc.decompress();
 
         let page_map = doc.get_pages();
@@ -617,9 +605,11 @@ pub fn merge_pdfs(
                 let page_dict = merged_doc
                     .get_object_mut(new_page_id)
                     .and_then(|obj| obj.as_dict_mut())
-                    .map_err(|e| SplitMergeError::Structure(format!(
-                        "merged page {new_page_id:?} is not a dictionary: {e}"
-                    )))?;
+                    .map_err(|e| {
+                        SplitMergeError::Structure(format!(
+                            "merged page {new_page_id:?} is not a dictionary: {e}"
+                        ))
+                    })?;
 
                 page_dict.set("Parent", pages_id);
 
@@ -644,11 +634,15 @@ pub fn merge_pdfs(
             total_pages += 1;
         }
     }
-    
+
     merged_doc.max_id = next_object_id - 1;
 
-    merged_doc.save(output_path)
-        .map_err(|e| SplitMergeError::Save { path: output_path.to_path_buf(), source: lopdf::Error::IO(e) })?;
+    merged_doc
+        .save(output_path)
+        .map_err(|e| SplitMergeError::Save {
+            path: output_path.to_path_buf(),
+            source: lopdf::Error::IO(e),
+        })?;
 
     Ok(total_pages)
 }
@@ -695,16 +689,18 @@ fn append_page_to_tree(
     let pages_root = doc
         .get_object_mut(pages_id)
         .and_then(|obj| obj.as_dict_mut())
-        .map_err(|e| SplitMergeError::Structure(format!(
-            "merged /Pages tree {pages_id:?} is not a dictionary: {e}"
-        )))?;
+        .map_err(|e| {
+            SplitMergeError::Structure(format!(
+                "merged /Pages tree {pages_id:?} is not a dictionary: {e}"
+            ))
+        })?;
 
     let kids = pages_root
         .get_mut(b"Kids")
         .and_then(|obj| obj.as_array_mut())
-        .map_err(|e| SplitMergeError::Structure(format!(
-            "merged /Pages tree is missing a /Kids array: {e}"
-        )))?;
+        .map_err(|e| {
+            SplitMergeError::Structure(format!("merged /Pages tree is missing a /Kids array: {e}"))
+        })?;
     kids.push(Object::Reference(page_id));
 
     match pages_root.get_mut(b"Count") {

@@ -1,16 +1,16 @@
 // pyo3_bridge removed — zero FFI architecture
 use crate::app::audit::AuditLog;
 use crate::engine::history::{ChangeHistory, ChangeRecord};
-use crate::engine::segments::{SegmentMap, SegmentManager, GlobalEdit};
+use crate::engine::segments::{GlobalEdit, SegmentManager, SegmentMap};
 use crate::pdf::ReplaceOutcome;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use uuid::Uuid;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 /// Opaque per-job handle. The runtime returns one when a job is enqueued;
 /// callers can later `Job::Cancel` it.
@@ -319,11 +319,17 @@ pub enum Job {
     /// Fetch list of available processor versions from the API.
     ListDocAiVersions,
     /// Deploy a specific processor version for inference.
-    DeployDocAiVersion { version_id: String },
+    DeployDocAiVersion {
+        version_id: String,
+    },
     /// Undeploy a specific processor version.
-    UndeployDocAiVersion { version_id: String },
+    UndeployDocAiVersion {
+        version_id: String,
+    },
     /// Set a version as the default processor version.
-    SetDefaultDocAiVersion { version_id: String },
+    SetDefaultDocAiVersion {
+        version_id: String,
+    },
     /// Trigger training of a new custom processor version.
     TrainDocAiVersion {
         display_name: String,
@@ -446,11 +452,12 @@ pub enum JobResult {
 
 impl JobResult {
     pub fn is_terminal(&self) -> bool {
-        !matches!(self,
+        !matches!(
+            self,
             Self::Progress { .. }
-            | Self::WorkflowStageChanged { .. }
-            | Self::WorkflowParseValidated { .. }
-            | Self::FontCascadeUsed(_)
+                | Self::WorkflowStageChanged { .. }
+                | Self::WorkflowParseValidated { .. }
+                | Self::FontCascadeUsed(_)
         )
     }
 }
@@ -476,7 +483,9 @@ impl TerminalTracker {
     #[allow(clippy::result_large_err)]
     pub fn send(&self, res: JobResult) -> Result<(), std::sync::mpsc::SendError<JobResult>> {
         if res.is_terminal() {
-            self.0.terminal_sent.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.0
+                .terminal_sent
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         self.0.tx.send(res)
     }
@@ -484,10 +493,14 @@ impl TerminalTracker {
 
 impl Drop for TerminalTrackerInner {
     fn drop(&mut self) {
-        if !self.terminal_sent.load(std::sync::atomic::Ordering::Relaxed) {
+        if !self
+            .terminal_sent
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             let _ = self.tx.send(JobResult::Error {
                 job_label: self.label.clone(),
-                message: "Background task panicked or exited silently without a terminal result.".into(),
+                message: "Background task panicked or exited silently without a terminal result."
+                    .into(),
             });
         }
     }
@@ -1405,7 +1418,13 @@ impl Runtime {
                             }
                             
                             // Get the best result from the loop
-                            let final_result = best_result.ok_or_else(|| anyhow::anyhow!("Transfer loop failed to yield any valid result"))?;
+                            let final_result = match best_result {
+                                Some(r) => r,
+                                None => {
+                                    let _ = res_tx.send(JobResult::Error { message: "Transfer loop failed to yield any valid result".into() });
+                                    return;
+                                }
+                            };
 
                             // ======= STAGE 9: Final Audit ========
                             send_progress(&res_tx, TransferStage::FinalAudit);

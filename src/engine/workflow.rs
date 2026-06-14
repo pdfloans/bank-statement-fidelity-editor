@@ -304,15 +304,15 @@ impl WorkflowDraft {
         }
     }
 
-    /// Atomic-ish delta-based save (tmp + rename). 
-    /// To optimize audit JSON writes and avoid blocking the GUI by rewriting 
+    /// Atomic-ish delta-based save (tmp + rename).
+    /// To optimize audit JSON writes and avoid blocking the GUI by rewriting
     /// multi-megabyte parsed transactions on every edit, we save the static base
     /// once and only rewrite the `edits` delta on subsequent saves.
     pub fn save_to_file(&self, path: &std::path::Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        
+
         let base_path = path.with_extension("base.json");
         let edits_path = path.with_extension("edits.json");
 
@@ -342,11 +342,13 @@ impl WorkflowDraft {
         let edits_path = path.with_extension("edits.json");
 
         // Try reading delta base first; fallback to legacy monolithic file
-        let raw = std::fs::read_to_string(&base_path)
-            .or_else(|_| std::fs::read_to_string(path))?;
+        let raw = std::fs::read_to_string(&base_path).or_else(|_| std::fs::read_to_string(path))?;
 
         let mut draft: Self = serde_json::from_str(&raw).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("draft decode: {e}"))
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("draft decode: {e}"),
+            )
         })?;
 
         if draft.schema_version != WORKFLOW_DRAFT_SCHEMA {
@@ -579,9 +581,7 @@ pub fn edit_set_hash(input_pdf_sha256: &str, edits: &[UserEdit]) -> String {
         h.update(e.new_text.as_bytes());
         h.update(b"|");
         let bb = e.bbox;
-        h.update(
-            format!("{:.3},{:.3},{:.3},{:.3}|", bb[0], bb[1], bb[2], bb[3]).as_bytes(),
-        );
+        h.update(format!("{:.3},{:.3},{:.3},{:.3}|", bb[0], bb[1], bb[2], bb[3]).as_bytes());
         h.update(format!("{:?};", e.field).as_bytes());
     }
     let digest = h.finalize();
@@ -715,7 +715,7 @@ mod tests {
     fn build_preview_applies_edits_and_cascades_balances() -> anyhow::Result<()> {
         let original = vec![
             tx(0, 0, Some(dec!(100)), None, Some(dec!(200))), // row 0: open 100 + 100 debit = 200 (expected)
-            tx(0, 1, None, Some(dec!(50)), Some(dec!(150))),  // row 1: 200 open - 50 credit = 150 (expected)
+            tx(0, 1, None, Some(dec!(50)), Some(dec!(150))), // row 1: 200 open - 50 credit = 150 (expected)
         ];
 
         let edits = vec![UserEdit {
@@ -727,7 +727,8 @@ mod tests {
             field: EditField::Debit,
         }];
 
-        let preview = build_preview(&original, &edits, dec!(100), None).map_err(|e| anyhow::anyhow!(e))?;
+        let preview =
+            build_preview(&original, &edits, dec!(100), None).map_err(|e| anyhow::anyhow!(e))?;
 
         // Row 0: debit changed 100 -> 200, balance recomputes 100 + 200 = 300
         assert_eq!(preview.rows[0].debit, Some(dec!(200)));
@@ -746,7 +747,8 @@ mod tests {
     fn build_preview_marks_balanced_when_final_matches_expected() -> anyhow::Result<()> {
         // opening 100 + debit 100 = 200 closing
         let original = vec![tx(0, 0, Some(dec!(100)), None, Some(dec!(200)))];
-        let preview = build_preview(&original, &[], dec!(100), Some(dec!(200))).map_err(|e| anyhow::anyhow!(e))?;
+        let preview = build_preview(&original, &[], dec!(100), Some(dec!(200)))
+            .map_err(|e| anyhow::anyhow!(e))?;
         assert!(preview.balanced);
         assert_eq!(preview.final_imbalance, dec!(0.00));
         Ok(())
@@ -1009,7 +1011,11 @@ mod tests {
         assert!(!fail_unintended.passed());
     }
 
-    fn dummy_pdf(dir: &std::path::Path, name: &str, content: &[u8]) -> anyhow::Result<std::path::PathBuf> {
+    fn dummy_pdf(
+        dir: &std::path::Path,
+        name: &str,
+        content: &[u8],
+    ) -> anyhow::Result<std::path::PathBuf> {
         let p = dir.join(name);
         std::fs::write(&p, content)?;
         Ok(p)
@@ -1040,7 +1046,8 @@ mod tests {
             field: EditField::Debit,
         }];
 
-        let draft = WorkflowDraft::new(&pdf, Some(validation.clone()), vec![], edits.clone()).map_err(|e| anyhow::anyhow!(e))?;
+        let draft = WorkflowDraft::new(&pdf, Some(validation.clone()), vec![], edits.clone())
+            .map_err(|e| anyhow::anyhow!(e))?;
         let path = dir.path().join("draft.json");
         draft.save_to_file(&path).map_err(|e| anyhow::anyhow!(e))?;
 
@@ -1057,7 +1064,8 @@ mod tests {
         use tempfile::tempdir;
         let dir = tempdir()?;
         let pdf = dummy_pdf(dir.path(), "a.pdf", b"%PDF-1.4 v1")?;
-        let draft = WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
+        let draft =
+            WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
         assert!(draft.matches_pdf(&pdf));
         Ok(())
     }
@@ -1067,7 +1075,8 @@ mod tests {
         use tempfile::tempdir;
         let dir = tempdir()?;
         let pdf = dummy_pdf(dir.path(), "b.pdf", b"%PDF-1.4 v1")?;
-        let draft = WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
+        let draft =
+            WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
         std::fs::write(&pdf, b"%PDF-1.4 v2")?;
         assert!(!draft.matches_pdf(&pdf));
         Ok(())
@@ -1100,7 +1109,8 @@ mod tests {
         let bytes = std::fs::read(&pdf)?;
         let hash = sha256_hex_of(&bytes);
 
-        let from_disk = WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
+        let from_disk =
+            WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
         let from_cache = WorkflowDraft::new_with_hash(&pdf, hash.clone(), None, vec![], vec![]);
 
         // Same content hash, same path; saved_at differs by milliseconds so

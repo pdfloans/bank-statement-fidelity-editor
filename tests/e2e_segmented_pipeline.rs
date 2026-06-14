@@ -84,7 +84,8 @@ fn every_statement_splits_to_within_pro_limit_and_merges_losslessly() {
                 seg.page_count
             );
             assert_eq!(
-                seg.page_offset, covered,
+                seg.page_offset,
+                covered,
                 "{}: segment {} offset gap",
                 pdf.display(),
                 i

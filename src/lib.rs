@@ -10,8 +10,8 @@ pub mod pdf;
 pub mod security;
 
 pub use crate::error::{
-    AppError, AuditError, ConfigError, ExtractionError, BalanceError, VerificationError as AppVerificationError,
-    TextEditError, AIError, DocumentAIError, PdfRestError, CacheError,
+    AIError, AppError, AuditError, BalanceError, CacheError, ConfigError, DocumentAIError,
+    ExtractionError, PdfRestError, TextEditError, VerificationError as AppVerificationError,
 };
 
 pub use engine::balance::process_and_reconcile;

@@ -32,8 +32,8 @@ impl OxidizePdfEngine {
     /// Load a PDF document via lopdf (which is already a dependency) and
     /// count pages.
     fn page_count(&self, path: &Path) -> Result<usize, EngineError> {
-        let doc = lopdf::Document::load(path)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        let doc =
+            lopdf::Document::load(path).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
         Ok(doc.get_pages().len())
     }
 
@@ -47,8 +47,8 @@ impl OxidizePdfEngine {
         path: &Path,
         page_num: usize,
     ) -> Result<Vec<TextBlock>, EngineError> {
-        let doc = lopdf::Document::load(path)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        let doc =
+            lopdf::Document::load(path).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
 
         let pages = doc.get_pages();
         let page_id = pages
@@ -66,7 +66,9 @@ impl OxidizePdfEngine {
             .map_err(|e| EngineError::ExtractFailed(format!("Failed to get page content: {e}")))?;
 
         let operations = lopdf::content::Content::decode(&content)
-            .map_err(|e| EngineError::ExtractFailed(format!("Failed to decode content stream: {e}")))?
+            .map_err(|e| {
+                EngineError::ExtractFailed(format!("Failed to decode content stream: {e}"))
+            })?
             .operations;
 
         let mut blocks: Vec<TextBlock> = Vec::new();
@@ -92,8 +94,7 @@ impl OxidizePdfEngine {
                     // Set font: Tf <font-name> <size>
                     if op.operands.len() >= 2 {
                         if let lopdf::Object::Name(ref name) = op.operands[0] {
-                            current_font =
-                                String::from_utf8_lossy(name).to_string();
+                            current_font = String::from_utf8_lossy(name).to_string();
                         }
                         font_size = operand_to_f32(&op.operands[1]).unwrap_or(12.0);
                     }
@@ -148,11 +149,9 @@ impl OxidizePdfEngine {
                         for item in arr {
                             match item {
                                 lopdf::Object::String(bytes, _) => {
-                                    combined_text
-                                        .push_str(&String::from_utf8_lossy(bytes));
+                                    combined_text.push_str(&String::from_utf8_lossy(bytes));
                                 }
-                                lopdf::Object::Integer(_)
-                                | lopdf::Object::Real(_) => {
+                                lopdf::Object::Integer(_) | lopdf::Object::Real(_) => {
                                     // Kerning adjustment — skip
                                 }
                                 _ => {}
@@ -161,8 +160,7 @@ impl OxidizePdfEngine {
                         if !combined_text.trim().is_empty() {
                             let x = tm[4];
                             let y = tm[5];
-                            let estimated_width =
-                                combined_text.len() as f32 * font_size * 0.5;
+                            let estimated_width = combined_text.len() as f32 * font_size * 0.5;
                             blocks.push(TextBlock {
                                 page: page_num,
                                 text: combined_text,
@@ -211,44 +209,46 @@ impl PdfEngine for OxidizePdfEngine {
         }
     }
 
-    fn render_page(
-        &self,
-        path: &Path,
-        page: usize,
-        dpi: f32,
-    ) -> Result<RenderedPage, EngineError> {
+    fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
         // Fallback Native Renderer (Structural/Layout mode)
         // Since full PDF rasterization via tiny-skia is Phase 6, we draw text block
         // bounding boxes on a white canvas. This allows UI interaction (clicking,
         // selecting text for edits) without needing external C++ renderers.
-        
+
         let width_pts = 600.0; // Standard A4 estimated width
         let height_pts = 850.0;
         let width_px = (width_pts * dpi / 72.0) as u32;
         let height_px = (height_pts * dpi / 72.0) as u32;
 
-        let mut img = image::RgbaImage::from_pixel(width_px, height_px, image::Rgba([255, 255, 255, 255]));
-        
+        let mut img =
+            image::RgbaImage::from_pixel(width_px, height_px, image::Rgba([255, 255, 255, 255]));
+
         if let Ok(blocks) = self.get_text_blocks(path, page) {
             for b in blocks {
                 let x0 = (b.bbox[0] * dpi / 72.0) as i32;
                 // PDF y=0 is bottom; image y=0 is top
-                let y0 = (height_px as f32 - (b.bbox[3] * dpi / 72.0)) as i32; 
+                let y0 = (height_px as f32 - (b.bbox[3] * dpi / 72.0)) as i32;
                 let x1 = (b.bbox[2] * dpi / 72.0) as i32;
                 let y1 = (height_px as f32 - (b.bbox[1] * dpi / 72.0)) as i32;
 
                 let rect = imageproc::rect::Rect::at(x0.max(0), y0.max(0))
                     .of_size(((x1 - x0).max(1)) as u32, ((y1 - y0).max(1)) as u32);
-                
-                imageproc::drawing::draw_hollow_rect_mut(&mut img, rect, image::Rgba([0, 0, 0, 100]));
+
+                imageproc::drawing::draw_hollow_rect_mut(
+                    &mut img,
+                    rect,
+                    image::Rgba([0, 0, 0, 100]),
+                );
             }
         }
 
         let mut bytes = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut bytes);
         img.write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| EngineError::RenderFailed(format!("Failed to encode fallback PNG: {}", e)))?;
-        
+            .map_err(|e| {
+                EngineError::RenderFailed(format!("Failed to encode fallback PNG: {}", e))
+            })?;
+
         Ok(RenderedPage {
             png_bytes: bytes,
             width_pts,
@@ -256,11 +256,7 @@ impl PdfEngine for OxidizePdfEngine {
         })
     }
 
-    fn get_text_blocks(
-        &self,
-        path: &Path,
-        page: usize,
-    ) -> Result<Vec<TextBlock>, EngineError> {
+    fn get_text_blocks(&self, path: &Path, page: usize) -> Result<Vec<TextBlock>, EngineError> {
         self.extract_text_blocks_from_page(path, page)
     }
 
@@ -272,9 +268,9 @@ impl PdfEngine for OxidizePdfEngine {
         y: f32,
     ) -> Result<Option<TextBlock>, EngineError> {
         let blocks = self.get_text_blocks(path, page)?;
-        Ok(blocks.into_iter().find(|b| {
-            x >= b.bbox[0] && x <= b.bbox[2] && y >= b.bbox[1] && y <= b.bbox[3]
-        }))
+        Ok(blocks
+            .into_iter()
+            .find(|b| x >= b.bbox[0] && x <= b.bbox[2] && y >= b.bbox[1] && y <= b.bbox[3]))
     }
 
     fn apply_change(
@@ -287,19 +283,17 @@ impl PdfEngine for OxidizePdfEngine {
         _font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
         // Load the document
-        let mut doc = lopdf::Document::load(input)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+        let mut doc =
+            lopdf::Document::load(input).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
 
         let pages = doc.get_pages();
-        let page_id = *pages
-            .get(&(page as u32 + 1))
-            .ok_or_else(|| {
-                EngineError::ApplyFailed(format!(
-                    "Page {} not found (document has {} pages)",
-                    page,
-                    pages.len()
-                ))
-            })?;
+        let page_id = *pages.get(&(page as u32 + 1)).ok_or_else(|| {
+            EngineError::ApplyFailed(format!(
+                "Page {} not found (document has {} pages)",
+                page,
+                pages.len()
+            ))
+        })?;
 
         // Get the page content
         let content_bytes = doc
@@ -400,7 +394,8 @@ impl PdfEngine for OxidizePdfEngine {
         }
 
         // Re-encode the content stream and set it back on the page
-        let new_content_bytes = content.encode()
+        let new_content_bytes = content
+            .encode()
             .map_err(|e| EngineError::ApplyFailed(format!("Failed to encode content: {e}")))?;
 
         doc.change_page_content(page_id, new_content_bytes)
@@ -422,7 +417,9 @@ impl PdfEngine for OxidizePdfEngine {
 
         let mut pages = Vec::with_capacity(page_count);
         for i in 0..page_count {
-            let blocks = self.extract_text_blocks_from_page(path, i).unwrap_or_default();
+            let blocks = self
+                .extract_text_blocks_from_page(path, i)
+                .unwrap_or_default();
 
             // Simple heuristic: check for header/footer by position
             let has_header = blocks.iter().any(|b| b.bbox[1] < 72.0); // top inch

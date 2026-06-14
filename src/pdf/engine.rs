@@ -244,12 +244,13 @@ mod tests {
     fn dominant_span_overlap_picks_the_best_match() -> anyhow::Result<()> {
         // Two spans on page 0; bbox sits closer to the second.
         let blocks = vec![
-            block(0, [0.0, 0.0, 20.0, 20.0]),  // far from bbox
+            block(0, [0.0, 0.0, 20.0, 20.0]),    // far from bbox
             block(0, [50.0, 50.0, 100.0, 70.0]), // partial overlap
-            block(1, [55.0, 55.0, 75.0, 75.0]), // wrong page, must not match
+            block(1, [55.0, 55.0, 75.0, 75.0]),  // wrong page, must not match
         ];
         let bbox = [55.0, 55.0, 75.0, 75.0];
-        let (idx, frac) = dominant_span_overlap(&blocks, 0, bbox).ok_or_else(|| anyhow::anyhow!("No overlap found"))?;
+        let (idx, frac) = dominant_span_overlap(&blocks, 0, bbox)
+            .ok_or_else(|| anyhow::anyhow!("No overlap found"))?;
         assert_eq!(idx, 1);
         assert!((frac - 1.0).abs() < 1e-6);
         Ok(())
@@ -269,13 +270,13 @@ mod tests {
     fn dominant_span_overlap_prefers_larger_fraction_over_document_order() -> anyhow::Result<()> {
         // Two cells with identical text; only one has a near-perfect bbox match.
         let blocks = vec![
-            block(0, [50.0, 50.0, 100.0, 70.0]), // partial overlap
+            block(0, [50.0, 50.0, 100.0, 70.0]),    // partial overlap
             block(0, [200.0, 200.0, 250.0, 220.0]), // exact overlap with target
         ];
         let bbox = [200.0, 200.0, 250.0, 220.0];
-        let (idx, _) = dominant_span_overlap(&blocks, 0, bbox).ok_or_else(|| anyhow::anyhow!("No overlap found"))?;
+        let (idx, _) = dominant_span_overlap(&blocks, 0, bbox)
+            .ok_or_else(|| anyhow::anyhow!("No overlap found"))?;
         assert_eq!(idx, 1, "must pick the cell that the bbox actually covers");
         Ok(())
     }
 }
-

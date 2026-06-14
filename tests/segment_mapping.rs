@@ -1,4 +1,4 @@
-use dual_core_pdf_pipeline::engine::segments::{SegmentMap, SegmentInfo};
+use dual_core_pdf_pipeline::engine::segments::{SegmentInfo, SegmentMap};
 use proptest::prelude::*;
 use std::path::PathBuf;
 
@@ -17,7 +17,12 @@ fn make_map(page_counts: &[usize]) -> SegmentMap {
         offset += count;
     }
 
-    SegmentMap::new(segments, PathBuf::from("source.pdf"), PathBuf::from("temp"), 3)
+    SegmentMap::new(
+        segments,
+        PathBuf::from("source.pdf"),
+        PathBuf::from("temp"),
+        3,
+    )
 }
 
 proptest! {

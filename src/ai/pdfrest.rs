@@ -77,7 +77,11 @@ impl PdfRestClient {
         client
     }
 
-    fn authed_request(&self, method: reqwest::Method, url: &str) -> reqwest_middleware::RequestBuilder {
+    fn authed_request(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+    ) -> reqwest_middleware::RequestBuilder {
         self.http
             .request(method, url)
             .header("Api-Key", &self.api_key)

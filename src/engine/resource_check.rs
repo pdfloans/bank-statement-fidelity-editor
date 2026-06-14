@@ -59,10 +59,16 @@ const RESOURCE_CATEGORIES: [&[u8]; 3] = [b"Font", b"XObject", b"ExtGState"];
 pub enum ResourceIssue {
     /// A referenced resource was not carried over but the page still renders
     /// (degraded). Maps to Req 15.2: record a warning and emit the output.
-    Warning { global_page: usize, category: String },
+    Warning {
+        global_page: usize,
+        category: String,
+    },
     /// A missing resource makes the page unrenderable. Maps to Req 15.3:
     /// return an error and retain the original document instead of emitting.
-    Fatal { global_page: usize, category: String },
+    Fatal {
+        global_page: usize,
+        category: String,
+    },
 }
 
 impl ResourceIssue {
@@ -89,7 +95,10 @@ pub enum ResourceCheckError {
     /// offending 0-based Global_Page so the caller can identify it, retain the
     /// original document, and avoid emitting a visually broken PDF.
     #[error("global page {global_page} of the merged output is unrenderable: missing /{category}")]
-    UnrenderablePage { global_page: usize, category: String },
+    UnrenderablePage {
+        global_page: usize,
+        category: String,
+    },
     /// The merged document has malformed structure that prevents the check
     /// from inspecting a page (e.g. a page object that is not a dictionary).
     #[error("malformed merged PDF structure: {0}")]
@@ -135,8 +144,14 @@ pub fn check_merged_resources(merged_path: &Path) -> Result<Vec<String>, Resourc
         for issue in check_page(&doc, global_page, page_id)? {
             match issue {
                 ResourceIssue::Warning { .. } => warnings.push(issue.message()),
-                ResourceIssue::Fatal { global_page, category } => {
-                    return Err(ResourceCheckError::UnrenderablePage { global_page, category });
+                ResourceIssue::Fatal {
+                    global_page,
+                    category,
+                } => {
+                    return Err(ResourceCheckError::UnrenderablePage {
+                        global_page,
+                        category,
+                    });
                 }
             }
         }

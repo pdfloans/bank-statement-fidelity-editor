@@ -47,7 +47,10 @@ fn drain_until<F: Fn(&JobResult) -> bool>(
 fn end_to_end_workflow_against_au_statement() {
     let pdf = PathBuf::from("AU Bank Statements/IA_Bank_Statement_202602.pdf");
     if !pdf.exists() {
-        eprintln!("[skip] AU statement not present at {}; e2e test self-skipped", pdf.display());
+        eprintln!(
+            "[skip] AU statement not present at {}; e2e test self-skipped",
+            pdf.display()
+        );
         return;
     }
 
@@ -72,15 +75,26 @@ fn end_to_end_workflow_against_au_statement() {
 
     eprintln!("[e2e] Stage 1: parse + validate");
     job_tx
-        .send(Job::WorkflowParseAndValidate { input: pdf.clone(), version: None })
+        .send(Job::WorkflowParseAndValidate {
+            input: pdf.clone(),
+            version: None,
+        })
         .unwrap();
     let parse = drain_until(
         &job_rx,
-        |r| matches!(r, JobResult::WorkflowParseValidated { .. } | JobResult::Error { .. }),
+        |r| {
+            matches!(
+                r,
+                JobResult::WorkflowParseValidated { .. } | JobResult::Error { .. }
+            )
+        },
         Duration::from_secs(180),
     );
     let (validation, transactions) = match parse {
-        Some(JobResult::WorkflowParseValidated { validation, transactions }) => (validation, transactions),
+        Some(JobResult::WorkflowParseValidated {
+            validation,
+            transactions,
+        }) => (validation, transactions),
         Some(JobResult::Error { message, .. }) => {
             panic!("workflow parse failed: {message}");
         }
@@ -92,9 +106,7 @@ fn end_to_end_workflow_against_au_statement() {
     );
     eprintln!(
         "[e2e]   parsed {} txs • opening {} • closing {}",
-        validation.transactions_found,
-        validation.opening_balance,
-        validation.closing_balance
+        validation.transactions_found, validation.opening_balance, validation.closing_balance
     );
 
     // Pick a transaction with a non-zero debit to mutate. We bump it by $0.01
@@ -139,7 +151,14 @@ fn end_to_end_workflow_against_au_statement() {
         .unwrap();
     let preview = drain_until(
         &job_rx,
-        |r| matches!(r, JobResult::WorkflowPreviewBuilt(_) | JobResult::WorkflowFailed(_) | JobResult::Error { .. }),
+        |r| {
+            matches!(
+                r,
+                JobResult::WorkflowPreviewBuilt(_)
+                    | JobResult::WorkflowFailed(_)
+                    | JobResult::Error { .. }
+            )
+        },
         Duration::from_secs(60),
     );
     let preview = match preview {
@@ -153,7 +172,10 @@ fn end_to_end_workflow_against_au_statement() {
         "[e2e]   preview: {} row(s) will change • final imbalance ${}",
         changed, preview.final_imbalance
     );
-    assert!(changed >= 1, "preview should mark at least the edited row as changed");
+    assert!(
+        changed >= 1,
+        "preview should mark at least the edited row as changed"
+    );
 
     eprintln!("[e2e] Stage 4-6: confirm + render + validate + final check");
     job_tx
