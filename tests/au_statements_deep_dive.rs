@@ -194,6 +194,26 @@ fn test_all_au_statements() {
             failed += 1;
         } else if let Some(o) = outcome {
             eprintln!("SUCCESS! Visual attempts: {}, final imbalance: {}", o.visual_attempts, o.final_imbalance);
+            
+            // Explicit Fidelity Assertions
+            let input_bytes = std::fs::read(&pdf).unwrap();
+            let output_bytes = std::fs::read(&output).unwrap();
+            
+            let input_doc = lopdf::Document::load(&pdf).unwrap();
+            let output_doc = lopdf::Document::load(&output).unwrap();
+            
+            assert_eq!(
+                input_doc.get_pages().len(), 
+                output_doc.get_pages().len(), 
+                "Page counts must match precisely"
+            );
+            
+            let ratio = output_bytes.len() as f64 / input_bytes.len() as f64;
+            assert!(
+                ratio > 0.6 && ratio < 1.4, 
+                "AST serialization should maintain roughly the same byte footprint (ratio: {})", ratio
+            );
+            
             passed += 1;
         } else {
             eprintln!("TIMEOUT (600s)");

@@ -74,6 +74,7 @@ winnow = "0.7"
 
 # Vision & OCR (future phases)
 imageproc = "0.25"
+zeroize = "1.9.0"
 
 [dev-dependencies]
 wiremock = "0.6"
@@ -104,6 +105,9 @@ split-debuginfo = "packed"
 opt-level = 1
 
 [profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
 debug = false
-strip = "debuginfo"
-codegen-units = 16

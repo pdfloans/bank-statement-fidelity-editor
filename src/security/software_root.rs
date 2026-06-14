@@ -11,6 +11,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 const MIN_PASSPHRASE_LEN: usize = 16;
 const KEY_FILE: &str = ".pipeline_key";
@@ -22,7 +23,7 @@ pub fn require_software_attestation() -> Result<(), String> {
     tracing::info!("[SECURITY] Software Root of Trust (Production Mode)");
     tracing::info!("[SECURITY] Strong passphrase-based cryptographic attestation active.");
 
-    let passphrase = get_passphrase()?;
+    let passphrase = Zeroizing::new(get_passphrase()?);
 
     // Validate passphrase length
     if passphrase.len() < MIN_PASSPHRASE_LEN {

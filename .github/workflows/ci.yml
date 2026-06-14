@@ -41,13 +41,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
-      - name: Install Python deps for PyO3 link tests
-        run: pip install pymupdf
 
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
@@ -81,10 +75,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install pymupdf
+
 
       - uses: Swatinem/rust-cache@v2
 
@@ -118,10 +109,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install pymupdf
+
 
       - uses: Swatinem/rust-cache@v2
 
