@@ -4368,7 +4368,7 @@ pub fn run_gui(
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 820.0])
             .with_min_inner_size([960.0, 640.0])
-            .with_title("Bank Statement Fidelity Editor v0.4.0")
+            .with_title("Bank Statement Fidelity Editor v0.5.0")
             .with_icon(load_icon()),
         ..Default::default()
     };

@@ -1,4 +1,4 @@
-//! Bank Statement Fidelity Editor v0.4.0
+//! Bank Statement Fidelity Editor v0.5.0
 //! Public API
 
 pub mod ai;

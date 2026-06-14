@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.0] - 2026-06-07
+
+### Changed
+- Bumped version to v0.5.0 and updated documentation.
+
 ## [v0.4.0] - 2026-05-26
 
 ### Added

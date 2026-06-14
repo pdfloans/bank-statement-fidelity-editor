@@ -1,4 +1,4 @@
-# Bank Statement Fidelity Editor v0.4.0
+# Bank Statement Fidelity Editor v0.5.0
 
 A high-fidelity PDF text editor focused on bank statements: replace text and numbers in-place with the original kerning, font, size, color, and position preserved, then keep all transactions and running balances mathematically consistent.
 

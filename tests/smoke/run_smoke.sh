@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# E2E Non-CI Smoke Harness (v0.4.0)
+# E2E Non-CI Smoke Harness (v0.5.0)
 # Runs the full extraction -> balance -> verify -> export pipeline.
 #
 # Usage: ./tests/smoke/run_smoke.sh <sample.pdf> [--keep-output]
@@ -29,7 +29,7 @@ JSON_OUT="$TMP_DIR/extracted.json"
 VERIFY_DIR="$TMP_DIR/verify_report"
 
 echo "============================================================"
-echo " Starting dual-core-pdf-pipeline v0.4.0 Smoke Test"
+echo " Starting dual-core-pdf-pipeline v0.5.0 Smoke Test"
 echo "============================================================"
 echo "[1/4] Extracting semantic data and geometry..."
 cargo run --release --features dev -- extract --input "$SAMPLE_PDF" --output "$JSON_OUT"

@@ -18,7 +18,7 @@ I have a highly advanced bank statement PDF editing application. The current ver
 **Your Task:**
 Take the current codebase (provided as flattened files) and make it **production-ready, beautiful, and extremely intelligent**.
 
-**Core Requirements for v0.4.0:**
+**Core Requirements for v0.5.0:**
 
 1. **Make all real API calls fully working** (Google Document AI, Gemini, Lipi.ai) with proper authentication and error handling.
 2. **Improve the GUI significantly** — make it feel like a professional desktop tool (better spacing, modern design, loading spinners, progress indicators, beautiful proposed changes UI).

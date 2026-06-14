@@ -295,8 +295,6 @@ pub async fn verify_edit(
     output_dir: &Path,
     intended_bboxes: &[(usize, [f32; 4])],
     math_inputs: MathInputs,
-    use_pdfrest: bool,
-    pdfrest_key: Option<String>,
 ) -> Result<VerificationReport, VerificationError> {
     verify_edit_pages(
         original,
@@ -304,8 +302,6 @@ pub async fn verify_edit(
         output_dir,
         intended_bboxes,
         math_inputs,
-        use_pdfrest,
-        pdfrest_key,
         None,
     )
     .await
@@ -324,8 +320,6 @@ pub async fn verify_edit_pages(
     output_dir: &Path,
     intended_bboxes: &[(usize, [f32; 4])],
     math_inputs: MathInputs,
-    use_pdfrest: bool,
-    pdfrest_key: Option<String>,
     only_pages: Option<&[usize]>,
 ) -> Result<VerificationReport, VerificationError> {
     verify_edit_pages_with_padding(
@@ -334,8 +328,6 @@ pub async fn verify_edit_pages(
         output_dir,
         intended_bboxes,
         math_inputs,
-        use_pdfrest,
-        pdfrest_key,
         only_pages,
         0.0,
     )
@@ -356,48 +348,10 @@ pub async fn verify_edit_pages_with_padding(
     output_dir: &Path,
     intended_bboxes: &[(usize, [f32; 4])],
     math_inputs: MathInputs,
-    use_pdfrest: bool,
-    pdfrest_key: Option<String>,
     only_pages: Option<&[usize]>,
     mask_padding_pts: f32,
 ) -> Result<VerificationReport, VerificationError> {
     std::fs::create_dir_all(output_dir)?;
-
-    let mut pdfrest_warning: Option<String> = None;
-    let mut pdfrest_images: Option<(Vec<std::path::PathBuf>, Vec<std::path::PathBuf>)> = None;
-
-    if use_pdfrest {
-        if let Some(key) = pdfrest_key {
-            let client = crate::ai::pdfrest::PdfRestClient::new(key);
-            let orig_out = output_dir.join("pdfrest/original");
-            let edit_out = output_dir.join("pdfrest/edited");
-
-            let res = tokio::join!(
-                client.render_pdf_to_images(original, &orig_out, 300),
-                client.render_pdf_to_images(edited, &edit_out, 300)
-            );
-
-            match res {
-                (Ok(orig_paths), Ok(edit_paths)) => {
-                    pdfrest_images = Some((orig_paths, edit_paths));
-                }
-                (Err(e), _) | (_, Err(e)) => {
-                    let label = match e {
-                        crate::ai::pdfrest::PdfRestError::Auth => "Auth Failure",
-                        crate::ai::pdfrest::PdfRestError::Timeout { .. } => "Timeout",
-                        _ => "API Error",
-                    };
-                    pdfrest_warning = Some(format!(
-                        "⚠️ pdfRest unavailable ({label}); using local rendering."
-                    ));
-                }
-            }
-        } else {
-            pdfrest_warning = Some(
-                "⚠️ pdfRest requested but PDFREST_API_KEY missing; using local rendering.".into(),
-            );
-        }
-    }
 
     let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
         .or_else(|_| Pdfium::bind_to_system_library())
@@ -435,89 +389,47 @@ pub async fn verify_edit_pages_with_padding(
         }
         let page_idx = i as u16;
 
-        let (original_img, edited_img) = if let Some((orig_paths, edit_paths)) = &pdfrest_images {
-            if i < orig_paths.len() && i < edit_paths.len() {
-                let o = image::open(&orig_paths[i]).map(|img| img.to_rgba8());
-                let e = image::open(&edit_paths[i]).map(|img| img.to_rgba8());
+        let original_page = original_doc
+            .pages()
+            .get(page_idx)
+            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
+        let edited_page = edited_doc
+            .pages()
+            .get(page_idx)
+            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
 
-                match (o, e) {
-                    (Ok(o_img), Ok(e_img)) => {
-                        report_files.push(orig_paths[i].to_string_lossy().to_string());
-                        report_files.push(edit_paths[i].to_string_lossy().to_string());
-                        (o_img, e_img)
-                    }
-                    _ => {
-                        // Item #19: identical pinned config for both sides.
-                        let original_page = original_doc
-                            .pages()
-                            .get(page_idx)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
-                        let edited_page = edited_doc
-                            .pages()
-                            .get(page_idx)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
+        let width_pts = original_page.width().value;
+        let target_width = (width_pts * BASE_DPI / 72.0) as i32;
 
-                        let target_width = (original_page.width().value * BASE_DPI / 72.0) as i32;
-                        let render_config = pinned_render_config(target_width);
+        // Item #19: one pinned config drives BOTH renders.
+        let render_config = pinned_render_config(target_width);
 
-                        let o_img = original_page
-                            .render_with_config(&render_config)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                            .as_image()
-                            .to_rgba8();
-                        let e_img = edited_page
-                            .render_with_config(&render_config)
-                            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                            .as_image()
-                            .to_rgba8();
-                        (o_img, e_img)
-                    }
-                }
-            } else {
-                (image::RgbaImage::new(1, 1), image::RgbaImage::new(1, 1)) // Should not happen
-            }
-        } else {
-            let original_page = original_doc
-                .pages()
-                .get(page_idx)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
-            let edited_page = edited_doc
-                .pages()
-                .get(page_idx)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
+        let o_img = original_page
+            .render_with_config(&render_config)
+            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
+            .as_image()
+            .to_rgba8();
 
-            let width_pts = original_page.width().value;
-            let target_width = (width_pts * BASE_DPI / 72.0) as i32;
+        let e_img = edited_page
+            .render_with_config(&render_config)
+            .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
+            .as_image()
+            .to_rgba8();
 
-            // Item #19: one pinned config drives BOTH renders.
-            let render_config = pinned_render_config(target_width);
+        let orig_png_path = output_dir.join(format!("original_p{}_300dpi.png", i + 1));
+        let edit_png_path = output_dir.join(format!("edited_p{}_300dpi.png", i + 1));
 
-            let o_img = original_page
-                .render_with_config(&render_config)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                .as_image()
-                .to_rgba8();
+        o_img
+            .save(&orig_png_path)
+            .map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
+        e_img
+            .save(&edit_png_path)
+            .map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
 
-            let e_img = edited_page
-                .render_with_config(&render_config)
-                .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?
-                .as_image()
-                .to_rgba8();
+        report_files.push(orig_png_path.to_string_lossy().to_string());
+        report_files.push(edit_png_path.to_string_lossy().to_string());
+        let (original_img, edited_img) = (o_img, e_img);
 
-            let orig_png_path = output_dir.join(format!("original_p{}_300dpi.png", i + 1));
-            let edit_png_path = output_dir.join(format!("edited_p{}_300dpi.png", i + 1));
-
-            o_img
-                .save(&orig_png_path)
-                .map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
-            e_img
-                .save(&edit_png_path)
-                .map_err(|e| VerificationError::ImageEncode(e.to_string()))?;
-
-            report_files.push(orig_png_path.to_string_lossy().to_string());
-            report_files.push(edit_png_path.to_string_lossy().to_string());
-            (o_img, e_img)
-        };
 
         // Build intended-edit exclusion rects in image space (with padding).
         let scale = BASE_DPI / 72.0;
@@ -600,18 +512,16 @@ pub async fn verify_edit_pages_with_padding(
         // alignment. High residual = the new glyphs don't match the
         // original's weight/spacing/shape — i.e. a fidelity failure on the
         // edit itself, which the old blanket-mask approach never checked.
-        if pdfrest_images.is_none() {
-            for (page, bbox) in intended_bboxes {
-                if *page != i {
-                    continue;
-                }
-                let o_region =
-                    render_region_gray(&original_doc, page_idx, *bbox, 3.0, EDIT_REGION_DPI)?;
-                let e_region =
-                    render_region_gray(&edited_doc, page_idx, *bbox, 3.0, EDIT_REGION_DPI)?;
-                let (score, _dx, _dy) = region_fidelity_score(&o_region, &e_region);
-                max_edit_region_score = max_edit_region_score.max(score);
+        for (page, bbox) in intended_bboxes {
+            if *page != i {
+                continue;
             }
+            let o_region =
+                render_region_gray(&original_doc, page_idx, *bbox, 3.0, EDIT_REGION_DPI)?;
+            let e_region =
+                render_region_gray(&edited_doc, page_idx, *bbox, 3.0, EDIT_REGION_DPI)?;
+            let (score, _dx, _dy) = region_fidelity_score(&o_region, &e_region);
+            max_edit_region_score = max_edit_region_score.max(score);
         }
     }
     
@@ -668,9 +578,7 @@ pub async fn verify_edit_pages_with_padding(
     ));
     final_message.push_str(&format!("\n{math_message}"));
 
-    if let Some(warn) = pdfrest_warning {
-        final_message.push_str(&format!("\n{warn}"));
-    }
+
 
     Ok(VerificationReport {
         math_valid,
