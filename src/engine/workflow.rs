@@ -712,17 +712,12 @@ mod tests {
     }
 
     #[test]
-    fn build_preview_propagates_a_single_credit_edit_through_running_balance() {
-        // NB: this codebase uses balance = balance + debit - credit (i.e. debit is
-        // money in, credit is money out — see engine/balance.rs::recalculate_and_validate).
-        // Two transactions starting from opening 100:
-        //   row 0: debit 100 -> balance 200
-        //   row 1: credit 50 -> balance 150
+    fn build_preview_applies_edits_and_cascades_balances() -> anyhow::Result<()> {
         let original = vec![
-            tx(0, 0, Some(dec!(100)), None, Some(dec!(200))),
-            tx(0, 1, None, Some(dec!(50)), Some(dec!(150))),
+            tx(0, 0, Some(dec!(100)), None, Some(dec!(200))), // row 0: open 100 + 100 debit = 200 (expected)
+            tx(0, 1, None, Some(dec!(50)), Some(dec!(150))),  // row 1: 200 open - 50 credit = 150 (expected)
         ];
-        // User changes row 0's debit from 100 to 200.
+
         let edits = vec![UserEdit {
             page: 0,
             line_on_page: 0,
@@ -732,7 +727,7 @@ mod tests {
             field: EditField::Debit,
         }];
 
-        let preview = build_preview(&original, &edits, dec!(100), None).unwrap();
+        let preview = build_preview(&original, &edits, dec!(100), None).map_err(|e| anyhow::anyhow!(e))?;
 
         // Row 0: debit changed 100 -> 200, balance recomputes 100 + 200 = 300
         assert_eq!(preview.rows[0].debit, Some(dec!(200)));
@@ -744,15 +739,17 @@ mod tests {
         // Both rows are flagged as changed (row 0 directly, row 1 by cascade)
         assert!(preview.rows[0].will_change);
         assert!(preview.rows[1].will_change);
+        Ok(())
     }
 
     #[test]
-    fn build_preview_marks_balanced_when_final_matches_expected() {
+    fn build_preview_marks_balanced_when_final_matches_expected() -> anyhow::Result<()> {
         // opening 100 + debit 100 = 200 closing
         let original = vec![tx(0, 0, Some(dec!(100)), None, Some(dec!(200)))];
-        let preview = build_preview(&original, &[], dec!(100), Some(dec!(200))).unwrap();
+        let preview = build_preview(&original, &[], dec!(100), Some(dec!(200))).map_err(|e| anyhow::anyhow!(e))?;
         assert!(preview.balanced);
         assert_eq!(preview.final_imbalance, dec!(0.00));
+        Ok(())
     }
 
     #[test]
@@ -1012,17 +1009,17 @@ mod tests {
         assert!(!fail_unintended.passed());
     }
 
-    fn dummy_pdf(dir: &std::path::Path, name: &str, content: &[u8]) -> std::path::PathBuf {
+    fn dummy_pdf(dir: &std::path::Path, name: &str, content: &[u8]) -> anyhow::Result<std::path::PathBuf> {
         let p = dir.join(name);
-        std::fs::write(&p, content).unwrap();
-        p
+        std::fs::write(&p, content)?;
+        Ok(p)
     }
 
     #[test]
-    fn workflow_draft_round_trips_through_disk() {
+    fn workflow_draft_round_trips_through_disk() -> anyhow::Result<()> {
         use tempfile::tempdir;
-        let dir = tempdir().unwrap();
-        let pdf = dummy_pdf(dir.path(), "test.pdf", b"%PDF-1.4 hello");
+        let dir = tempdir()?;
+        let pdf = dummy_pdf(dir.path(), "test.pdf", b"%PDF-1.4 hello")?;
 
         let validation = ParseValidation {
             total_pages: 2,
@@ -1043,40 +1040,43 @@ mod tests {
             field: EditField::Debit,
         }];
 
-        let draft = WorkflowDraft::new(&pdf, Some(validation.clone()), vec![], edits.clone()).unwrap();
+        let draft = WorkflowDraft::new(&pdf, Some(validation.clone()), vec![], edits.clone()).map_err(|e| anyhow::anyhow!(e))?;
         let path = dir.path().join("draft.json");
-        draft.save_to_file(&path).unwrap();
+        draft.save_to_file(&path).map_err(|e| anyhow::anyhow!(e))?;
 
-        let loaded = WorkflowDraft::load_from_file(&path).unwrap();
+        let loaded = WorkflowDraft::load_from_file(&path).map_err(|e| anyhow::anyhow!(e))?;
         assert_eq!(loaded.schema_version, WORKFLOW_DRAFT_SCHEMA);
         assert_eq!(loaded.input_sha256, draft.input_sha256);
         assert_eq!(loaded.edits, edits);
         assert_eq!(loaded.validation, Some(validation));
+        Ok(())
     }
 
     #[test]
-    fn workflow_draft_matches_pdf_returns_true_when_unchanged() {
+    fn workflow_draft_matches_pdf_returns_true_when_unchanged() -> anyhow::Result<()> {
         use tempfile::tempdir;
-        let dir = tempdir().unwrap();
-        let pdf = dummy_pdf(dir.path(), "a.pdf", b"%PDF-1.4 v1");
-        let draft = WorkflowDraft::new(&pdf, None, vec![], vec![]).unwrap();
+        let dir = tempdir()?;
+        let pdf = dummy_pdf(dir.path(), "a.pdf", b"%PDF-1.4 v1")?;
+        let draft = WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
         assert!(draft.matches_pdf(&pdf));
+        Ok(())
     }
 
     #[test]
-    fn workflow_draft_matches_pdf_returns_false_when_pdf_modified() {
+    fn workflow_draft_matches_pdf_returns_false_when_pdf_modified() -> anyhow::Result<()> {
         use tempfile::tempdir;
-        let dir = tempdir().unwrap();
-        let pdf = dummy_pdf(dir.path(), "b.pdf", b"%PDF-1.4 v1");
-        let draft = WorkflowDraft::new(&pdf, None, vec![], vec![]).unwrap();
-        std::fs::write(&pdf, b"%PDF-1.4 v2").unwrap();
+        let dir = tempdir()?;
+        let pdf = dummy_pdf(dir.path(), "b.pdf", b"%PDF-1.4 v1")?;
+        let draft = WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
+        std::fs::write(&pdf, b"%PDF-1.4 v2")?;
         assert!(!draft.matches_pdf(&pdf));
+        Ok(())
     }
 
     #[test]
-    fn workflow_draft_load_rejects_incompatible_schema() {
+    fn workflow_draft_load_rejects_incompatible_schema() -> anyhow::Result<()> {
         use tempfile::tempdir;
-        let dir = tempdir().unwrap();
+        let dir = tempdir()?;
         let path = dir.path().join("future.json");
         let bad = serde_json::json!({
             "schema_version": 999,
@@ -1087,19 +1087,20 @@ mod tests {
             "transactions": [],
             "edits": [],
         });
-        std::fs::write(&path, bad.to_string()).unwrap();
+        std::fs::write(&path, bad.to_string())?;
         assert!(WorkflowDraft::load_from_file(&path).is_err());
+        Ok(())
     }
 
     #[test]
-    fn workflow_draft_new_with_hash_matches_new_when_hash_is_correct() {
+    fn workflow_draft_new_with_hash_matches_new_when_hash_is_correct() -> anyhow::Result<()> {
         use tempfile::tempdir;
-        let dir = tempdir().unwrap();
-        let pdf = dummy_pdf(dir.path(), "x.pdf", b"%PDF-1.4 cached-hash-test");
-        let bytes = std::fs::read(&pdf).unwrap();
+        let dir = tempdir()?;
+        let pdf = dummy_pdf(dir.path(), "x.pdf", b"%PDF-1.4 cached-hash-test")?;
+        let bytes = std::fs::read(&pdf)?;
         let hash = sha256_hex_of(&bytes);
 
-        let from_disk = WorkflowDraft::new(&pdf, None, vec![], vec![]).unwrap();
+        let from_disk = WorkflowDraft::new(&pdf, None, vec![], vec![]).map_err(|e| anyhow::anyhow!(e))?;
         let from_cache = WorkflowDraft::new_with_hash(&pdf, hash.clone(), None, vec![], vec![]);
 
         // Same content hash, same path; saved_at differs by milliseconds so
@@ -1107,5 +1108,6 @@ mod tests {
         assert_eq!(from_disk.input_sha256, from_cache.input_sha256);
         assert_eq!(from_disk.input_path, from_cache.input_path);
         assert!(from_cache.matches_pdf(&pdf));
+        Ok(())
     }
 }
