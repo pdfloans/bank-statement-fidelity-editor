@@ -28,6 +28,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY .cargo ./.cargo
 COPY src ./src
 COPY tests ./tests
+COPY assets ./assets
 
 # DUAL_CORE_PASSPHRASE is only needed to *run* the binary, not to compile it,
 # but a couple of unit tests read it. The build below doesn't run tests.

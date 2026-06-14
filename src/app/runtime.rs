@@ -1405,7 +1405,7 @@ impl Runtime {
                             }
                             
                             // Get the best result from the loop
-                            let final_result = best_result.unwrap();
+                            let final_result = best_result.ok_or_else(|| anyhow::anyhow!("Transfer loop failed to yield any valid result"))?;
 
                             // ======= STAGE 9: Final Audit ========
                             send_progress(&res_tx, TransferStage::FinalAudit);
@@ -2007,7 +2007,7 @@ impl Runtime {
                                     crate::engine::pdf_split_merge::merge_pdfs(&ordered_paths, &output_for_blocking)
                                         .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to merge segments: {e}")))?;
                                     
-                                    Ok(ReplaceOutcome { success: true, font_used: "Helvetica".into(), overflow: false })
+                                    Ok(ReplaceOutcome { success: true, font_used: "Helvetica".into(), overflow: false, obj_id: None })
                                 } else {
                                     eng.apply_change(
                                         &input_for_blocking,
@@ -2332,13 +2332,13 @@ impl Runtime {
                                         label: format!("Editing segment {} of {}", done + 1, total_segs),
                                         fraction: 0.2 + 0.6 * (done as f32 / total_segs as f32),
                                     });
-                                    let edits_json: Vec<serde_json::Value> = edits.iter().map(|(local, ch)| {
-                                        let b = ch.bbox.unwrap();
-                                        serde_json::json!({
+                                    let edits_json: Vec<serde_json::Value> = edits.iter().filter_map(|(local, ch)| {
+                                        let b = ch.bbox?;
+                                        Some(serde_json::json!({
                                             "page": local,
                                             "rect": [b[0], b[1], b[2], b[3]],
                                             "new_text": ch.new_text,
-                                        })
+                                        }))
                                     }).collect();
                                     let json_str = serde_json::to_string(&edits_json).unwrap_or_else(|_| "[]".into());
                                     let edited_out = tmp.path().join(format!("segment_{si:03}_edited.pdf"));
@@ -2395,7 +2395,10 @@ impl Runtime {
                                     label: format!("Applying change {} of {}", i + 1, usable.len()),
                                     fraction: (i as f32) / (usable.len() as f32),
                                 });
-                                let bbox = change.bbox.unwrap();
+                                let Some(bbox) = change.bbox else {
+                                    failures.push(format!("change {} missing bbox", i + 1));
+                                    continue;
+                                };
                                 let _ = job_tx_ref.send(Job::ApplyChange {
                                     input: input.clone(),
                                     output: output.clone(),

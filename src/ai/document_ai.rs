@@ -358,7 +358,8 @@ impl DocumentAiClient {
                 }
             }
             
-            match api_key_res.unwrap() {
+            let api_key_res = api_key_res.ok_or_else(|| DocAiError::Network("API key request loop failed to yield a response".into()))?;
+            match api_key_res {
                 Ok(resp) if resp.status().is_success() => {
                     let result: serde_json::Value = resp.json().await?;
                     let stmt = Self::parse_response_into_bank_statement(&result, Some(&real_dims))?;
@@ -437,7 +438,7 @@ impl DocumentAiClient {
             }
         }
 
-        let final_resp = final_resp.unwrap()?;
+        let final_resp = final_resp.ok_or_else(|| DocAiError::Network("OAuth request loop failed to yield a response".into()))??;
 
         if !final_resp.status().is_success() {
             return Err(DocAiError::Api(
