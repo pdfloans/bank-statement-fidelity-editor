@@ -459,7 +459,6 @@ pub struct MyApp {
     /// True while fetching versions from the API
     docai_versions_loading: bool,
     /// Whether to show the version management panel
-    show_version_manager: bool,
     /// Status message for training operations
     docai_training_status: Option<String>,
     /// Active long-running operation name (training, deploy, etc.)
@@ -571,7 +570,6 @@ impl MyApp {
             selected_parser_version: "pretrained-bankstatement-v5.0-2023-12-06".to_string(),
             docai_versions: Vec::new(),
             docai_versions_loading: false,
-            show_version_manager: false,
             docai_training_status: None,
             docai_active_operation: None,
         }
@@ -1427,7 +1425,7 @@ impl MyApp {
                         format!("Final math invalid: imbalance ${imbalance:.2}")
                     }
                     crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(s) => {
-                        format!("AI Fidelity Check Failed: {}", s)
+                        format!("AI Fidelity Check Failed: {s}")
                     }
                     crate::engine::workflow::WorkflowFailure::Other(s) => s.clone(),
                 };
@@ -1542,7 +1540,7 @@ impl MyApp {
             JobResult::DocAiVersionsListed(versions) => {
                 self.docai_versions = versions;
                 self.docai_versions_loading = false;
-                self.toast(ToastKind::Info, &format!("Found {} processor versions", self.docai_versions.len()));
+                self.toast(ToastKind::Info, format!("Found {} processor versions", self.docai_versions.len()));
             }
             JobResult::DocAiVersionOperationStarted { operation_name, description } => {
                 self.docai_training_status = Some(description.clone());
@@ -3143,21 +3141,19 @@ impl MyApp {
                         ui.selectable_value(&mut self.selected_parser_version, "pretrained-bankstatement-v2.0-2021-12-10".to_string(), "v2.0");
                         ui.selectable_value(&mut self.selected_parser_version, "pretrained-bankstatement-v1.1-2021-08-13".to_string(), "v1.1");
                     });
-                if ui.button("🔄 Parse").on_hover_text("Re-parse document with selected parser version").clicked() {
-                    if !self.input_path.is_empty() {
-                        let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
-                            input: PathBuf::from(&self.input_path),
-                            version: Some(self.selected_parser_version.clone()),
-                        });
-                        self.in_flight += 1;
-                        self.workflow_edits.clear();
-                        self.workflow_preview = None;
-                        self.workflow_visual = None;
-                        self.workflow_outcome = None;
-                        self.font_cascade_reports.clear();
-                        self.workflow_dirty = true;
-                        self.toast(ToastKind::Info, "Parse triggered");
-                    }
+                if ui.button("🔄 Parse").on_hover_text("Re-parse document with selected parser version").clicked() && !self.input_path.is_empty() {
+                    let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+                        input: PathBuf::from(&self.input_path),
+                        version: Some(self.selected_parser_version.clone()),
+                    });
+                    self.in_flight += 1;
+                    self.workflow_edits.clear();
+                    self.workflow_preview = None;
+                    self.workflow_visual = None;
+                    self.workflow_outcome = None;
+                    self.font_cascade_reports.clear();
+                    self.workflow_dirty = true;
+                    self.toast(ToastKind::Info, "Parse triggered");
                 }
             });
 

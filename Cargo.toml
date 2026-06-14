@@ -29,11 +29,11 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs"] 
 tokio-util = "0.7"
 futures-util = "0.3"
 base64 = "0.22"
-pdfium-render = "0.8"
+# pdfium-render removed — replaced by oxidize-pdf + pdf-writer
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-pyo3 = { version = "0.24.1", features = ["auto-initialize"] }
+# pyo3 removed — zero FFI architecture
 image = "0.25"
 image_hasher = "3"
 tracing-appender = "0.2.5"
@@ -57,6 +57,24 @@ rust_decimal = { version = "1.36", features = ["serde-with-str"] }
 rust_decimal_macros = "1.36"
 dark-light = "2.0.0"
 
+# ── Pure Rust Stack (Phase 0) ──
+# PDF Core
+oxidize-pdf = "0.1"
+# pdf-writer already present above
+
+# Typography & Shaping
+skrifa = "0.26"
+write-fonts = "0.35"
+rustybuzz = "0.20"
+ttf-parser = "0.25"
+
+# Data & Math
+polars = { version = "0.46", features = ["lazy", "strings", "regex", "dtype-decimal", "temporal", "cum_agg"] }
+winnow = "0.7"
+
+# Vision & OCR (future phases)
+imageproc = "0.25"
+
 [dev-dependencies]
 wiremock = "0.6"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -67,19 +85,17 @@ proptest = "1.0"
 assert_cmd = "2.0"
 predicates = "3.1"
 
-# PyMuPDF Pro is called via reliable Python subprocess (trial key embedded)
-
 # -----------------------------------------------------------------------------
 # Profile tweaks
 #
-# The dependency graph (egui + ravif + opentelemetry + reqwest + pyo3 + image)
+# The dependency graph (egui + ravif + opentelemetry + reqwest + polars + image)
 # produces a debug PDB > 4 GB on Windows MSVC, which overflows LNK1140.
 # Switching dev profile to packed debug info keeps stack traces but avoids
 # the per-DLL PDB explosion.
 # -----------------------------------------------------------------------------
 [profile.dev]
-debug = "limited"
-split-debuginfo = "packed"
+debug = false
+split-debuginfo = "off"
 incremental = true
 
 [profile.test]

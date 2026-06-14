@@ -1,7 +1,7 @@
-use crate::app::config::{AppConfig, DocumentAiConfig, GeminiAuthMode, global_http_client};
+use crate::app::config::{AppConfig, GeminiAuthMode, global_http_client};
 use crate::engine::layout::DocumentLayout;
 use crate::engine::model::Transaction;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 

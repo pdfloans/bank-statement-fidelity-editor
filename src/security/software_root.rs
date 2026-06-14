@@ -61,7 +61,7 @@ fn compute_hash(passphrase: &str) -> String {
     let result = hasher.finalize();
     // Encode as hex string without adding hex dependency
     result.iter()
-        .map(|b| format!("{:02x}", b))
+        .map(|b| format!("{b:02x}"))
         .collect()
 }
 
@@ -71,7 +71,7 @@ fn estimate_entropy(passphrase: &str) -> f64 {
     let has_upper = passphrase.chars().any(|c| c.is_uppercase());
     let has_digit = passphrase.chars().any(|c| c.is_ascii_digit());
     let has_special = passphrase.chars().any(|c| !c.is_alphanumeric());
-    let has_unicode = passphrase.chars().any(|c| !c.is_ascii());
+    let has_unicode = !passphrase.is_ascii();
 
     let charset_size = if has_unicode {
         // Unicode characters provide much higher entropy

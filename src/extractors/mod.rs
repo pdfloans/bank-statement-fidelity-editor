@@ -1,11 +1,11 @@
 pub mod geometry;
 pub mod merger;
-pub mod pymupdf_heuristic;
+pub mod ocrs_engine;
+// pymupdf_heuristic removed — replaced by native oxidize-pdf extraction
+// tesseract removed — replaced by ocrs (Phase 5)
 pub mod templates;
-pub mod tesseract;
 
 pub use geometry::*;
 pub use merger::*;
-pub use pymupdf_heuristic::PyMuPdfHeuristicProvider;
-pub use templates::{learn_template, BankTemplate, BankTemplateProvider};
-pub use tesseract::TesseractProvider;
+pub use ocrs_engine::OcrsEngine;
+pub use templates::{learn_template, parsers, BankTemplate, BankTemplateProvider};

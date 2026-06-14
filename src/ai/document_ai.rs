@@ -500,7 +500,7 @@ impl DocumentAiClient {
             return Err(DocAiError::Api(resp.status(), resp.text().await.unwrap_or_default()));
         }
 
-        Ok(format!("gs://{}/{}", bucket, object_name))
+        Ok(format!("gs://{bucket}/{object_name}"))
     }
 
     async fn parse_via_lro(&self, pdf_path: &Path, version: Option<&str>) -> Result<BankStatement, DocAiError> {
@@ -563,7 +563,7 @@ impl DocumentAiClient {
     async fn download_and_merge_gcs_outputs(&self, gcs_output_uri: &str, access_token: &str) -> Result<BankStatement, DocAiError> {
         let uri = gcs_output_uri;
         let bucket = uri.strip_prefix("gs://").and_then(|s| s.split('/').next()).unwrap_or_default();
-        let prefix = uri.strip_prefix(&format!("gs://{}/", bucket)).unwrap_or_default();
+        let prefix = uri.strip_prefix(&format!("gs://{bucket}/")).unwrap_or_default();
 
         let list_url = format!(
             "https://storage.googleapis.com/storage/v1/b/{}/o?prefix={}",
@@ -610,7 +610,7 @@ impl DocumentAiClient {
                         if rect.len() == 4 {
                             let get_num = |obj: &lopdf::Object| -> f32 {
                                 match obj {
-                                    lopdf::Object::Real(r) => *r as f32,
+                                    lopdf::Object::Real(r) => *r,
                                     lopdf::Object::Integer(i) => *i as f32,
                                     _ => 0.0,
                                 }

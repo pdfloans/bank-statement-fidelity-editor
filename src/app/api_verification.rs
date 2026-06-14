@@ -74,9 +74,7 @@ impl VerificationReport {
         let has_any_failure = results.iter().any(|r| r.status == VerificationStatus::Failed);
         let has_partial = results.iter().any(|r| r.status == VerificationStatus::Partial);
         
-        if has_critical_failure {
-            VerificationStatus::Failed
-        } else if has_any_failure {
+        if has_critical_failure || has_any_failure {
             VerificationStatus::Failed
         } else if has_partial {
             VerificationStatus::Partial
@@ -338,7 +336,7 @@ fn get_docai_error_guidance(error: &DocAiError) -> String {
                         Ensure the key is valid and not expired.".to_string(),
                 403 => "Permission denied. Ensure your service account has the \
                         'documentai.processor' role on the processor.".to_string(),
-                _ => format!("Auth error (HTTP {}): Check your credentials and permissions.", status),
+                _ => format!("Auth error (HTTP {status}): Check your credentials and permissions."),
             }
         }
         DocAiError::Network(_) => "Network error. Check your internet connection and firewall settings.".to_string(),
@@ -360,7 +358,7 @@ fn get_gemini_error_guidance(error: &GeminiError) -> String {
                 "Vertex AI authentication failed. Ensure your service account has the \
                  'aiplatform.user' role and credentials are valid.".to_string()
             } else {
-                format!("Vertex AI error: {}", msg)
+                format!("Vertex AI error: {msg}")
             }
         }
         GeminiError::Api(status, _) => {
@@ -370,7 +368,7 @@ fn get_gemini_error_guidance(error: &GeminiError) -> String {
                         Check your API key permissions.".to_string(),
                 429 => "Rate limit exceeded. Wait a few minutes before trying again, \
                         or upgrade your quota.".to_string(),
-                _ => format!("API error (HTTP {}): Check your API key and quota.", status),
+                _ => format!("API error (HTTP {status}): Check your API key and quota."),
             }
         }
         GeminiError::Network(_) => "Network error. Check your internet connection.".to_string(),
@@ -397,15 +395,15 @@ fn print_human_readable(report: &VerificationReport) {
         println!("  {}  {}  ({}ms)", icon, result.service, result.latency_ms);
         
         if let Some(method) = &result.method_used {
-            println!("      Method: {}", method);
+            println!("      Method: {method}");
         }
         
         if let Some(error) = &result.error_message {
-            println!("      Error: {}", error);
+            println!("      Error: {error}");
         }
         
         if let Some(guidance) = &result.guidance {
-            println!("      Guidance: {}", guidance);
+            println!("      Guidance: {guidance}");
         }
         
         println!();

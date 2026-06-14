@@ -231,3 +231,176 @@ mod tests {
         assert_eq!(bal, dec!(10.00));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Polars DataFrame integration (Phase 1)
+// ---------------------------------------------------------------------------
+
+use polars::prelude::*;
+
+/// Error type for DataFrame conversions.
+#[derive(Debug, thiserror::Error)]
+pub enum DataFrameError {
+    #[error("Polars error: {0}")]
+    Polars(#[from] polars::error::PolarsError),
+    #[error("Missing column: {0}")]
+    MissingColumn(String),
+    #[error("Invalid decimal value: {0}")]
+    InvalidDecimal(String),
+}
+
+/// Convert a slice of transactions into a Polars DataFrame.
+///
+/// Monetary columns (`debit`, `credit`, `running_balance`) are stored as
+/// `f64` inside the DataFrame (Polars does not natively support
+/// `rust_decimal`). The `from_dataframe` path converts back to `Decimal`
+/// with `round_dp(2)` so no precision is lost for bank-statement data.
+pub fn transactions_to_dataframe(txs: &[Transaction]) -> Result<DataFrame, DataFrameError> {
+    let pages: Vec<u32> = txs.iter().map(|t| t.page as u32).collect();
+    let lines: Vec<u32> = txs.iter().map(|t| t.line_on_page as u32).collect();
+    let dates: Vec<&str> = txs.iter().map(|t| t.date.as_str()).collect();
+    let raw_texts: Vec<&str> = txs.iter().map(|t| t.raw_text.as_str()).collect();
+
+    let debits: Vec<Option<f64>> = txs
+        .iter()
+        .map(|t| t.debit.map(dec_to_f64))
+        .collect();
+    let credits: Vec<Option<f64>> = txs
+        .iter()
+        .map(|t| t.credit.map(dec_to_f64))
+        .collect();
+    let balances: Vec<Option<f64>> = txs
+        .iter()
+        .map(|t| t.running_balance.map(dec_to_f64))
+        .collect();
+
+    let df = DataFrame::new(vec![
+        Column::new("page".into(), &pages),
+        Column::new("line_on_page".into(), &lines),
+        Column::new("date".into(), dates.as_slice()),
+        Column::new("raw_text".into(), raw_texts.as_slice()),
+        Column::new("debit".into(), &debits),
+        Column::new("credit".into(), &credits),
+        Column::new("running_balance".into(), &balances),
+    ])?;
+
+    Ok(df)
+}
+
+/// Reconstruct a `Vec<Transaction>` from a Polars DataFrame.
+///
+/// The DataFrame must contain at minimum: `page`, `line_on_page`, `date`,
+/// `debit`, `credit`, `running_balance`. Missing `raw_text` defaults to "".
+pub fn dataframe_to_transactions(df: &DataFrame) -> Result<Vec<Transaction>, DataFrameError> {
+    let pages = df
+        .column("page")
+        .map_err(|_| DataFrameError::MissingColumn("page".into()))?
+        .u32()
+        .map_err(DataFrameError::Polars)?;
+    let lines = df
+        .column("line_on_page")
+        .map_err(|_| DataFrameError::MissingColumn("line_on_page".into()))?
+        .u32()
+        .map_err(DataFrameError::Polars)?;
+    let dates = df
+        .column("date")
+        .map_err(|_| DataFrameError::MissingColumn("date".into()))?
+        .str()
+        .map_err(DataFrameError::Polars)?;
+
+    let raw_texts = df.column("raw_text").ok().and_then(|c| c.str().ok());
+
+    let debits = df
+        .column("debit")
+        .map_err(|_| DataFrameError::MissingColumn("debit".into()))?
+        .f64()
+        .map_err(DataFrameError::Polars)?;
+    let credits = df
+        .column("credit")
+        .map_err(|_| DataFrameError::MissingColumn("credit".into()))?
+        .f64()
+        .map_err(DataFrameError::Polars)?;
+    let balances = df
+        .column("running_balance")
+        .map_err(|_| DataFrameError::MissingColumn("running_balance".into()))?
+        .f64()
+        .map_err(DataFrameError::Polars)?;
+
+    let mut txs = Vec::with_capacity(df.height());
+    for i in 0..df.height() {
+        txs.push(Transaction {
+            page: pages.get(i).unwrap_or(0) as usize,
+            line_on_page: lines.get(i).unwrap_or(0) as usize,
+            date: dates.get(i).unwrap_or("").to_string(),
+            raw_text: raw_texts
+                .and_then(|rt| rt.get(i))
+                .unwrap_or("")
+                .to_string(),
+            debit: debits.get(i).map(f64_to_dec),
+            credit: credits.get(i).map(f64_to_dec),
+            running_balance: balances.get(i).map(f64_to_dec),
+            bbox: None,
+            field_bboxes: Default::default(),
+            provenance: Provenance::Computed,
+        });
+    }
+
+    Ok(txs)
+}
+
+#[cfg(test)]
+mod dataframe_tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn sample_txs() -> Vec<Transaction> {
+        vec![
+            Transaction {
+                page: 1,
+                line_on_page: 1,
+                date: "2026-01-01".into(),
+                raw_text: "Opening deposit".into(),
+                debit: Some(dec!(1000.00)),
+                credit: None,
+                running_balance: Some(dec!(1000.00)),
+                bbox: None,
+                field_bboxes: Default::default(),
+                provenance: Provenance::Manual,
+            },
+            Transaction {
+                page: 1,
+                line_on_page: 2,
+                date: "2026-01-02".into(),
+                raw_text: "Grocery store".into(),
+                debit: None,
+                credit: Some(dec!(42.50)),
+                running_balance: Some(dec!(957.50)),
+                bbox: None,
+                field_bboxes: Default::default(),
+                provenance: Provenance::Manual,
+            },
+        ]
+    }
+
+    #[test]
+    fn round_trip_transactions_through_dataframe() {
+        let txs = sample_txs();
+        let df = transactions_to_dataframe(&txs).unwrap();
+        assert_eq!(df.height(), 2);
+        assert_eq!(df.width(), 7);
+
+        let recovered = dataframe_to_transactions(&df).unwrap();
+        assert_eq!(recovered.len(), 2);
+        assert_eq!(recovered[0].debit, Some(dec!(1000.00)));
+        assert_eq!(recovered[0].credit, None);
+        assert_eq!(recovered[0].running_balance, Some(dec!(1000.00)));
+        assert_eq!(recovered[1].credit, Some(dec!(42.50)));
+        assert_eq!(recovered[1].running_balance, Some(dec!(957.50)));
+    }
+
+    #[test]
+    fn empty_transactions_produce_empty_dataframe() {
+        let df = transactions_to_dataframe(&[]).unwrap();
+        assert_eq!(df.height(), 0);
+    }
+}

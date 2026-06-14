@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cfg = match AppConfig::from_env() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("❌ Configuration Load Failed: {}", e);
+            eprintln!("❌ Configuration Load Failed: {e}");
             return Err(e.into());
         }
     };
@@ -33,10 +33,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("📡 Pinging Gemini API...");
                 match gemini.ping().await {
                     Ok(_) => println!("✅ Gemini API is ONLINE and credentials are VALID."),
-                    Err(e) => eprintln!("❌ Gemini API Ping Failed: {}", e),
+                    Err(e) => eprintln!("❌ Gemini API Ping Failed: {e}"),
                 }
             }
-            Err(e) => eprintln!("❌ Failed to initialize GeminiClient: {}", e),
+            Err(e) => eprintln!("❌ Failed to initialize GeminiClient: {e}"),
         }
     } else {
         println!("⚠️ Gemini is skipped (no credentials provided).");
@@ -50,10 +50,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("📡 Pinging Document AI API...");
                 match docai.ping().await {
                     Ok(_) => println!("✅ Document AI is ONLINE and credentials are VALID."),
-                    Err(e) => eprintln!("❌ Document AI Ping Failed: {}", e),
+                    Err(e) => eprintln!("❌ Document AI Ping Failed: {e}"),
                 }
             }
-            Err(e) => eprintln!("❌ Failed to initialize DocumentAiClient: {}", e),
+            Err(e) => eprintln!("❌ Failed to initialize DocumentAiClient: {e}"),
         }
     } else {
         println!("⚠️ Document AI is skipped (no configuration provided).");

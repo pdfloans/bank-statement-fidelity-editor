@@ -96,7 +96,7 @@ pub fn recalculate_and_validate(
 
     let mut current_balance = opening_balance;
 
-    for (_i, tx) in transactions.iter_mut().enumerate() {
+    for tx in transactions.iter_mut() {
 
         if tx.debit.is_some() && tx.credit.is_some() {
             let debit = tx.debit.unwrap();
@@ -119,12 +119,10 @@ pub fn recalculate_and_validate(
                         tx.credit = None;
                     }
                 }
-            } else {
-                if debit == Decimal::ZERO {
-                    tx.debit = None;
-                } else if credit == Decimal::ZERO {
-                    tx.credit = None;
-                }
+            } else if debit == Decimal::ZERO {
+                tx.debit = None;
+            } else if credit == Decimal::ZERO {
+                tx.credit = None;
             }
             
             // If they are STILL both Some, we just let it fall through.
@@ -320,5 +318,140 @@ mod tests {
         assert_eq!(res[0].running_balance, Some(dec!(150)));
         assert!(msg.is_some());
         assert!(msg.unwrap().contains("110.00")); // The message contains the old balance
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Polars-based balance recalculation (Phase 1)
+// ---------------------------------------------------------------------------
+
+use crate::engine::model::{
+    dataframe_to_transactions, dec_to_f64, transactions_to_dataframe,
+};
+use polars::prelude::*;
+
+/// Recalculate running balances using Polars columnar operations.
+///
+/// This is a batch-optimised alternative to `recalculate_and_validate` for
+/// scenarios where we process the entire statement at once (e.g. initial
+/// load, export, bulk verification). The iterative `recalculate_and_validate`
+/// remains the primary path for single-edit GUI flows where mutation is
+/// cheaper than rebuilding a DataFrame.
+///
+/// Steps:
+/// 1. Convert transactions → DataFrame
+/// 2. Compute `net_delta = coalesce(debit, 0) - coalesce(credit, 0)`
+/// 3. Compute `running_balance = opening_balance + cumsum(net_delta)`
+/// 4. Convert back to `Vec<Transaction>` (with `Decimal` via `f64_to_dec`)
+pub fn recalculate_running_balance_df(
+    transactions: Vec<Transaction>,
+    opening_balance: Decimal,
+) -> Result<Vec<Transaction>, BalanceError> {
+    if transactions.is_empty() {
+        return Err(BalanceError::EmptyTransactions);
+    }
+
+    let df = transactions_to_dataframe(&transactions)
+        .map_err(|_e| BalanceError::MissingOpeningBalance)?;
+
+    let opening_f64 = dec_to_f64(opening_balance);
+
+    // Use lazy API for the computation
+    let result = df
+        .lazy()
+        .with_column(
+            (col("debit").fill_null(lit(0.0f64)) - col("credit").fill_null(lit(0.0f64)))
+                .alias("net_delta"),
+        )
+        .with_column(
+            (col("net_delta").cum_sum(false) + lit(opening_f64))
+                .alias("running_balance"),
+        )
+        .drop(["net_delta"])
+        .collect()
+        .map_err(|_| BalanceError::MissingOpeningBalance)?;
+
+    let mut recovered = dataframe_to_transactions(&result)
+        .map_err(|_| BalanceError::MissingOpeningBalance)?;
+
+    // Preserve bbox/field_bboxes/provenance from the originals
+    for (new_tx, orig_tx) in recovered.iter_mut().zip(transactions.iter()) {
+        new_tx.bbox = orig_tx.bbox;
+        new_tx.field_bboxes = orig_tx.field_bboxes.clone();
+        new_tx.provenance = orig_tx.provenance.clone();
+        new_tx.raw_text = orig_tx.raw_text.clone();
+    }
+
+    // Round all running balances to 2dp for consistency with Decimal
+    for tx in &mut recovered {
+        if let Some(ref mut rb) = tx.running_balance {
+            *rb = rb.round_dp(2);
+        }
+    }
+
+    Ok(recovered)
+}
+
+#[cfg(test)]
+mod polars_balance_tests {
+    use super::*;
+    use crate::engine::model::{Provenance, Transaction};
+    use rust_decimal_macros::dec;
+
+    fn make_tx(debit: Option<Decimal>, credit: Option<Decimal>) -> Transaction {
+        Transaction {
+            page: 1,
+            line_on_page: 1,
+            date: "2023-01-01".to_string(),
+            raw_text: "".to_string(),
+            debit,
+            credit,
+            running_balance: None,
+            bbox: None,
+            field_bboxes: Default::default(),
+            provenance: Provenance::Manual,
+        }
+    }
+
+    #[test]
+    fn polars_recalculate_matches_iterative() {
+        let txs = vec![
+            make_tx(Some(dec!(10)), None),   // +10 → 110
+            make_tx(None, Some(dec!(20))),   // -20 → 90
+            make_tx(Some(dec!(5)), None),    // +5  → 95
+        ];
+        let opening = dec!(100);
+
+        // Iterative path
+        let iter_result = recalculate_and_validate(txs.clone(), opening).unwrap();
+
+        // Polars path
+        let polars_result = recalculate_running_balance_df(txs, opening).unwrap();
+
+        assert_eq!(iter_result.len(), polars_result.len());
+        for (a, b) in iter_result.iter().zip(polars_result.iter()) {
+            assert_eq!(a.running_balance, b.running_balance,
+                "Mismatch: iterative={:?} polars={:?}", a.running_balance, b.running_balance);
+        }
+    }
+
+    #[test]
+    fn polars_recalculate_empty_errors() {
+        let result = recalculate_running_balance_df(vec![], dec!(100));
+        assert!(matches!(result, Err(BalanceError::EmptyTransactions)));
+    }
+
+    #[test]
+    fn polars_recalculate_preserves_metadata() {
+        let mut tx = make_tx(Some(dec!(50)), None);
+        tx.raw_text = "Payroll deposit".to_string();
+        tx.bbox = Some([10.0, 20.0, 300.0, 40.0]);
+        tx.provenance = Provenance::DocumentAI { confidence: 0.95 };
+
+        let result = recalculate_running_balance_df(vec![tx], dec!(1000)).unwrap();
+        assert_eq!(result[0].raw_text, "Payroll deposit");
+        assert_eq!(result[0].bbox, Some([10.0, 20.0, 300.0, 40.0]));
+        assert!(matches!(result[0].provenance, Provenance::DocumentAI { .. }));
+        assert_eq!(result[0].running_balance, Some(dec!(1050.00)));
     }
 }

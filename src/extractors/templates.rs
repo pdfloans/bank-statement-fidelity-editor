@@ -88,6 +88,189 @@ impl GeometryProvider for BankTemplateProvider {
     }
 }
 
+// ─── Phase 5.3: Winnow Parser Combinators ──────────────────────────────────
+
+/// Phase 5.3: Strict winnow parser combinators for Australian bank statement
+/// elements. These replace the previous regex-based extraction with
+/// deterministic, byte-level grammar rules.
+pub mod parsers {
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+    use winnow::ascii::{digit1, space0};
+    use winnow::combinator::{alt, opt};
+    use winnow::error::{ContextError, ErrMode};
+    use winnow::token::{one_of, take_while};
+    use winnow::Parser;
+
+    /// Parser result type for winnow 0.7.
+    type PResult<T> = Result<T, ErrMode<ContextError>>;
+
+    /// Helper to create a backtrack error.
+    fn fail<T>() -> PResult<T> {
+        Err(ErrMode::Backtrack(ContextError::new()))
+    }
+
+    /// A parsed Australian date with day, month, year.
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct AuDate {
+        pub day: u32,
+        pub month: u32,
+        pub year: u32,
+    }
+
+    /// Parse DD/MM/YYYY format (common in AU bank statements).
+    fn parse_date_slash(input: &mut &str) -> PResult<AuDate> {
+        let day_str = digit1.parse_next(input)?;
+        '/'.parse_next(input)?;
+        let month_str = digit1.parse_next(input)?;
+        '/'.parse_next(input)?;
+        let year_str = digit1.parse_next(input)?;
+
+        let day: u32 = day_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let month: u32 = month_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let year: u32 = year_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+
+        if day == 0 || day > 31 || month == 0 || month > 12 {
+            return fail();
+        }
+
+        Ok(AuDate { day, month, year })
+    }
+
+    /// Parse DD Mon YYYY format (e.g. "15 Jan 2024").
+    fn parse_date_month_name(input: &mut &str) -> PResult<AuDate> {
+        let day_str = digit1.parse_next(input)?;
+        space0.parse_next(input)?;
+        let month_name: &str = take_while(3, |c: char| c.is_ascii_alphabetic())
+            .parse_next(input)?;
+        space0.parse_next(input)?;
+        let year_str = digit1.parse_next(input)?;
+
+        let day: u32 = day_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+        let year: u32 = year_str.parse().map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+
+        let month = match month_name.to_ascii_lowercase().as_str() {
+            "jan" => 1, "feb" => 2, "mar" => 3, "apr" => 4,
+            "may" => 5, "jun" => 6, "jul" => 7, "aug" => 8,
+            "sep" => 9, "oct" => 10, "nov" => 11, "dec" => 12,
+            _ => return fail(),
+        };
+
+        if day == 0 || day > 31 {
+            return fail();
+        }
+
+        Ok(AuDate { day, month, year })
+    }
+
+    /// Parse an Australian date: either DD/MM/YYYY or DD Mon YYYY.
+    pub fn parse_au_date(input: &mut &str) -> PResult<AuDate> {
+        alt((parse_date_slash, parse_date_month_name)).parse_next(input)
+    }
+
+    /// Parse an Australian currency amount: $X,XXX.XX → Decimal.
+    ///
+    /// Handles optional negative sign, optional dollar sign, comma
+    /// separators, and mandatory 2 decimal places.
+    pub fn parse_currency(input: &mut &str) -> PResult<Decimal> {
+        let negative = opt(one_of(['-'])).parse_next(input)?;
+        let _dollar = opt('$').parse_next(input)?;
+
+        // Parse digits with optional comma separators
+        let mut amount_str = String::new();
+        let digits: &str = digit1.parse_next(input)?;
+        amount_str.push_str(digits);
+
+        // Handle comma-separated groups
+        loop {
+            // Try to consume a comma; if it fails, break
+            let checkpoint = *input;
+            let comma_result: PResult<char> = ','.parse_next(input);
+            match comma_result {
+                Ok(_) => {
+                    let group_result: PResult<&str> = digit1.parse_next(input);
+                    match group_result {
+                        Ok(group) => amount_str.push_str(group),
+                        Err(_) => {
+                            // Put the comma back — it wasn't a separator
+                            *input = checkpoint;
+                            break;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Decimal point and cents
+        '.'.parse_next(input)?;
+        let cents: &str = digit1.parse_next(input)?;
+        amount_str.push('.');
+        amount_str.push_str(cents);
+
+        if negative.is_some() {
+            amount_str.insert(0, '-');
+        }
+
+        Decimal::from_str(&amount_str)
+            .map_err(|_| ErrMode::Backtrack(ContextError::new()))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use rust_decimal_macros::dec;
+
+        #[test]
+        fn parse_au_date_slash_format() {
+            let mut input = "15/01/2024";
+            let result = parse_au_date(&mut input).unwrap();
+            assert_eq!(result, AuDate { day: 15, month: 1, year: 2024 });
+        }
+
+        #[test]
+        fn parse_au_date_month_name_format() {
+            let mut input = "15 Jan 2024";
+            let result = parse_au_date(&mut input).unwrap();
+            assert_eq!(result, AuDate { day: 15, month: 1, year: 2024 });
+        }
+
+        #[test]
+        fn parse_currency_simple() {
+            let mut input = "$1,234.56";
+            let result = parse_currency(&mut input).unwrap();
+            assert_eq!(result, dec!(1234.56));
+        }
+
+        #[test]
+        fn parse_currency_negative() {
+            let mut input = "-$500.00";
+            let result = parse_currency(&mut input).unwrap();
+            assert_eq!(result, dec!(-500.00));
+        }
+
+        #[test]
+        fn parse_currency_no_dollar_sign() {
+            let mut input = "99.99";
+            let result = parse_currency(&mut input).unwrap();
+            assert_eq!(result, dec!(99.99));
+        }
+
+        #[test]
+        fn parse_currency_large_amount() {
+            let mut input = "$1,234,567.89";
+            let result = parse_currency(&mut input).unwrap();
+            assert_eq!(result, dec!(1234567.89));
+        }
+
+        #[test]
+        fn parse_invalid_date_rejected() {
+            let mut input = "32/13/2024";
+            assert!(parse_au_date(&mut input).is_err());
+        }
+    }
+}
+
 
 /// Refine a bank template from observed transaction bboxes.
 ///
