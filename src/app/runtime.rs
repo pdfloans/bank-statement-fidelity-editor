@@ -2828,7 +2828,7 @@ impl Runtime {
                             }
                         }).await.unwrap_or(());
                     }
-                    Job::Verify { original, edited, output_dir, intended_bboxes, .. } => {
+                    Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest, pdfrest_key } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
                         let (reply_tx, reply_rx) = oneshot::channel();
 
@@ -2940,8 +2940,25 @@ impl Runtime {
 
                             // Stage 3 / Item #16: page count first
                             let page_count = {
-                                // Phase 0: stub page count (awaiting oxidize-pdf integration)
-                                1
+                                let p = input.clone();
+                                tokio::task::spawn_blocking(move || -> usize {
+                                    use pdfium_render::prelude::Pdfium;
+                                    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+                                        .or_else(|_| Pdfium::bind_to_system_library());
+                                    let pdfium = match bindings {
+                                        Ok(b) => Pdfium::new(b),
+                                        Err(e) => {
+                                            tracing::error!("Failed to bind Pdfium: {}", e);
+                                            return 0;
+                                        }
+                                    };
+                                    pdfium
+                                        .load_pdf_from_file(&p, None)
+                                        .map(|d| d.pages().len() as usize)
+                                        .unwrap_or(0)
+                                })
+                                .await
+                                .unwrap_or(0)
                             };
 
 

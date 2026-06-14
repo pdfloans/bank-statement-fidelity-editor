@@ -7,3 +7,9 @@ pub mod selector;
 pub use engine::*;
 pub use native_engine::OxidizePdfEngine;
 pub use selector::PdfEngineSelector;
+
+pub mod mupdf_engine;
+pub use mupdf_engine::*;
+
+pub mod pymupdf_engine;
+pub use pymupdf_engine::*;

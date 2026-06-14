@@ -156,25 +156,31 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
 
     fn apply_many_edits(
         &self,
-        input: &Path,
-        output: &Path,
-        edits_json: &str,
-        font_path: Option<&Path>,
-    ) -> Result<usize, EngineError>;
+        _input: &Path,
+        _output: &Path,
+        _edits_json: &str,
+        _font_path: Option<&Path>,
+    ) -> Result<usize, EngineError> {
+        Err(EngineError::Unsupported)
+    }
 
     fn clone_pages(
         &self,
-        input: &Path,
-        output: &Path,
-        page_indices: Vec<usize>,
-    ) -> Result<usize, EngineError>;
+        _input: &Path,
+        _output: &Path,
+        _page_indices: Vec<usize>,
+    ) -> Result<usize, EngineError> {
+        Err(EngineError::Unsupported)
+    }
 
     fn remove_pages(
         &self,
-        input: &Path,
-        output: &Path,
-        page_indices: Vec<usize>,
-    ) -> Result<usize, EngineError>;
+        _input: &Path,
+        _output: &Path,
+        _page_indices: Vec<usize>,
+    ) -> Result<usize, EngineError> {
+        Err(EngineError::Unsupported)
+    }
 
     /// Apply a change after first asserting that `bbox` overlaps a real text
     /// span on `page` by at least `required_overlap` (0..1, e.g. 0.5 = 50%).
