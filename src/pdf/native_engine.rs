@@ -279,7 +279,8 @@ impl PdfEngine for OxidizePdfEngine {
         page: usize,
         bbox: [f32; 4],
         new_text: &str,
-        _font_path: Option<&Path>,
+        old_text: &str,
+        font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
         // Load the document
         let mut doc =
@@ -349,12 +350,21 @@ impl PdfEngine for OxidizePdfEngine {
                 "Tj" if in_text && !replaced => {
                     let x = tm[4];
                     let y = tm[5];
-                    // Check if this text span overlaps the target bbox
-                    if x >= bbox[0] - 1.0
-                        && y >= bbox[1] - 1.0
-                        && x <= bbox[2] + 1.0
-                        && y <= bbox[3] + 1.0
-                    {
+                    let mut text_matches = false;
+                    let mut found_text = String::new();
+                    if let Some(text) = extract_string_operand(&op.operands) {
+                        found_text = text.clone();
+                        if !text.trim().is_empty() && text.trim() == old_text.trim() {
+                            text_matches = true;
+                        }
+                    }
+                    let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
+                    if x_matches {
+                        println!("[DEBUG Tj] Found text '{}' at x={}, target='{}'", found_text, x, old_text);
+                    }
+                    let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
+                    
+                    if text_matches || (x_matches && y_matches) {
                         // Replace the string operand
                         if !op.operands.is_empty() {
                             op.operands[0] = lopdf::Object::String(
@@ -368,11 +378,27 @@ impl PdfEngine for OxidizePdfEngine {
                 "TJ" if in_text && !replaced => {
                     let x = tm[4];
                     let y = tm[5];
-                    if x >= bbox[0] - 1.0
-                        && y >= bbox[1] - 1.0
-                        && x <= bbox[2] + 1.0
-                        && y <= bbox[3] + 1.0
-                    {
+                    let mut text_matches = false;
+                    let mut found_text = String::new();
+                    if let Some(lopdf::Object::Array(ref arr)) = op.operands.first() {
+                        let mut combined = String::new();
+                        for item in arr {
+                            if let lopdf::Object::String(bytes, _) = item {
+                                combined.push_str(&String::from_utf8_lossy(bytes));
+                            }
+                        }
+                        found_text = combined.clone();
+                        if !combined.trim().is_empty() && combined.trim() == old_text.trim() {
+                            text_matches = true;
+                        }
+                    }
+                    let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
+                    if x_matches {
+                        println!("[DEBUG TJ] Found text '{}' at x={}, target='{}'", found_text, x, old_text);
+                    }
+                    let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
+                    
+                    if text_matches || (x_matches && y_matches) {
                         // Replace the entire TJ array with a single Tj string
                         op.operator = "Tj".to_string();
                         op.operands = vec![lopdf::Object::String(
@@ -605,8 +631,28 @@ impl PdfEngine for OxidizePdfEngine {
                 if let Ok(page_dict) = doc.get_object(page_id) {
                     let page_dict_clone = page_dict.clone();
                     let new_page_id = doc.add_object(page_dict_clone);
-                    if doc.insert_page((doc.get_pages().len() as u32) + 1, new_page_id).is_ok() {
-                        cloned += 1;
+                    
+                    // Manually append the new page to the Pages tree
+                    if let Ok(catalog) = doc.catalog() {
+                        if let Ok(pages_ref) = catalog.get(b"Pages") {
+                            if let Ok(pages_id) = pages_ref.as_reference() {
+                                if let Ok(pages_dict) = doc.get_dictionary_mut(pages_id) {
+                                    if let Ok(kids) = pages_dict.get_mut(b"Kids") {
+                                        if let Ok(kids_array) = kids.as_array_mut() {
+                                            kids_array.push(lopdf::Object::Reference(new_page_id));
+                                            
+                                            // Update Count
+                                            if let Ok(count_obj) = pages_dict.get_mut(b"Count") {
+                                                if let Ok(count) = count_obj.as_i64() {
+                                                    *count_obj = lopdf::Object::Integer(count + 1);
+                                                    cloned += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

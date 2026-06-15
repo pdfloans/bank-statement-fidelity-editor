@@ -149,6 +149,7 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
         page: usize,
         bbox: [f32; 4],
         new_text: &str,
+        old_text: &str,
         font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError>;
 
@@ -196,6 +197,7 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
         page: usize,
         bbox: [f32; 4],
         new_text: &str,
+        old_text: &str,
         font_path: Option<&Path>,
         required_overlap: f32,
     ) -> Result<ReplaceOutcome, EngineError> {
@@ -220,7 +222,7 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
             // legitimate edits on a page we can't introspect.
             _ => {}
         }
-        self.apply_change(input, output, page, bbox, new_text, font_path)
+        self.apply_change(input, output, page, bbox, new_text, old_text, font_path)
     }
 }
 

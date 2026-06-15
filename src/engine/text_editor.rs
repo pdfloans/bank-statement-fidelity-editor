@@ -31,6 +31,7 @@ pub struct TextEditRequest<'a> {
     pub page: usize,
     pub bbox: [f32; 4],
     pub new_text: &'a str,
+    pub old_text: &'a str,
     pub font_path: Option<&'a Path>,
 }
 
@@ -179,6 +180,7 @@ pub fn apply_text_edit(
             req.page,
             req.bbox,
             req.new_text,
+            req.old_text,
             req.font_path,
         )
         .map_err(TextEditError::from)

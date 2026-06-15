@@ -28,7 +28,8 @@ MONEY = re.compile(r"(-?\$?\s*[\d,]+\.\d{2})")
 def run(args, timeout=180):
     env = dict(os.environ)
     env.setdefault("DUAL_CORE_PASSPHRASE", "ci-only-passphrase-do-not-use")
-    p = subprocess.run([EXE] + args, capture_output=True, text=True,
+    env["IGNORE_PRO_LIMIT"] = "100"
+    p = subprocess.run([EXE] + args, capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=timeout, env=env)
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
@@ -56,8 +57,8 @@ def render(pdf, page, outdir, tag):
     os.makedirs(outdir, exist_ok=True)
     code, log = run(["render", "--input", pdf, "--output-dir", outdir,
                      "--page", str(page), "--dpi", "200"])
-    # the Rust tool names it page_{n+1}_{dpi}dpi.png
-    expected = os.path.join(outdir, f"page_{page+1}_200dpi.png")
+    basename = os.path.splitext(os.path.basename(pdf))[0]
+    expected = os.path.join(outdir, f"{basename}_page_{page+1}_200dpi.png")
     return (code == 0 and os.path.exists(expected)), expected
 
 def pixel_diff(a, b):

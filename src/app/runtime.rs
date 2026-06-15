@@ -529,7 +529,7 @@ impl Runtime {
         let (python_tx, python_rx) =
             mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
 
-        let primary_engine = Arc::new(crate::pdf::MuPdfEngine::new());
+        let primary_engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
         let fallback_engine = Arc::new(crate::pdf::PyMuPdfEngine::new(job_tx.clone()));
         let engine: Arc<dyn crate::pdf::PdfEngine> = Arc::new(crate::pdf::PdfEngineSelector::new(
             primary_engine,
@@ -540,7 +540,7 @@ impl Runtime {
         let history = Arc::new(Mutex::new(ChangeHistory::new()));
 
         let _python_actor_thread = thread::spawn(move || {
-            let engine_result = PyEngine::init();
+            let engine_result = crate::ai::pyo3_bridge::PyEngine::init();
 
             if let Err(e) = &engine_result {
                 tracing::error!("❌ [PYTHON_ACTOR] Failed to initialize PyEngine: {}", e);
@@ -868,6 +868,7 @@ impl Runtime {
                         let res_tx = result_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
+                        let engine_for_tokio = engine_for_tokio.clone();
                         tokio::spawn(async move {
                             use crate::engine::transfer::*;
 
@@ -1334,10 +1335,11 @@ impl Runtime {
                                         let p_in = output_pdf.clone();
                                         let p_out = output_pdf.with_extension("temp.pdf");
                                         let f_path = font_override_path.clone();
+                                        let edits_json_clone = edits_json.clone();
                                         
                                         let native_res = tokio::task::spawn_blocking(move || {
                                             let fp = f_path.map(std::path::PathBuf::from);
-                                            eng.apply_many_edits(&p_in, &p_out, &edits_json, fp.as_deref())
+                                            eng.apply_many_edits(&p_in, &p_out, &edits_json_clone, fp.as_deref())
                                         }).await.unwrap_or(Ok(0));
 
                                         if let Ok(c) = native_res {
@@ -1619,7 +1621,7 @@ impl Runtime {
                             let final_result = match best_result {
                                 Some(r) => r,
                                 None => {
-                                    let _ = res_tx.send(JobResult::Error { message: "Transfer loop failed to yield any valid result".into() });
+                                    let _ = res_tx.send(JobResult::Error { job_label: String::new(), message: "Transfer loop failed to yield any valid result".into() });
                                     return;
                                 }
                             };
@@ -2196,6 +2198,7 @@ impl Runtime {
                             let input_for_blocking = input.clone();
                             let output_for_blocking = output.clone();
                             let new_text_for_blocking = new_text.clone();
+                            let old_text_for_blocking = old_text.clone();
                             
                             let outcome = tokio::task::spawn_blocking(move || {
                                 if let (Some(map), Some(temp_dir)) = (map_opt, mgr_opt) {
@@ -2212,6 +2215,7 @@ impl Runtime {
                                         local_page,
                                         bbox,
                                         &new_text_for_blocking,
+                                        &old_text_for_blocking,
                                         font_path.as_deref(),
                                     )?;
                                     
@@ -2232,6 +2236,7 @@ impl Runtime {
                                         page,
                                         bbox,
                                         &new_text_for_blocking,
+                                        &old_text_for_blocking,
                                         font_path.as_deref(),
                                     )
                                 }

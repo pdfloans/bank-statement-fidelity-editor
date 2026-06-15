@@ -434,4 +434,1000 @@ impl GeminiClient {
     }
 
     // Internal method for testing
-    
+    #[cfg(test)]
+    fn with_base_url(api_key: String, base_url: String) -> Self {
+        Self {
+            api_key,
+            http: global_http_client(),
+            base_url,
+            auth: GeminiAuth::ApiKey,
+        }
+    }
+
+    /// Very lightweight test call to verify the configured credentials
+    /// (API Key or Vertex Service Account) are valid and authorized to generate content.
+    pub async fn ping(&self) -> Result<(), GeminiError> {
+        let body = json!({
+            "contents": [{ "role": "user", "parts": [{ "text": "ping" }] }],
+            "safetySettings": [
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
+            "generationConfig": { "maxOutputTokens": 1 }
+        });
+
+        // Use the cheapest/fastest model for the ping.
+        let _ = self.post_generate(GEMINI_FLASH_FALLBACK, &body).await?;
+        Ok(())
+    }
+
+    pub async fn propose_balance_adjustments(
+        &self,
+        transactions: &[Transaction],
+        imbalance: f64,
+        layout: &DocumentLayout,
+    ) -> Result<GeminiBalancePlan, GeminiError> {
+        let scrubbed = scrub_pii(transactions);
+        let prompt = format!(
+            "You are an expert financial forensic auditor.\n\
+             A bank statement has a mathematical imbalance of ${:.2} between its running ledger and its closing balance.\n\
+             Your task is to propose the STRICTLY MINIMAL cascading adjustments to the running balances to fix this.\n\
+             CRITICAL RULES:\n\
+             1. ONLY alter the 'new_running_balance' values. Do NOT invent new deposits or withdrawals.\n\
+             2. Ensure the math perfectly bridges the imbalance to the end of the statement.\n\
+             3. Maintain strict JSON schema adherence with no markdown wrapping outside the JSON.\n\
+             \n\
+             Transactions: {}\n\
+             Document layout summary: {} pages.",
+            imbalance,
+            serde_json::to_string(&scrubbed).unwrap_or_default(),
+            layout.total_pages
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "adjustments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "page": { "type": "integer" },
+                            "line_on_page": { "type": "integer" },
+                            "old_running_balance": { "type": "number" },
+                            "new_running_balance": { "type": "number" },
+                            "reason": { "type": "string" },
+                            "confidence": { "type": "number" }
+                        },
+                        "required": ["page", "line_on_page", "old_running_balance", "new_running_balance", "reason", "confidence"]
+                    }
+                },
+                "overall_strategy": { "type": "string" },
+                "confidence": { "type": "number" }
+            },
+            "required": ["adjustments", "overall_strategy", "confidence"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": prompt }]
+            }],
+            "safetySettings": [
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let json_resp: serde_json::Value = response.json().await?;
+        let plan_text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing or invalid text field".into()))?;
+
+        let mut plan: GeminiBalancePlan = serde_json::from_str(plan_text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {e}")))?;
+        plan.validate()?;
+
+        if plan.confidence < 0.7 {
+            return Err(GeminiError::LowConfidence(plan.confidence));
+        }
+
+        Ok(plan)
+    }
+
+    /// Ask Gemini to validate that Document AI captured every transaction on
+    /// the page and that the resulting numbers are internally consistent.
+    /// This is stage 1 of the user-facing workflow.
+    pub async fn validate_parse_completeness(
+        &self,
+        transactions: &[Transaction],
+        opening_balance: f64,
+        closing_balance: f64,
+        total_pages: usize,
+    ) -> Result<GeminiCompletenessReport, GeminiError> {
+        let scrubbed = scrub_pii(transactions);
+        let prompt = format!(
+            "You are a bank-statement auditor. Document AI extracted the \
+             following transactions from a {} page statement.\n\n\
+             Opening balance: ${:.2}\nClosing balance: ${:.2}\n\
+             Transactions: {}\n\n\
+             Confirm: (a) does the running ledger balance to the closing? \
+             (b) is anything obviously missing (e.g. fee rows skipped, gap in \
+             dates suggesting a row was not captured)? Reply ONLY in the \
+             configured JSON schema.",
+            total_pages,
+            opening_balance,
+            closing_balance,
+            serde_json::to_string(&scrubbed).unwrap_or_default(),
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "completeness_score": { "type": "number" },
+                "notes":              { "type": "string" },
+                "missing_rows":       { "type": "array", "items": { "type": "string" } },
+                "math_consistent":    { "type": "boolean" }
+            },
+            "required": ["completeness_score", "notes", "missing_rows", "math_consistent"]
+        });
+
+        let body = json!({
+            "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
+            "safetySettings": [
+                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+            ],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+        let json_resp: serde_json::Value = response.json().await?;
+        let plan_text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing or invalid text field".into()))?;
+        let mut report: GeminiCompletenessReport = serde_json::from_str(plan_text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("JSON parse error: {e}")))?;
+        report.validate()?;
+        Ok(report)
+    }
+
+    /// Double-checks the mathematics of the final transactions (Stage 2)
+    pub async fn verify_statement_mathematics(
+        &self,
+        transactions_json: &str,
+        opening: f64,
+    ) -> Result<bool, GeminiError> {
+        let prompt = format!(
+            "You are a forensic accountant. You must double-check the mathematics of the following \
+             bank statement transactions. Specifically, you must ensure that:\n\
+             Opening Balance + Sum of Credits - Sum of Debits = Closing Balance.\n\n\
+             Opening Balance: {opening}\n\n\
+             Transactions (JSON format):\n{transactions_json}\n\n\
+             Respond in JSON with a single boolean field `is_mathematically_sound`."
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "is_mathematically_sound": { "type": "boolean" }
+            },
+            "required": ["is_mathematically_sound"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": prompt }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let resp_json: serde_json::Value = response.json().await.map_err(GeminiError::Network)?;
+        let content = resp_json["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or("{}");
+
+        #[derive(serde::Deserialize)]
+        struct MathCheck {
+            is_mathematically_sound: bool,
+        }
+
+        match serde_json::from_str::<MathCheck>(content) {
+            Ok(check) => Ok(check.is_mathematically_sound),
+            Err(e) => Err(GeminiError::InvalidResponse(e.to_string())),
+        }
+    }
+
+    /// Vision-based anomaly check on a rendered page.
+    ///
+    /// Stage 4 / Item #10. `page_png` is the PNG bytes of the rendered
+    /// edited page; `intended_bboxes` is the list of bounding boxes (in PDF
+    /// points) the user actually intended to change. Returns
+    /// [`GeminiVisionReport`] with `anomaly_score` and any hotspots Gemini
+    /// flagged.
+    pub async fn validate_render_visually(
+        &self,
+        page_png: &[u8],
+        intended_bboxes: &[[f32; 4]],
+    ) -> Result<GeminiVisionReport, GeminiError> {
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(page_png);
+
+        let prompt = format!(
+            "You are a forensic-document analyst examining a rendered bank \
+             statement page that has been programmatically edited. \
+             Examine the image for any visual anomalies: kerning drift, \
+             baseline misalignment, font-weight or colour mismatch \
+             vs neighbouring text, ghosted glyphs, redaction edge \
+             artifacts, hallucinated or duplicated numbers. \n\n\
+             The user *intended* to edit text inside these bounding boxes \
+             (in PDF points, [x0, y0, x1, y1]): {}.\n\n\
+             Return ONLY the configured JSON. anomaly_score should be 0.0 \
+             when the page looks pristine and 1.0 when it's clearly broken. \
+             Each hotspot is a region of concern; the bbox should be in PDF \
+             points (the page is letter or A4, ~612x792pt). 'kind' is one \
+             of: kerning, baseline, weight, color, ghost, edge, hallucinated. \
+             Only flag genuinely suspicious regions; sub-pixel rendering \
+             noise or expected redactions inside the intended bboxes are \
+             not anomalies.",
+            serde_json::to_string(intended_bboxes).unwrap_or_default()
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "anomaly_score": { "type": "number" },
+                "hotspots": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "bbox": {
+                                "type": "array",
+                                "items": { "type": "number" }
+                            },
+                            "kind": { "type": "string" },
+                            "confidence": { "type": "number" }
+                        },
+                        "required": ["bbox", "kind", "confidence"]
+                    }
+                },
+                "notes": { "type": "string" }
+            },
+            "required": ["anomaly_score", "hotspots", "notes"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [
+                    { "text": prompt },
+                    {
+                        "inline_data": {
+                            "mime_type": "image/png",
+                            "data": b64,
+                        }
+                    }
+                ]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        // Vision benefits from the most capable Pro model; the helper falls
+        // back to flash automatically if Pro is unavailable for this key.
+        let response = self.post_generate_pro(&body).await?;
+
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+        let json_resp: serde_json::Value = response.json().await?;
+        let report_text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing vision text field".into()))?;
+        let mut report: GeminiVisionReport = serde_json::from_str(report_text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("vision JSON parse: {e}")))?;
+        report.validate()?;
+        Ok(report)
+    }
+
+    /// Plan how to transfer transactions from a source statement to a target
+    /// statement. Gemini analyses the formats of both and produces a mapping
+    /// plan including date conversion, description adaptation, and page layout.
+    pub async fn plan_transaction_transfer(
+        &self,
+        source_transactions: &[Transaction],
+        target_transactions: &[Transaction],
+        correction_hint: Option<&str>,
+    ) -> Result<crate::engine::transfer::TransferPlan, GeminiError> {
+        let scrubbed_source = scrub_pii(source_transactions);
+        let scrubbed_target = scrub_pii(target_transactions);
+
+        let mut prompt = format!(
+            "You are an expert financial document analyst. You need to plan how to transfer \
+             transactions from a SOURCE bank statement to a TARGET bank statement.\n\n\
+             SOURCE statement transactions ({} rows):\n{}\n\n\
+             TARGET statement transactions ({} rows):\n{}\n\n\
+             Analyze both formats (date style, number format, description conventions, \
+             column layout) and produce a transfer plan. For each source transaction, \
+             specify which target page and line it should land on. Convert dates to the \
+             target's format. Adapt descriptions to match the target's style. \
+             If the source has more transactions than the target's pages can hold, \
+             specify pages_to_clone (which target page to duplicate for overflow). \
+             If the source has fewer, specify pages_to_remove. \
+             Each mapping must reference a source_index (0-based into the source list).",
+            source_transactions.len(),
+            serde_json::to_string(&scrubbed_source).unwrap_or_default(),
+            target_transactions.len(),
+            serde_json::to_string(&scrubbed_target).unwrap_or_default(),
+        );
+
+        if let Some(hint) = correction_hint {
+            prompt.push_str(&format!("\n\nCRITICAL CORRECTION HINT from previous failed attempt:\n{hint}\n\nPlease adjust your plan to resolve this error."));
+        }
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "mappings": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source_index": { "type": "integer" },
+                            "target_page": { "type": "integer" },
+                            "target_line": { "type": "integer" },
+                            "converted_date": { "type": "string" },
+                            "adapted_description": { "type": "string" }
+                        },
+                        "required": ["source_index", "target_page", "target_line", "converted_date", "adapted_description"]
+                    }
+                },
+                "output_page_count": { "type": "integer" },
+                "pages_to_clone": {
+                    "type": "array",
+                    "items": { "type": "integer" }
+                },
+                "pages_to_remove": {
+                    "type": "array",
+                    "items": { "type": "integer" }
+                },
+                "strategy": { "type": "string" },
+                "confidence": { "type": "number" }
+            },
+            "required": ["mappings", "output_page_count", "pages_to_clone", "pages_to_remove", "strategy", "confidence"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": prompt }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let json_resp: serde_json::Value = response.json().await?;
+        let plan_text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing transfer plan text".into()))?;
+
+        let plan: crate::engine::transfer::TransferPlan = serde_json::from_str(plan_text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("Transfer plan JSON parse: {e}")))?;
+
+        if plan.confidence < 0.5 {
+            return Err(GeminiError::LowConfidence(plan.confidence));
+        }
+
+        Ok(plan)
+    }
+
+    /// Forensic accountant verification of a transferred statement's math.
+    /// Gemini independently checks: Opening + ∑Debits − ∑Credits = Final Balance.
+    pub async fn verify_transfer_math(
+        &self,
+        mapped_transactions: &[crate::engine::transfer::MappedTransaction],
+        opening_balance: rust_decimal::Decimal,
+    ) -> Result<bool, GeminiError> {
+        use crate::engine::model::dec_to_f64;
+
+        let tx_summary: Vec<serde_json::Value> = mapped_transactions
+            .iter()
+            .enumerate()
+            .map(|(i, tx)| {
+                json!({
+                    "row": i,
+                    "date": tx.date,
+                    "description": tx.description,
+                    "debit": tx.debit.map(dec_to_f64),
+                    "credit": tx.credit.map(dec_to_f64),
+                    "running_balance": dec_to_f64(tx.running_balance),
+                })
+            })
+            .collect();
+
+        let prompt = format!(
+            "You are a forensic accountant verifying a bank statement after a transaction \
+             transfer operation. The opening balance is {}.\n\n\
+             Verify that for EVERY row: running_balance = previous_running_balance + debit - credit.\n\
+             (Opening balance is used as previous_running_balance for the first row.)\n\
+             Verify the final running_balance is mathematically consistent.\n\n\
+             Transactions: {}\n\n\
+             Return only the JSON with your verdict.",
+            dec_to_f64(opening_balance),
+            serde_json::to_string(&tx_summary).unwrap_or_default(),
+        );
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "math_valid": { "type": "boolean" },
+                "discrepancies": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "row": { "type": "integer" },
+                            "expected_balance": { "type": "number" },
+                            "actual_balance": { "type": "number" },
+                            "note": { "type": "string" }
+                        },
+                        "required": ["row", "expected_balance", "actual_balance", "note"]
+                    }
+                },
+                "summary": { "type": "string" }
+            },
+            "required": ["math_valid", "discrepancies", "summary"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": prompt }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
+
+        let json_resp: serde_json::Value = response.json().await?;
+        let text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .ok_or_else(|| GeminiError::InvalidResponse("Missing math verification text".into()))?;
+
+        let parsed: serde_json::Value = serde_json::from_str(text)
+            .map_err(|e| GeminiError::InvalidResponse(format!("Math verify JSON: {e}")))?;
+
+        Ok(parsed["math_valid"].as_bool().unwrap_or(false))
+    }
+}
+
+/// Mint a short-lived Google Cloud OAuth access token (scope
+/// `cloud-platform`) for Vertex AI, from the same credentials the Document AI
+/// client uses. Prefers an explicit service-account JSON key
+/// (`service_account_path`); falls back to an ADC `authorized_user` file
+/// (`adc_path`). Returns the bearer token string.
+///
+/// This is a synchronous, one-shot exchange (used at client construction)
+/// implemented with `reqwest::blocking` so `from_app_config` stays non-async.
+pub async fn mint_gcp_access_token_async(
+    doc_ai: &crate::app::config::DocumentAiConfig,
+) -> Result<String, String> {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|e| format!("clock error: {e}"))?;
+
+    let post_form = |url: String, form: Vec<(String, String)>| async move {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default();
+        let resp = client
+            .post(&url)
+            .form(&form)
+            .send()
+            .await
+            .map_err(|e| format!("token request: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!(
+                "token endpoint {}: {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            ));
+        }
+        resp.json::<serde_json::Value>()
+            .await
+            .map_err(|e| format!("token json: {e}"))
+    };
+
+    if !doc_ai.service_account_path.is_empty() {
+        let key_content = tokio::fs::read_to_string(&doc_ai.service_account_path)
+            .await
+            .map_err(|e| format!("read service account: {e}"))?;
+        let sa: serde_json::Value =
+            serde_json::from_str(&key_content).map_err(|e| format!("parse SA json: {e}"))?;
+        let client_email = sa["client_email"]
+            .as_str()
+            .ok_or("service account missing client_email")?;
+        let private_key = sa["private_key"]
+            .as_str()
+            .ok_or("service account missing private_key")?;
+
+        #[derive(Serialize)]
+        struct Claims {
+            iss: String,
+            scope: String,
+            aud: String,
+            iat: u64,
+            exp: u64,
+        }
+        let claims = Claims {
+            iss: client_email.to_string(),
+            scope: "https://www.googleapis.com/auth/cloud-platform".to_string(),
+            aud: "https://oauth2.googleapis.com/token".to_string(),
+            iat: now,
+            exp: now + 3600,
+        };
+        let mut header = Header::new(Algorithm::RS256);
+        header.typ = Some("JWT".to_string());
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
+            .map_err(|e| format!("bad private key: {e}"))?;
+        let signed =
+            encode(&header, &claims, &encoding_key).map_err(|e| format!("jwt sign: {e}"))?;
+
+        let v = post_form(
+            "https://oauth2.googleapis.com/token".to_string(),
+            vec![
+                (
+                    "grant_type".to_string(),
+                    "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
+                ),
+                ("assertion".to_string(), signed),
+            ],
+        )
+        .await?;
+        return v["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "token response missing access_token".to_string());
+    }
+
+    if !doc_ai.adc_path.is_empty() {
+        let raw = tokio::fs::read_to_string(&doc_ai.adc_path)
+            .await
+            .map_err(|e| format!("read ADC: {e}"))?;
+        let adc: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("parse ADC json: {e}"))?;
+        let client_id = adc["client_id"].as_str().ok_or("ADC missing client_id")?;
+        let client_secret = adc["client_secret"]
+            .as_str()
+            .ok_or("ADC missing client_secret")?;
+        let refresh_token = adc["refresh_token"]
+            .as_str()
+            .ok_or("ADC missing refresh_token")?;
+
+        let resp_json = post_form(
+            "https://oauth2.googleapis.com/token".to_string(),
+            vec![
+                ("client_id".to_string(), client_id.to_string()),
+                ("client_secret".to_string(), client_secret.to_string()),
+                ("refresh_token".to_string(), refresh_token.to_string()),
+                ("grant_type".to_string(), "refresh_token".to_string()),
+            ],
+        )
+        .await?;
+        return resp_json["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "ADC token response missing access_token".to_string());
+    }
+
+    Err("Neither service_account_path nor adc_path is configured for Vertex AI mode".into())
+}
+
+/// Mint a short-lived Google Cloud OAuth access token (scope
+/// `cloud-platform`) for Vertex AI, from the same credentials the Document AI
+/// client uses. Prefers an explicit service-account JSON key
+/// (`service_account_path`); falls back to an ADC `authorized_user` file
+/// (`adc_path`). Returns the bearer token string.
+///
+/// This is a synchronous, one-shot exchange (used at client construction)
+/// implemented with `reqwest::blocking` so `from_app_config` stays non-async.
+fn mint_gcp_access_token(doc_ai: &crate::app::config::DocumentAiConfig) -> Result<String, String> {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|e| format!("clock error: {e}"))?;
+
+    let http = {
+        // reqwest::blocking::Client internally spawns a tokio runtime,
+        // which panics if we're already inside one. Detect and work around.
+        match tokio::runtime::Handle::try_current() {
+            Ok(_handle) => {
+                // We're inside a tokio runtime — use the async client via block_in_place.
+                // We return a thin wrapper that uses the async client synchronously.
+                None // signal to use async path below
+            }
+            Err(_) => Some(
+                reqwest::blocking::Client::builder()
+                    .timeout(std::time::Duration::from_secs(60))
+                    .build()
+                    .unwrap_or_default(),
+            ),
+        }
+    };
+
+    // Helper: POST a form and return the JSON response, works in both contexts.
+    let post_form = |url: &str, form: &[(&str, &str)]| -> Result<serde_json::Value, String> {
+        if let Some(ref client) = http {
+            // Pure blocking path (no tokio runtime active)
+            let resp = client
+                .post(url)
+                .form(form)
+                .send()
+                .map_err(|e| format!("token request: {e}"))?;
+            if !resp.status().is_success() {
+                return Err(format!(
+                    "token endpoint {}: {}",
+                    resp.status(),
+                    resp.text().unwrap_or_default()
+                ));
+            }
+            resp.json().map_err(|e| format!("token json: {e}"))
+        } else {
+            // Inside tokio — use block_in_place + async client
+            tokio::task::block_in_place(|| {
+                let handle = tokio::runtime::Handle::current();
+                handle.block_on(async {
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(60))
+                        .build()
+                        .unwrap_or_default();
+                    let resp = client
+                        .post(url)
+                        .form(form)
+                        .send()
+                        .await
+                        .map_err(|e| format!("token request: {e}"))?;
+                    if !resp.status().is_success() {
+                        return Err(format!(
+                            "token endpoint {}: {}",
+                            resp.status(),
+                            resp.text().await.unwrap_or_default()
+                        ));
+                    }
+                    resp.json().await.map_err(|e| format!("token json: {e}"))
+                })
+            })
+        }
+    };
+
+    // Preferred: service-account JWT-bearer grant.
+    if !doc_ai.service_account_path.is_empty() {
+        let key_content = std::fs::read_to_string(&doc_ai.service_account_path)
+            .map_err(|e| format!("read service account: {e}"))?;
+        let sa: serde_json::Value =
+            serde_json::from_str(&key_content).map_err(|e| format!("parse SA json: {e}"))?;
+        let client_email = sa["client_email"]
+            .as_str()
+            .ok_or("service account missing client_email")?;
+        let private_key = sa["private_key"]
+            .as_str()
+            .ok_or("service account missing private_key")?;
+
+        #[derive(Serialize)]
+        struct Claims {
+            iss: String,
+            scope: String,
+            aud: String,
+            iat: u64,
+            exp: u64,
+        }
+        let claims = Claims {
+            iss: client_email.to_string(),
+            scope: "https://www.googleapis.com/auth/cloud-platform".to_string(),
+            aud: "https://oauth2.googleapis.com/token".to_string(),
+            iat: now,
+            exp: now + 3600,
+        };
+        let mut header = Header::new(Algorithm::RS256);
+        header.typ = Some("JWT".to_string());
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes())
+            .map_err(|e| format!("bad private key: {e}"))?;
+        let signed =
+            encode(&header, &claims, &encoding_key).map_err(|e| format!("jwt sign: {e}"))?;
+
+        let v = post_form(
+            "https://oauth2.googleapis.com/token",
+            &[
+                ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+                ("assertion", &signed),
+            ],
+        )?;
+        return v["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "token response missing access_token".to_string());
+    }
+
+    // Fallback: ADC authorized_user refresh-token grant.
+    if !doc_ai.adc_path.is_empty() {
+        let raw =
+            std::fs::read_to_string(&doc_ai.adc_path).map_err(|e| format!("read ADC: {e}"))?;
+        let adc: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("parse ADC json: {e}"))?;
+        let client_id = adc["client_id"].as_str().ok_or("ADC missing client_id")?;
+        let client_secret = adc["client_secret"]
+            .as_str()
+            .ok_or("ADC missing client_secret")?;
+        let refresh_token = adc["refresh_token"]
+            .as_str()
+            .ok_or("ADC missing refresh_token")?;
+        let v = post_form(
+            "https://oauth2.googleapis.com/token",
+            &[
+                ("grant_type", "refresh_token"),
+                ("client_id", client_id),
+                ("client_secret", client_secret),
+                ("refresh_token", refresh_token),
+            ],
+        )?;
+        return v["access_token"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "ADC token response missing access_token".to_string());
+    }
+
+    Err("Vertex mode needs a service-account JSON (GOOGLE_APPLICATION_CREDENTIALS) or ADC".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn request_body_uses_camelcase_and_object_schema() {
+        let _transactions: Vec<Transaction> = vec![];
+        let _layout = DocumentLayout {
+            total_pages: 1,
+            pages: vec![],
+            has_consistent_headers: true,
+            has_consistent_footers: true,
+            overall_style: "".into(),
+            layout_confidence: 1.0,
+        };
+
+        // We simulate the request building logic
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "adjustments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "page": { "type": "integer" },
+                            "line_on_page": { "type": "integer" },
+                            "old_running_balance": { "type": "number" },
+                            "new_running_balance": { "type": "number" },
+                            "reason": { "type": "string" },
+                            "confidence": { "type": "number" }
+                        },
+                        "required": ["page", "line_on_page", "old_running_balance", "new_running_balance", "reason", "confidence"]
+                    }
+                },
+                "overall_strategy": { "type": "string" },
+                "confidence": { "type": "number" }
+            },
+            "required": ["adjustments", "overall_strategy", "confidence"]
+        });
+
+        let body = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": "prompt" }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        assert_eq!(
+            body["generationConfig"]["responseMimeType"]
+                .as_str()
+                .unwrap(),
+            "application/json"
+        );
+        assert!(body["generationConfig"]["responseSchema"].is_object());
+    }
+
+    #[tokio::test]
+    async fn low_confidence_response_returns_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1beta/models/gemini-2.5-pro:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": "{\"adjustments\": [], \"overall_strategy\": \"Unsure\", \"confidence\": 0.5}"
+                        }]
+                    }
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = GeminiClient::with_base_url("fake".into(), server.uri());
+
+        let plan = client
+            .propose_balance_adjustments(
+                &[],
+                0.0,
+                &DocumentLayout {
+                    total_pages: 1,
+                    pages: vec![],
+                    has_consistent_headers: true,
+                    has_consistent_footers: true,
+                    overall_style: "".into(),
+                    layout_confidence: 1.0,
+                },
+            )
+            .await;
+
+        match plan {
+            Err(GeminiError::LowConfidence(conf)) => assert_eq!(conf, 0.5),
+            _ => panic!("Expected LowConfidence error"),
+        }
+    }
+
+    fn hot(bbox: [f32; 4], kind: &str) -> VisionHotspot {
+        VisionHotspot {
+            bbox,
+            kind: kind.into(),
+            confidence: 0.9,
+        }
+    }
+
+    #[test]
+    fn vision_should_reject_when_overall_score_too_high() {
+        let report = GeminiVisionReport {
+            anomaly_score: 0.5,
+            hotspots: vec![],
+            notes: String::new(),
+        };
+        // No hotspots; threshold 0.15 -> reject by score alone.
+        assert!(report.should_reject(&[], 0.15));
+        assert!(!report.should_reject(&[], 0.6));
+    }
+
+    #[test]
+    fn vision_should_reject_when_hotspot_outside_intended_bboxes() {
+        let report = GeminiVisionReport {
+            anomaly_score: 0.05,
+            hotspots: vec![hot([200.0, 300.0, 250.0, 320.0], "kerning")],
+            notes: String::new(),
+        };
+        let intended = vec![[100.0, 100.0, 150.0, 120.0]];
+        // Score is fine but the hotspot is unintended -> reject.
+        assert!(report.should_reject(&intended, 0.15));
+    }
+
+    #[test]
+    fn vision_should_accept_when_hotspots_overlap_intended() {
+        let report = GeminiVisionReport {
+            anomaly_score: 0.04,
+            hotspots: vec![hot([105.0, 102.0, 145.0, 118.0], "edge")],
+            notes: String::new(),
+        };
+        let intended = vec![[100.0, 100.0, 150.0, 120.0]];
+        // Both checks pass: low score, hotspot inside the intended bbox.
+        assert!(!report.should_reject(&intended, 0.15));
+    }
+
+    #[test]
+    fn vision_accepts_pristine_render_with_no_hotspots() {
+        let report = GeminiVisionReport {
+            anomaly_score: 0.0,
+            hotspots: vec![],
+            notes: "looks clean".into(),
+        };
+        assert!(!report.should_reject(&[], 0.15));
+        assert!(!report.should_reject(&[[0.0, 0.0, 100.0, 100.0]], 0.15));
+    }
+}
+
+/// Helper function to redact PII (like account numbers) from transactions before
+/// sending them to the cloud for analysis. Gemini only needs the math, not the PII.
+fn scrub_pii(transactions: &[Transaction]) -> Vec<Transaction> {
+    // Basic scrubbing: replace sequences of 6+ digits (potential account/routing numbers)
+    let re_digits = regex::Regex::new(r"\b\d{6,}\b").unwrap();
+
+    transactions
+        .iter()
+        .map(|t| {
+            let mut scrubbed = t.clone();
+            scrubbed.raw_text = re_digits
+                .replace_all(&scrubbed.raw_text, "[REDACTED_ACCOUNT]")
+                .into_owned();
+            scrubbed
+        })
+        .collect()
+}

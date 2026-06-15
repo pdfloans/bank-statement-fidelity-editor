@@ -42,8 +42,7 @@ impl PyEngine {
             let module =
                 PyModule::new(py, "pymupdf_pro_integration").map_err(|e| e.to_string())?;
 
-            let c_code = std::ffi::CString::new(py_code).map_err(|e| e.to_string())?;
-            py.run(&c_code, Some(&module.dict()), None)
+            py.run(py_code, Some(&module.dict()), None)
                 .map_err(|e| e.to_string())?;
 
             Ok(Self {
@@ -73,7 +72,7 @@ impl PyEngine {
         args: N,
     ) -> Result<String, String>
     where
-        N: pyo3::IntoPyObject<'py, Target = pyo3::types::PyTuple>,
+        N: pyo3::IntoPy<Py<pyo3::types::PyTuple>>,
     {
         let func = self
             .module
@@ -396,7 +395,7 @@ impl PyEngine {
     /// Force Python garbage collection.
     /// Stage 2 Memory Management: explicit collection to prevent OOM in batch processing.
     pub fn garbage_collect() {
-        if let Err(e) = Python::with_gil(|py| py.run(c"import gc; gc.collect()", None, None)) {
+        if let Err(e) = Python::with_gil(|py| py.run("import gc; gc.collect()", None, None)) {
             tracing::warn!("Failed to run Python GC: {}", e);
         }
     }

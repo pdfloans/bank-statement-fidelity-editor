@@ -123,6 +123,7 @@ impl PdfEngine for PyMuPdfEngine {
         page: usize,
         bbox: [f32; 4],
         new_text: &str,
+        _old_text: &str,
         font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
         let (tx, rx) = oneshot::channel();
@@ -147,11 +148,13 @@ impl PdfEngine for PyMuPdfEngine {
                 success: true,
                 font_used: "unknown".into(),
                 overflow: false,
+                obj_id: None,
             }),
             PythonJobResult::ReplacedWithReviewWarning { .. } => Ok(ReplaceOutcome {
                 success: true,
                 font_used: "unknown".into(),
                 overflow: false,
+                obj_id: None,
             }),
             PythonJobResult::Error(e) => Err(EngineError::ApplyFailed(e)),
             _ => Err(EngineError::ApplyFailed("Unexpected result".into())),
