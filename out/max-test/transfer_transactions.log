@@ -1,0 +1,18 @@
+ΓòöΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòù
+Γòæ   Bank Statement Fidelity Editor v0.5.0                   Γòæ
+Γòæ   100% Visual Fidelity ΓÇó Smart Targeted Editing           Γòæ
+ΓòÜΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓò¥
+
+[2m2026-06-16T18:48:33.789349Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+[2m2026-06-16T18:48:33.789603Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Software Root of Trust (Production Mode)
+[2m2026-06-16T18:48:33.789661Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Strong passphrase-based cryptographic attestation active.
+[2m2026-06-16T18:48:33.789792Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Passphrase hash computed: 76342a5f...6266355f
+[2m2026-06-16T18:48:33.789847Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Strong passphrase verified (40 chars, 262.2 bits entropy)
+[2m2026-06-16T18:48:33.789902Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Software root of trust established (production-grade).
+[2m2026-06-16T18:48:33.789939Z[0m [32m INFO[0m main ThreadId(01) [SECURITY]    Pipeline unlocked.
+[2m2026-06-16T18:48:33.789968Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+[2m2026-06-16T18:48:33.793732Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [TRANSFER] Stage 1: Analyzing source PDF: ".\\test_doc.pdf"
+[2m2026-06-16T18:48:33.793721Z[0m [32m INFO[0m main ThreadId(01) [progress] Analyzing source statementΓÇª: 0%
+[2m2026-06-16T18:48:33.795556Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [doc_ai] cache HIT (skipping network) key=d1a65c3c6e061227
+[2m2026-06-16T18:48:33.795679Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [TRANSFER] Source: 0 transactions found
+Γ¥î Transfer failed at AnalyzeSource: Source statement has 0 transactions ΓÇö nothing to transfer.

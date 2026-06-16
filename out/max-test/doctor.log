@@ -1,0 +1,44 @@
+ΓòöΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòù
+Γòæ   Bank Statement Fidelity Editor v0.5.0                   Γòæ
+Γòæ   100% Visual Fidelity ΓÇó Smart Targeted Editing           Γòæ
+ΓòÜΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓò¥
+
+[2m2026-06-16T18:48:11.999404Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+[2m2026-06-16T18:48:12.000121Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Software Root of Trust (Production Mode)
+[2m2026-06-16T18:48:12.000205Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Strong passphrase-based cryptographic attestation active.
+[2m2026-06-16T18:48:12.000412Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Passphrase hash computed: 76342a5f...6266355f
+[2m2026-06-16T18:48:12.000953Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Strong passphrase verified (40 chars, 262.2 bits entropy)
+[2m2026-06-16T18:48:12.001060Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Software root of trust established (production-grade).
+[2m2026-06-16T18:48:12.001102Z[0m [32m INFO[0m main ThreadId(01) [SECURITY]    Pipeline unlocked.
+[2m2026-06-16T18:48:12.001136Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  Bank Statement Fidelity Editor ΓÇö Doctor
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+ Environment variables
+  Γ£à  DUAL_CORE_PASSPHRASE                Application startup
+  Γ£à  PYMUPDF_PRO_KEY                     Per-segment editing/rendering (Subsystem B). Split/merge work without it.
+  Γ£à  GEMINI_API_KEY                      Smart Balance Engine (AI proposals)
+  Γ£à  DOCUMENT_AI_PROJECT_ID              Transaction extraction (Extract / Balance)
+  Γ£à  DOCUMENT_AI_LOCATION                Transaction extraction (Extract / Balance)
+  Γ£à  DOCUMENT_AI_PROCESSOR_ID            Transaction extraction (Extract / Balance)
+  ΓÜá∩╕Å   DOCUMENT_AI_API_KEY                 [OPTIONAL] Preferred Document AI auth (over OAuth/service account)
+  ΓÜá∩╕Å   GOOGLE_APPLICATION_CREDENTIALS      [OPTIONAL] Document AI auth fallback (legacy)
+  ΓÜá∩╕Å   PDFREST_API_KEY                     [OPTIONAL] Higher-tier visual verification rendering
+  ΓÜá∩╕Å   OTEL_EXPORTER_OTLP_ENDPOINT         [OPTIONAL] Distributed tracing export
+  ΓÜá∩╕Å   OTEL_SERVICE_NAME                   [OPTIONAL] Telemetry labelling
+  ΓÜá∩╕Å   LOG_DIR                             [OPTIONAL] File-based logging
+  ΓÜá∩╕Å   RUST_LOG                            [OPTIONAL] Console/file log level control
+  Γ£à  Document AI auth                    Application Default Credentials (gcloud)
+
+ Filesystem
+  Γ£à  logs/ writable                      ./logs
+  Γ£à  audit/ writable                     audit
+  Γ£à  output/ writable                    output
+  Γ£à  Bank templates                      9 template(s) found
+
+ Runtime
+  Γ£à  Worker responding                   Tokio + Python actor
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+ Doctor: Γ£à Ready for use. All systems go.

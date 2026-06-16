@@ -1,0 +1,42 @@
+Bank Statement Fidelity Editor CLI
+
+A toolkit for rendering, extracting, and verifying PDF documents with the same capabilities as the GUI.
+
+FIRST-TIME SETUP:
+  1. Copy .env.example to .env and fill in the required values.
+  2. Run `dual-core-pdf-pipeline doctor` to verify your configuration.
+  3. Use `dual-core-pdf-pipeline <command> --help` for command-specific options.
+
+EXIT CODES:
+  0 success ┬╖ 1 general error ┬╖ 2 config ┬╖ 3 invalid input ┬╖ 4 not found ┬╖ 5 I/O ┬╖ 6 partial success
+
+Usage: dual-core-pdf-pipeline.exe <COMMAND>
+
+Commands:
+  gui                    Launch the GUI (recommended)
+  serve                  Run headless and expose an HTTP health surface (for containers / cloud platforms like Railway). Binds 0.0.0.0:$PORT (default 8080) and keeps the worker runtime alive. Reuses the same Job/JobResult runtime as the GUI and CLI ΓÇö no separate code path
+  text                   Modify text with high visual fidelity
+  balance                Balance the entire statement (T8 + T9)
+  extract                Extract document-level data as JSON (T8)
+  verify                 Verify visual and mathematical integrity (T7)
+  render                 Render a specific page to PNG
+  font-complete          Complete missing characters in a font (T5)
+  export-history         Reconstruct history from an audit log (AC#6)
+  doctor                 Print configuration health check (env vars, file paths, runtime ping)
+  verify-api-keys        Verify all API keys can make successful API calls with fallback chains
+  docai-train            Document AI training orchestration (Stage 4 / Item #12)
+  fontcache-init         Stage 12 / Item #1: bootstrap the font cache used by the Stage 11 donor cascade
+  analyze-fonts          Stage 8.5: Standalone font analysis trigger
+  auto-balance           Run the Smart Balance Engine and apply all proposed adjustments
+  ai-fix-visual          Use AI to fix text box issues and visual fidelity differences
+  transfer-transactions  Transfer transactions from one bank statement to another
+  adjust-dates           Bulk-shift or remap all transaction dates
+  run-transfer-tests     Run cross-statement transfer tests on a set of PDFs
+  help                   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

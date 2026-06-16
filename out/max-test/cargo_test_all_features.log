@@ -1,0 +1,36 @@
+   Compiling dual-core-pdf-pipeline v0.5.0 (C:\Users\home\Desktop\combined bank statement and metadata cloner\bank statement modifier)
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `wiremock`
+    --> src\ai\gemini_client.rs:1260:9
+     |
+1260 |     use wiremock::matchers::{method, path};
+     |         ^^^^^^^^ use of unresolved module or unlinked crate `wiremock`
+     |
+     = help: if you wanted to use a crate named `wiremock`, use `cargo add wiremock` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `wiremock`
+    --> src\ai\gemini_client.rs:1261:9
+     |
+1261 |     use wiremock::{Mock, MockServer, ResponseTemplate};
+     |         ^^^^^^^^ use of unresolved module or unlinked crate `wiremock`
+     |
+     = help: if you wanted to use a crate named `wiremock`, use `cargo add wiremock` to add it to your `Cargo.toml`
+
+warning: unused variable: `std_job_tx`
+    --> src\app\runtime.rs:4250:14
+     |
+4250 |         let (std_job_tx, std_job_rx) = std::sync::mpsc::channel::<Job>();
+     |              ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_std_job_tx`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `engine`
+    --> src\app\runtime.rs:4258:13
+     |
+4258 |         let engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
+     |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_engine`
+
+Some errors have detailed explanations: E0432, E0433.
+For more information about an error, try `rustc --explain E0432`.
+warning: `dual-core-pdf-pipeline` (lib test) generated 2 warnings
+error: could not compile `dual-core-pdf-pipeline` (lib test) due to 2 previous errors; 2 warnings emitted
+warning: build failed, waiting for other jobs to finish...

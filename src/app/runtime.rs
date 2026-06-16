@@ -4247,7 +4247,7 @@ mod tests {
         let python_tx_clone = python_tx.clone();
 
         // 1. A selector with PyMuPdfEngine (which sends jobs back to a channel)
-        let (std_job_tx, std_job_rx) = std::sync::mpsc::channel::<Job>();
+        let (_std_job_tx, std_job_rx) = std::sync::mpsc::channel::<Job>();
         let job_tx_clone = job_tx.clone();
         std::thread::spawn(move || {
             while let Ok(job) = std_job_rx.recv() {
@@ -4255,7 +4255,7 @@ mod tests {
             }
         });
 
-        let engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
+        let _engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
 
         // 2. The Runtime Job::Python handler (the logic we are testing)
         let handle = tokio::spawn(async move {

@@ -1,0 +1,23 @@
+ΓòöΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòù
+Γòæ   Bank Statement Fidelity Editor v0.5.0                   Γòæ
+Γòæ   100% Visual Fidelity ΓÇó Smart Targeted Editing           Γòæ
+ΓòÜΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓò¥
+
+[2m2026-06-16T18:48:31.589986Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+[2m2026-06-16T18:48:31.590228Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Software Root of Trust (Production Mode)
+[2m2026-06-16T18:48:31.590284Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Strong passphrase-based cryptographic attestation active.
+[2m2026-06-16T18:48:31.590380Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Passphrase hash computed: 76342a5f...6266355f
+[2m2026-06-16T18:48:31.590427Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Strong passphrase verified (40 chars, 262.2 bits entropy)
+[2m2026-06-16T18:48:31.590476Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Software root of trust established (production-grade).
+[2m2026-06-16T18:48:31.590513Z[0m [32m INFO[0m main ThreadId(01) [SECURITY]    Pipeline unlocked.
+[2m2026-06-16T18:48:31.590546Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+[2m2026-06-16T18:48:31.593796Z[0m [32m INFO[0m main ThreadId(01) [progress] Smart Balance Analysis: 10%
+[2m2026-06-16T18:48:31.597655Z[0m [32m INFO[0m main ThreadId(01) [progress] Loading Document: 30%
+[2m2026-06-16T18:48:31.597681Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [DOCUMENT ENGINE] Loading ENTIRE multi-page statement + Layout Analysis...
+[2m2026-06-16T18:48:31.601546Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [DOCUMENT ENGINE] Layout analysis complete: 1 pages, consistent headers: false
+[2m2026-06-16T18:48:31.601637Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [DOCUMENT ENGINE] Document loaded with 0 transactions across 1 pages
+[2m2026-06-16T18:48:31.601694Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [DOCUMENT ENGINE] ===== BALANCE ENTIRE STATEMENT =====
+[2m2026-06-16T18:48:31.602774Z[0m [32m INFO[0m            main ThreadId(01) [progress] Analyzing layout and semantic meaning: 60%
+[2m2026-06-16T18:48:31.603472Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [doc_ai] cache HIT (skipping network) key=d1a65c3c6e061227
+[2m2026-06-16T18:48:31.605100Z[0m [32m INFO[0m tokio-rt-worker ThreadId(09) [DOCUMENT ENGINE] Γ£à Statement is already perfectly balanced.
+Γ£à Statement is already perfectly balanced (imbalance: $0).

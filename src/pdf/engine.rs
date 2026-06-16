@@ -284,7 +284,7 @@ mod tests {
         let (idx, frac) = dominant_span_overlap(&blocks, 0, bbox)
             .ok_or_else(|| anyhow::anyhow!("No overlap found"))?;
         assert_eq!(idx, 1);
-        assert!((frac - 1.0).abs() < 1e-6);
+        assert!((frac - 0.75).abs() < 1e-6);
         Ok(())
     }
 

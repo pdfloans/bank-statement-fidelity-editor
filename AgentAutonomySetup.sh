@@ -1,8 +1,3 @@
-
-The robust fix is to **avoid embedding fenced code blocks inside the heredoc content at all**. I'll write `AGENTS.md` using indented examples (4 spaces) instead of triple-backtick fences. That way nothing inside the heredoc collides with Markdown fences, and the script itself renders cleanly.
-
-Save this as `setup_agent_autonomy.sh` in your project root and run:
-
 ```bash
 bash setup_agent_autonomy.sh
 ```

@@ -1,0 +1,44 @@
+ΓòöΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòù
+Γòæ   Bank Statement Fidelity Editor v0.5.0                   Γòæ
+Γòæ   100% Visual Fidelity ΓÇó Smart Targeted Editing           Γòæ
+ΓòÜΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓò¥
+
+[2m2026-06-16T18:48:18.700860Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+[2m2026-06-16T18:48:18.701110Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Software Root of Trust (Production Mode)
+[2m2026-06-16T18:48:18.701171Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Strong passphrase-based cryptographic attestation active.
+[2m2026-06-16T18:48:18.701298Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Passphrase hash computed: 76342a5f...6266355f
+[2m2026-06-16T18:48:18.701360Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Strong passphrase verified (40 chars, 262.2 bits entropy)
+[2m2026-06-16T18:48:18.701399Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] Γ£ô Software root of trust established (production-grade).
+[2m2026-06-16T18:48:18.701429Z[0m [32m INFO[0m main ThreadId(01) [SECURITY]    Pipeline unlocked.
+[2m2026-06-16T18:48:18.701462Z[0m [32m INFO[0m main ThreadId(01) [SECURITY] ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+[2m2026-06-16T18:48:19.615107Z[0m [31mERROR[0m main ThreadId(01) Gemini API rejected request with 400 Bad Request for model gemini-2.5-flash! Please verify your GEMINI_API_KEY and quota.
+{
+  "overall_status": "success",
+  "results": [
+    {
+      "service": "PyMuPDF Pro",
+      "status": "success",
+      "latency_ms": 0,
+      "error_message": null,
+      "guidance": null,
+      "method_used": "Format validation"
+    },
+    {
+      "service": "Document AI",
+      "status": "success",
+      "latency_ms": 519,
+      "error_message": null,
+      "guidance": null,
+      "method_used": "Application Default Credentials"
+    },
+    {
+      "service": "Gemini",
+      "status": "success",
+      "latency_ms": 393,
+      "error_message": null,
+      "guidance": null,
+      "method_used": "API Key"
+    }
+  ],
+  "timestamp": "2026-06-16T18:48:19.615686700+00:00"
+}
