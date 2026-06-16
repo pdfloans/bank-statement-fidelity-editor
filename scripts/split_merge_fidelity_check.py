@@ -13,7 +13,7 @@ integration test's lossless page-count proof.
 This script renders original vs edited (from output/e2e) for the docs that were
 successfully edited and reports per-page pixel diffs to confirm edit locality.
 """
-import glob, os, re, subprocess, sys
+import glob, os, re, sys
 import pymupdf
 from PIL import Image, ImageChops
 import numpy as np
@@ -30,6 +30,7 @@ def render_page_png(pdf_path, page, dpi=150):
     return png
 
 def diff(a, b):
+    """Compute pixel-level difference between two rendered page images."""
     ia = Image.open(a).convert("RGB"); ib = Image.open(b).convert("RGB")
     if ia.size != ib.size:
         return None, ia.size, ib.size

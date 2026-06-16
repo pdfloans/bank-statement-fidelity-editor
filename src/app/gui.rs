@@ -368,12 +368,14 @@ pub struct MyApp {
     workflow_stage: crate::engine::workflow::WorkflowStage,
     workflow_transactions: Vec<crate::engine::model::Transaction>,
     workflow_validation: Option<crate::engine::workflow::ParseValidation>,
+    #[allow(dead_code)]
     workflow_df: Option<polars::frame::DataFrame>,
     #[allow(dead_code)]
     workflow_edits: Vec<crate::engine::workflow::UserEdit>,
     workflow_preview: Option<crate::engine::workflow::BalancePreview>,
     workflow_visual: Option<crate::engine::workflow::VisualAttempt>,
     workflow_outcome: Option<crate::engine::workflow::WorkflowOutcome>,
+    #[allow(dead_code)]
     native_engine: Option<std::sync::Arc<dyn crate::pdf::PdfEngine>>,
 
     /// Stage 8.5: per-font breakdown for the loaded PDF, populated
@@ -436,6 +438,8 @@ pub struct MyApp {
     /// Gemini auth mode buffer: false = API key (default), true = Vertex AI
     /// (service-account / ADC). Persisted as `GEMINI_AUTH_MODE`.
     edit_gemini_use_vertex: bool,
+    /// Which PDF engine backend the user wants to force (or Auto)
+    edit_engine_mode: crate::app::config::PdfEngineMode,
     /// Latest credential/AI status reported by the runtime after a
     /// `Job::ReloadConfig` (document_ai_configured, gemini_configured,
     /// pro_editing_available). `None` until the first reload this session.
@@ -541,7 +545,7 @@ impl MyApp {
             workflow_last_save: None,
             workflow_input_hash: None,
             workflow_cell_buffers: std::collections::HashMap::new(),
-            config,
+            config: config.clone(),
             settings,
             // Seed API-key editor buffers from the current environment so the
             // Settings panel shows what's active. Values are masked in the UI.
@@ -568,6 +572,7 @@ impl MyApp {
                     .as_str(),
                 "vertex" | "vertex_ai" | "vertexai"
             ),
+            edit_engine_mode: config.engine_mode,
             config_status: None,
             credential_validation_status: None,
             api_keys_seeded: true,
@@ -627,6 +632,14 @@ impl MyApp {
                     "vertex".to_string()
                 } else {
                     "api_key".to_string()
+                },
+            ),
+            (
+                "PDF_ENGINE_MODE",
+                match self.edit_engine_mode {
+                    crate::app::config::PdfEngineMode::Auto => "auto".to_string(),
+                    crate::app::config::PdfEngineMode::NativeOnly => "native".to_string(),
+                    crate::app::config::PdfEngineMode::PyMuPdfOnly => "pymupdf".to_string(),
                 },
             ),
         ];
@@ -2605,6 +2618,20 @@ impl MyApp {
                     });
                     ui.end_row();
 
+                    ui.label("PDF Engine Mode:");
+                    egui::ComboBox::from_id_source("pdf_engine_mode_combo")
+                        .selected_text(match self.edit_engine_mode {
+                            crate::app::config::PdfEngineMode::Auto => "Auto (Native + PyMuPDF)",
+                            crate::app::config::PdfEngineMode::NativeOnly => "Force Native",
+                            crate::app::config::PdfEngineMode::PyMuPdfOnly => "Force PyMuPDF",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::Auto, "Auto (Native + PyMuPDF)");
+                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::NativeOnly, "Force Native");
+                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::PyMuPdfOnly, "Force PyMuPDF");
+                        });
+                    ui.end_row();
+
                     ui.label("Doc AI project ID:");
                     ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
                     ui.end_row();
@@ -4043,7 +4070,7 @@ impl MyApp {
                 egui::FontId::proportional(14.0),
                 p.text,
             );
-            resp.clone().on_hover_text(hint).clicked()
+            resp.on_hover_text(hint).clicked()
         };
         if button(ui, "📂 Open PDF…", "Browse for a bank statement PDF") {
             if let Some(path) = rfd::FileDialog::new()
@@ -4218,8 +4245,18 @@ impl MyApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        let input = ctx.input(|i| i.clone());
-        if input.modifiers.command && input.key_pressed(egui::Key::O) {
+        // Read individual shortcut states instead of cloning the entire InputState.
+        let ctrl_o = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O));
+        let ctrl_z = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z));
+        let ctrl_y = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y));
+        let ctrl_s = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+        let page_down = ctx.input(|i| i.key_pressed(egui::Key::PageDown) || i.key_pressed(egui::Key::ArrowRight));
+        let page_up = ctx.input(|i| i.key_pressed(egui::Key::PageUp) || i.key_pressed(egui::Key::ArrowLeft));
+        let zoom_in = ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals));
+        let zoom_out = ctx.input(|i| i.key_pressed(egui::Key::Minus));
+        let zoom_reset = ctx.input(|i| i.key_pressed(egui::Key::Num0));
+
+        if ctrl_o {
             if let Some(path) = rfd::FileDialog::new()
                 .add_filter("PDF", &["pdf"])
                 .pick_file()
@@ -4227,38 +4264,34 @@ impl MyApp {
                 self.open_pdf(path);
             }
         }
-        if input.modifiers.command && input.key_pressed(egui::Key::Z) {
+        if ctrl_z {
             let _ = self.job_tx.send(Job::Undo);
         }
-        if input.modifiers.command && input.key_pressed(egui::Key::Y) {
+        if ctrl_y {
             let _ = self.job_tx.send(Job::Redo);
         }
-        if input.modifiers.command && input.key_pressed(egui::Key::S) {
+        if ctrl_s {
             let _ = self.job_tx.send(Job::ExportChangeHistory {
                 output: PathBuf::from(&self.export_path),
             });
         }
-        if (input.key_pressed(egui::Key::PageDown) || input.key_pressed(egui::Key::ArrowRight))
-            && self.current_page + 1 < self.total_pages
-        {
+        if page_down && self.current_page + 1 < self.total_pages {
             self.current_page += 1;
             self.request_render("current");
         }
-        if (input.key_pressed(egui::Key::PageUp) || input.key_pressed(egui::Key::ArrowLeft))
-            && self.current_page > 0
-        {
+        if page_up && self.current_page > 0 {
             self.current_page -= 1;
             self.request_render("current");
         }
-        if input.key_pressed(egui::Key::Plus) || input.key_pressed(egui::Key::Equals) {
+        if zoom_in {
             self.zoom_factor = (self.zoom_factor * 1.15).clamp(0.1, 5.0);
             self.fit_to_view = false;
         }
-        if input.key_pressed(egui::Key::Minus) {
+        if zoom_out {
             self.zoom_factor = (self.zoom_factor * 0.85).clamp(0.1, 5.0);
             self.fit_to_view = false;
         }
-        if input.key_pressed(egui::Key::Num0) {
+        if zoom_reset {
             self.zoom_factor = 1.0;
             self.pan_offset = egui::Vec2::ZERO;
             self.fit_to_view = false;

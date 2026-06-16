@@ -15,7 +15,7 @@ fn test_headless_server_e2e() {
 
     // We must spawn a fake worker thread that answers Job::Ping with JobResult::Pong
     // so that the /readyz endpoint works.
-    let worker_handle = thread::spawn(move || {
+    let _worker_handle = thread::spawn(move || {
         while let Ok(job) = job_rx.recv() {
             if let Job::Ping = job {
                 let _ = res_tx.send(JobResult::Pong);

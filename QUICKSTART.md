@@ -1,6 +1,6 @@
 # Quickstart Guide
 
-Get up and running with the Bank Statement Fidelity Editor v0.5.0 in 6 steps.
+Get up and running with the Bank Statement Fidelity Editor v0.5.0 in 7 steps.
 
 ## 1. Install System Dependencies
 

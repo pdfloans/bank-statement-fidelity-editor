@@ -28,3 +28,7 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 - **Legacy Stubs**: Removed placeholder parsing and fake manual heuristics in Python integration and text_editor components.
+
+<!-- link references -->
+[v0.5.0]: https://github.com/pdfloans/bank-statement-fidelity-editor/compare/v0.4.0...v0.5.0
+[v0.4.0]: https://github.com/pdfloans/bank-statement-fidelity-editor/releases/tag/v0.4.0

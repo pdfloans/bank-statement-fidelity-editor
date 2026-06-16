@@ -280,8 +280,19 @@ impl PdfEngine for OxidizePdfEngine {
         bbox: [f32; 4],
         new_text: &str,
         old_text: &str,
-        font_path: Option<&Path>,
+        _font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
+        // Stage 1 Strict Font Guard:
+        // The native engine blindly writes into the content stream. If the embedded
+        // font subset is missing glyphs, the PDF will show boxes. As a robust heuristic,
+        // if the new text contains non-ASCII characters (e.g. symbols, CJK), we refuse
+        // to edit so the Selector auto-falls back to PyMuPDF Pro which has font replication.
+        if !new_text.is_ascii() {
+            return Err(EngineError::FontCoverageMissing(
+                "Native engine requires ASCII for safe subset coverage; complex chars detected".into()
+            ));
+        }
+
         // Load the document
         let mut doc =
             lopdf::Document::load(input).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
@@ -488,6 +499,17 @@ impl PdfEngine for OxidizePdfEngine {
     ) -> Result<usize, EngineError> {
         let edits: Vec<serde_json::Value> = serde_json::from_str(edits_json)
             .map_err(|e| EngineError::ApplyFailed(format!("Invalid edits JSON: {}", e)))?;
+
+        // Stage 1 Strict Font Guard for batch edits
+        for edit in &edits {
+            if let Some(new_text) = edit["new_text"].as_str() {
+                if !new_text.is_ascii() {
+                    return Err(EngineError::FontCoverageMissing(
+                        "Native engine requires ASCII for safe subset coverage; complex chars detected".into()
+                    ));
+                }
+            }
+        }
 
         let mut doc =
             lopdf::Document::load(input).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;

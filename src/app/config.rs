@@ -137,6 +137,15 @@ impl DocumentAiConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PdfEngineMode {
+    #[default]
+    Auto,
+    NativeOnly,
+    PyMuPdfOnly,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionMode {
@@ -170,6 +179,8 @@ pub struct AppConfig {
     pub is_dev_mode: bool,
     /// The connection mode (Local vs Remote Engine)
     pub connection_mode: ConnectionMode,
+    /// Which PDF engine backend to use
+    pub engine_mode: PdfEngineMode,
 }
 
 impl Default for AppConfig {
@@ -188,6 +199,7 @@ impl Default for AppConfig {
             gemini_auth_mode: GeminiAuthMode::ApiKey,
             is_dev_mode: cfg!(debug_assertions),
             connection_mode: ConnectionMode::Local,
+            engine_mode: PdfEngineMode::Auto,
         }
     }
 }
@@ -315,6 +327,11 @@ impl AppConfig {
             gemini_auth_mode,
             is_dev_mode,
             connection_mode: ConnectionMode::Local,
+            engine_mode: match env::var("PDF_ENGINE_MODE").unwrap_or_default().to_lowercase().as_str() {
+                "native" => PdfEngineMode::NativeOnly,
+                "pymupdf" => PdfEngineMode::PyMuPdfOnly,
+                _ => PdfEngineMode::Auto,
+            },
         })
     }
 

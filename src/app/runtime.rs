@@ -529,15 +529,17 @@ impl Runtime {
         let (python_tx, python_rx) =
             mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
 
+        let audit_log = Arc::new(Mutex::new(audit_log));
+        let history = Arc::new(Mutex::new(ChangeHistory::new()));
+        let config_holder = Arc::new(Mutex::new(config));
+
         let primary_engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
         let fallback_engine = Arc::new(crate::pdf::PyMuPdfEngine::new(job_tx.clone()));
         let engine: Arc<dyn crate::pdf::PdfEngine> = Arc::new(crate::pdf::PdfEngineSelector::new(
             primary_engine,
             fallback_engine,
+            config_holder.clone(),
         ));
-
-        let audit_log = Arc::new(Mutex::new(audit_log));
-        let history = Arc::new(Mutex::new(ChangeHistory::new()));
 
         let _python_actor_thread = thread::spawn(move || {
             let engine_result = crate::ai::pyo3_bridge::PyEngine::init();
@@ -703,8 +705,6 @@ impl Runtime {
         // Hot-swappable config: jobs read the *current* config via a per-iteration
         // snapshot, so an in-app API-key/credentials update (Job::ReloadConfig)
         // takes effect on subsequent jobs without an application restart.
-        let config_holder: Arc<Mutex<Arc<crate::app::config::AppConfig>>> =
-            Arc::new(Mutex::new(config.clone()));
 
         let api_semaphore = Arc::new(tokio::sync::Semaphore::new(3));
         let _ = tokio_job_tx_clone.send(Job::CleanupTempFiles);
@@ -2333,23 +2333,33 @@ impl Runtime {
                     }
                     Job::Undo => {
                         let history_clone = history.clone();
+                        let res_tx = result_tx_clone.clone();
                         let _ = tokio::task::spawn_blocking(move || {
-                            let mut h = history_clone.lock().unwrap();
-                            h.undo();
-                            h.clone()
-                        }).await.map(|h| {
-                            let _ = result_tx_clone.send(JobResult::HistoryUpdated { history: h });
-                        });
+                            match history_clone.lock() {
+                                Ok(mut h) => {
+                                    h.undo();
+                                    let _ = res_tx.send(JobResult::HistoryUpdated { history: h.clone() });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "undo".into(), message: format!("History lock poisoned: {e}") });
+                                }
+                            }
+                        }).await;
                     }
                     Job::Redo => {
                         let history_clone = history.clone();
+                        let res_tx = result_tx_clone.clone();
                         let _ = tokio::task::spawn_blocking(move || {
-                            let mut h = history_clone.lock().unwrap();
-                            h.redo();
-                            h.clone()
-                        }).await.map(|h| {
-                            let _ = result_tx_clone.send(JobResult::HistoryUpdated { history: h });
-                        });
+                            match history_clone.lock() {
+                                Ok(mut h) => {
+                                    h.redo();
+                                    let _ = res_tx.send(JobResult::HistoryUpdated { history: h.clone() });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "redo".into(), message: format!("History lock poisoned: {e}") });
+                                }
+                            }
+                        }).await;
                     }
                     Job::ExtractTransactions { path } => {
                         let res_tx = result_tx_clone.clone();
@@ -2660,7 +2670,7 @@ impl Runtime {
                                         if let Ok(meta) = entry.metadata() {
                                             if let Ok(modified) = meta.modified() {
                                                 if let Ok(age) = now.duration_since(modified) {
-                                                    if age.as_secs() > 86400 {
+                                                    if age.as_secs() > 86400 && meta.is_file() {
                                                         let _ = std::fs::remove_file(entry.path());
                                                     }
                                                 }
@@ -2833,7 +2843,7 @@ impl Runtime {
                             }
                         }).await.unwrap_or(());
                     }
-                    Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest, pdfrest_key } => {
+                    Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest: _, pdfrest_key: _ } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
                         let (reply_tx, reply_rx) = oneshot::channel();
 

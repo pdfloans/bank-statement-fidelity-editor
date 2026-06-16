@@ -68,9 +68,9 @@ def pixel_diff(a, b):
     ib = Image.open(b).convert("RGB")
     if ia.size != ib.size:
         return {"same_size": False, "a": ia.size, "b": ib.size}
-    diff = ImageChops.difference(ia, ib)
-    bbox = diff.getbbox()
-    arr = np.asarray(diff)
+    pdiff = ImageChops.difference(ia, ib)
+    bbox = pdiff.getbbox()
+    arr = np.asarray(pdiff)
     changed = int((arr.sum(axis=2) > 12).sum())
     total = ia.size[0] * ia.size[1]
     return {
@@ -124,11 +124,11 @@ def main():
 
         # 4. render both + pixel diff
         ok_o, ro = render(pdf, page, os.path.join(OUT, f"{slug}_orig"), "orig")
-        ok_e, re_ = render(edited, page, os.path.join(OUT, f"{slug}_edit"), "edit")
+        ok_e, edited_render = render(edited, page, os.path.join(OUT, f"{slug}_edit"), "edit")
         if ok_o and ok_e:
-            diff = pixel_diff(ro, re_)
-            rec["steps"]["pixel_diff"] = diff
-            print(f"  pixel diff: {diff.get('changed_pct')}% changed, bbox={diff.get('diff_bbox')}")
+            pdiff = pixel_diff(ro, edited_render)
+            rec["steps"]["pixel_diff"] = pdiff
+            print(f"  pixel diff: {pdiff.get('changed_pct')}% changed, bbox={pdiff.get('diff_bbox')}")
         else:
             rec["steps"]["pixel_diff"] = {"render_orig": ok_o, "render_edit": ok_e}
 

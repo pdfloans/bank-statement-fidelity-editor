@@ -5,9 +5,7 @@ use crate::engine::model::*;
 use crate::engine::workflow::*;
 use crate::engine::font_analysis::*;
 use egui::*;
-use egui_plot::{Line, Plot, PlotPoints};
-use egui_extras::{Column, TableBuilder, TableRow};
-use rust_decimal::Decimal;
+use egui_plot::{Line, Plot};
 use std::path::PathBuf;
 use crate::app::runtime::{Job, PythonJob};
 
@@ -654,6 +652,20 @@ impl AppModals for MyApp {
                             ui.selectable_value(&mut self.edit_gemini_use_vertex, false, "API key");
                             ui.selectable_value(&mut self.edit_gemini_use_vertex, true, "Vertex AI");
                         });
+                        ui.end_row();
+    
+                        ui.label("PDF Engine Mode:");
+                        egui::ComboBox::from_id_source("pdf_engine_mode_combo_modal")
+                            .selected_text(match self.edit_engine_mode {
+                                crate::app::config::PdfEngineMode::Auto => "Auto (Native + PyMuPDF)",
+                                crate::app::config::PdfEngineMode::NativeOnly => "Force Native",
+                                crate::app::config::PdfEngineMode::PyMuPdfOnly => "Force PyMuPDF",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::Auto, "Auto (Native + PyMuPDF)");
+                                ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::NativeOnly, "Force Native");
+                                ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::PyMuPdfOnly, "Force PyMuPDF");
+                            });
                         ui.end_row();
     
                         ui.label("Doc AI project ID:");

@@ -1,8 +1,9 @@
+"""Audit triple-quote docstring positions in the integration module."""
 import io
-import re
 
 P = 'python/pymupdf_pro_integration.py'
-src = io.open(P, 'r', encoding='utf-8').read()
+with io.open(P, 'r', encoding='utf-8') as _f:
+    src = _f.read()
 
 # Find every position of triple-quote and report
 positions = []

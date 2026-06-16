@@ -1,6 +1,7 @@
-import re
+"""Restore the pdfium_render page_count implementation in runtime.rs."""
 
-content = open('src/app/runtime.rs', 'r', encoding='utf-8').read()
+with open('src/app/runtime.rs', 'r', encoding='utf-8') as f:
+    content = f.read()
 
 target = '''                            // Stage 3 / Item #16: page count first
                             let page_count = {
@@ -32,7 +33,8 @@ replacement = '''                            // Stage 3 / Item #16: page count f
 
 if target in content:
     content = content.replace(target, replacement)
-    open('src/app/runtime.rs', 'w', encoding='utf-8').write(content)
+    with open('src/app/runtime.rs', 'w', encoding='utf-8') as f:
+        f.write(content)
     print('Restored pdfium_render page_count')
 else:
     print('Target not found')

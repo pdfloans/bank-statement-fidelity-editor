@@ -258,7 +258,9 @@ pub fn write_transfer_audit(
         "synthesized_fonts_used": result.synthesized_fonts_used,
     });
 
-    std::fs::write(&audit_path, serde_json::to_string_pretty(&report)?)?;
+    let pretty = serde_json::to_string_pretty(&report)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&audit_path, pretty)?;
     Ok(audit_path)
 }
 

@@ -4,8 +4,7 @@ use crate::engine::model::*;
 use crate::engine::workflow::*;
 use crate::engine::font_analysis::*;
 use egui::*;
-use egui_extras::{Column, TableBuilder, TableRow};
-use rust_decimal::Decimal;
+
 use std::path::PathBuf;
 use crate::app::runtime::{Job, PythonJob};
 

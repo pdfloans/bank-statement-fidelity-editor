@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyModule};
+use pyo3::types::{PyDict, PyModule, PyTuple};
+use std::ffi::CString;
 
 pub struct PyEngine {
     module: Py<PyModule>,
@@ -42,7 +43,8 @@ impl PyEngine {
             let module =
                 PyModule::new(py, "pymupdf_pro_integration").map_err(|e| e.to_string())?;
 
-            py.run(py_code, Some(&module.dict()), None)
+            let c_code = CString::new(py_code).map_err(|e| e.to_string())?;
+            py.run(&c_code, Some(&module.dict()), None)
                 .map_err(|e| e.to_string())?;
 
             Ok(Self {
@@ -72,7 +74,7 @@ impl PyEngine {
         args: N,
     ) -> Result<String, String>
     where
-        N: pyo3::IntoPy<Py<pyo3::types::PyTuple>>,
+        N: IntoPyObject<'py, Target = PyTuple>,
     {
         let func = self
             .module
@@ -216,11 +218,11 @@ impl PyEngine {
     }
 
     pub fn get_all_transactions(&self, pdf_path: &str) -> Result<String, String> {
-        Python::with_gil(|py| self.call_json(py, "get_all_transactions", (pdf_path,)))
+        Self::safe_python_with_gil(|py| self.call_json(py, "get_all_transactions", (pdf_path,)))
     }
 
     pub fn analyze_document_layout(&self, pdf_path: &str) -> Result<String, String> {
-        Python::with_gil(|py| self.call_json(py, "analyze_document_layout", (pdf_path,)))
+        Self::safe_python_with_gil(|py| self.call_json(py, "analyze_document_layout", (pdf_path,)))
     }
 
     pub fn complete_font_with_adaption(
@@ -343,7 +345,7 @@ impl PyEngine {
     /// `python/pymupdf_pro_integration.py::analyze_fonts`.
     /// Returns the JSON shape documented there.
     pub fn analyze_fonts(&self, pdf_path: &str) -> Result<String, String> {
-        Python::with_gil(|py| self.call_json(py, "analyze_fonts", (pdf_path,)))
+        Self::safe_python_with_gil(|py| self.call_json(py, "analyze_fonts", (pdf_path,)))
     }
 
     /// Stage 11: targeted font cascade.
@@ -395,7 +397,7 @@ impl PyEngine {
     /// Force Python garbage collection.
     /// Stage 2 Memory Management: explicit collection to prevent OOM in batch processing.
     pub fn garbage_collect() {
-        if let Err(e) = Python::with_gil(|py| py.run("import gc; gc.collect()", None, None)) {
+        if let Err(e) = Python::with_gil(|py| py.run(c"import gc; gc.collect()", None, None)) {
             tracing::warn!("Failed to run Python GC: {}", e);
         }
     }

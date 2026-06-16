@@ -10,6 +10,7 @@ import pymupdf
 import json
 import os
 import sys
+import gc
 
 # PyMuPDF Pro lives in the separate `pymupdfpro` package and exposes the
 # `pymupdf.pro` submodule. Import it defensively: if the Pro package is not
@@ -49,7 +50,6 @@ PYMUPDF_PRO_KEY = os.environ.get("PYMUPDF_PRO_KEY", "hFKt4hca03GCFLAFLEGz5Bd3")
 # above it) matches on this exact token to surface a structured error, so it
 # must not be changed without updating `src/ai/pyo3_bridge.rs`.
 # ---------------------------------------------------------------------------
-import os
 PRO_PAGE_LIMIT = int(os.environ.get("IGNORE_PRO_LIMIT", 3))
 PRO_PAGE_LIMIT_TOKEN = "PRO_PAGE_LIMIT_EXCEEDED"
 
@@ -2442,7 +2442,6 @@ def replace_text_in_rect(pdf_path: str, output_path: str, page_num: int, rect: l
     doc.save(output_path, garbage=4, deflate=True, clean=True)
     doc.close()
     del doc
-    import gc
     gc.collect()
 
     return {
@@ -2706,7 +2705,6 @@ def apply_many_edits(pdf_path: str, output_path: str, edits: list, font_path: st
     doc.save(output_path, garbage=4, deflate=True, clean=True)
     doc.close()
     del doc
-    import gc
     gc.collect()
 
     return {
@@ -2864,7 +2862,7 @@ def get_all_transactions(pdf_path: str):
                 if amount_pattern.search(clean_text) or (clean_text.replace(".", "").replace("-", "").isdigit() and "." in clean_text):
                     try:
                         amounts.append(float(clean_text))
-                    except:
+                    except (ValueError, TypeError):
                         pass
 
             # Minimum confidence threshold: needs a date and at least one amount to be considered a transaction
@@ -3089,7 +3087,7 @@ def adapt_font_fallback(pdf_path: str, font_name: str, sample_text: str = "The q
     try:
         font = pymupdf.Font(adapted_name)
         font_bytes = font.buffer
-    except:
+    except Exception:
         # Ultimate fallback
         font = pymupdf.Font("helvetica")
         font_bytes = font.buffer

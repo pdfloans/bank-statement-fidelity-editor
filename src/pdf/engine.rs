@@ -16,6 +16,8 @@ pub enum EngineError {
     ApplyFailed(String),
     #[error("Layout analysis failed: {0}")]
     LayoutFailed(String),
+    #[error("Font subset does not cover required characters: {0}")]
+    FontCoverageMissing(String),
     /// The bbox supplied to `apply_change` doesn't sufficiently overlap any
     /// real text span on the page. This guards against editing the wrong row
     /// when the document has multiple cells with the same value (e.g. a

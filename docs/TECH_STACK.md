@@ -17,7 +17,7 @@ This document provides a detailed overview of the specific technologies, framewo
 The application employs a "hybrid" PDF processing strategy, leaning on different libraries depending on the exact requirements of the task.
 
 - **`lopdf` (0.34):** A pure-Rust library used for low-level PDF dictionary manipulation. It is primarily used for the `Split & Merge` engine (Subsystem A), as it can extract pages and merge them back together without altering visual fidelity or dropping fonts.
-- **`pdfium-render` (0.8):** Rust bindings to Google's open-source `pdfium` C++ library (the same engine used in Google Chrome). Used for rendering PDFs to bitmaps for visual verification and click-targeting on the canvas.
+- **`pdfium-render` (0.8.21):** Rust bindings to Google's open-source `pdfium` C++ library (the same engine used in Google Chrome). Used for rendering PDFs to bitmaps for visual verification and click-targeting on the canvas.
 - **`PyMuPDF` / `pymupdfpro` (via `pyo3`):** Called from Rust via Python bindings. This is the only engine capable of high-fidelity, per-segment redaction and text insertion while accurately reusing the exact embedded font dictionaries and glyph metrics (Subsystem B).
 
 ## AI and Machine Learning Integration
@@ -34,7 +34,7 @@ The application employs a "hybrid" PDF processing strategy, leaning on different
 
 ## Python Interoperability (FFI)
 
-- **`pyo3` (0.22):** The Rust/Python bridge. It embeds a Python interpreter directly inside the Rust process, allowing Rust to execute Python scripts (like the PyMuPDF modification scripts) with near-zero overhead. Work is constrained to a single dedicated actor thread to avoid Python Global Interpreter Lock (GIL) deadlocks.
+- **`pyo3` (0.24):** The Rust/Python bridge. It embeds a Python interpreter directly inside the Rust process, allowing Rust to execute Python scripts (like the PyMuPDF modification scripts) with near-zero overhead. Work is constrained to a single dedicated actor thread to avoid Python Global Interpreter Lock (GIL) deadlocks.
 
 ## Observability and Logging
 

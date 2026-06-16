@@ -1,6 +1,8 @@
+"""Refactor TransferTransactions in runtime.rs to use native Rust engine calls."""
 import sys, re
 
-content = open('src/app/runtime.rs', encoding='utf-8').read()
+with open('src/app/runtime.rs', encoding='utf-8') as f:
+    content = f.read()
 
 # 1. Remove PythonJob and PythonJobResult definitions
 content = re.sub(r'#\[derive\(Debug, Clone\)\]\npub enum PythonJob \{.*?\n\}\n\n', '', content, flags=re.DOTALL)
@@ -302,5 +304,6 @@ content = content.replace(complete_font_target, '''                             
                                     break;
                                 }''')
 
-open('src/app/runtime.rs', 'w', encoding='utf-8').write(content)
+with open('src/app/runtime.rs', 'w', encoding='utf-8') as f:
+    f.write(content)
 print('Refactored TransferTransactions successfully.')

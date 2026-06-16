@@ -55,6 +55,11 @@ COPY bank_templates ./bank_templates
 # Writable working directories the app expects on startup.
 RUN mkdir -p audit output logs cache/fonts
 
+# Security: run as non-root.
+RUN groupadd --system appgroup && useradd --system --gid appgroup appuser \
+    && chown -R appuser:appgroup /app
+USER appuser
+
 ENV RUST_LOG=info
 # Railway injects $PORT; default for local `docker run` parity.
 ENV PORT=8080

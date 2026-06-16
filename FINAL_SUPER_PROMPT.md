@@ -1,4 +1,4 @@
-# FINAL SUPER PROMPT — Bank Statement Fidelity Editor v0.3.1
+# FINAL SUPER PROMPT — Bank Statement Fidelity Editor v0.5.0
 
 **Copy everything below and use it with Claude 4 Opus / Sonnet or Cursor / Zed + Claude Code.**
 

@@ -1,6 +1,8 @@
+"""Inject new methods (apply_many_edits, clone_pages, remove_pages) into native_engine.rs."""
 import sys
 
-content = open('src/pdf/native_engine.rs', encoding='utf-8').read()
+with open('src/pdf/native_engine.rs', encoding='utf-8') as f:
+    content = f.read()
 
 new_methods = '''
     fn apply_many_edits(
@@ -189,7 +191,8 @@ new_methods = '''
 target = '        })\n    }\n}\n'
 if target in content:
     content = content.replace(target, '        })\n    }\n' + new_methods + '}\n')
-    open('src/pdf/native_engine.rs', 'w', encoding='utf-8').write(content)
+    with open('src/pdf/native_engine.rs', 'w', encoding='utf-8') as f:
+        f.write(content)
     print('Inserted new methods successfully.')
 else:
     print('Failed to find target in native_engine.rs')

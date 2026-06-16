@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn recalculate_empty_transactions_errors() {
         let res = recalculate_and_validate(vec![], dec!(100));
-        assert!(matches!(res, Err(BalanceError::MissingOpeningBalance)));
+        assert!(matches!(res, Err(BalanceError::EmptyTransactions)));
     }
 
     #[test]

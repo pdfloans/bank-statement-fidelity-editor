@@ -64,9 +64,6 @@ Thumbs.db
 # =============================================================================
 output/
 audit/
-audit/snapshots/
-audit/*.log
-audit/history.json
 logs/
 output_test.pdf
 *.tmp

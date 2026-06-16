@@ -1,6 +1,8 @@
+"""Strip Python actor code from the Rust runtime, replacing match arms with stubs."""
 import sys
 
-lines = open('src/app/runtime.rs', encoding='utf-8').read().splitlines()
+with open('src/app/runtime.rs', encoding='utf-8') as f:
+    lines = f.read().splitlines()
 
 # Targets to completely replace with a stub
 targets = {
@@ -95,5 +97,6 @@ while i < len(lines):
             
     i += 1
 
-open('src/app/runtime.rs', 'w', encoding='utf-8').write('\n'.join(new_lines))
+with open('src/app/runtime.rs', 'w', encoding='utf-8') as f:
+    f.write('\n'.join(new_lines))
 print("Done")

@@ -67,8 +67,7 @@ pub fn split_pdf(
             .map(|(_, id)| *id)
             .collect();
 
-        let segment_doc = build_segment_document(&doc, &window)?;
-        let mut segment_doc = segment_doc;
+        let mut segment_doc = build_segment_document(&doc, &window)?;
 
         // Resolve inherited page-tree attributes onto each retained leaf and
         // confirm its referenced resources/content survived the import.

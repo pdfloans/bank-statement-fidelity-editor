@@ -1,8 +1,12 @@
+"""Apply hybrid native-first-with-Python-fallback logic to runtime.rs."""
 import sys, re
 
-content = open('src/app/runtime.rs', 'r', encoding='utf-8').read()
-real_dispatch = open('extracted_dispatch.rs', 'r', encoding='utf-8').read()
-real_thread = open('extracted_thread.rs', 'r', encoding='utf-8').read()
+with open('src/app/runtime.rs', 'r', encoding='utf-8') as f:
+    content = f.read()
+with open('extracted_dispatch.rs', 'r', encoding='utf-8') as f:
+    real_dispatch = f.read()
+with open('extracted_thread.rs', 'r', encoding='utf-8') as f:
+    real_thread = f.read()
 
 # 1. Replace the stub thread with the real thread
 stub_thread_pattern = r'        // Python actor removed\n        let _python_stub_thread = thread::spawn\(move \|\| \{.*?\n        \}\);\n'
@@ -319,5 +323,6 @@ apply_many_hybrid_2 = '''                                        let edits_json 
                                         }'''
 content = content.replace(apply_many_target_2, apply_many_hybrid_2)
 
-open('src/app/runtime.rs', 'w', encoding='utf-8').write(content)
+with open('src/app/runtime.rs', 'w', encoding='utf-8') as f:
+    f.write(content)
 print('Applied Hybrid Logic to runtime.rs successfully')

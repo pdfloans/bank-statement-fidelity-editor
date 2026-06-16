@@ -1,4 +1,4 @@
-import re
+"""Strip Python-related stub code from Rust source files."""
 import sys
 
 def remove_python_stub(filepath):
@@ -15,4 +15,7 @@ def remove_python_stub(filepath):
     raise NotImplementedError("remove_python_stub is not implemented yet")
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: strip_stubs.py <filepath>", file=sys.stderr)
+        sys.exit(1)
     remove_python_stub(sys.argv[1])

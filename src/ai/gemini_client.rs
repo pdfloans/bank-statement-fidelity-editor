@@ -1418,7 +1418,9 @@ mod tests {
 /// sending them to the cloud for analysis. Gemini only needs the math, not the PII.
 fn scrub_pii(transactions: &[Transaction]) -> Vec<Transaction> {
     // Basic scrubbing: replace sequences of 6+ digits (potential account/routing numbers)
-    let re_digits = regex::Regex::new(r"\b\d{6,}\b").unwrap();
+    static RE_DIGITS: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\b\d{6,}\b").unwrap());
+    let re_digits = &*RE_DIGITS;
 
     transactions
         .iter()

@@ -11,8 +11,8 @@ default = []
 dev = []
 
 [dependencies]
-pyo3 = { version = "0.20.0", features = ["auto-initialize"] }
-pdfium-render = "0.8.21"
+pyo3 = { version = "0.24.1", features = ["auto-initialize"] }
+pdfium-render = "0.8"
 
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -32,11 +32,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs"] 
 tokio-util = "0.7"
 futures-util = "0.3"
 base64 = "0.22"
-# pdfium-render removed — replaced by oxidize-pdf + pdf-writer
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-# pyo3 removed — zero FFI architecture
 image = "0.25"
 image_hasher = "3"
 tracing-appender = "0.2.5"
