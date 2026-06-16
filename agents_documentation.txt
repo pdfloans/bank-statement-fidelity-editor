@@ -1,0 +1,11 @@
+Agent instructions have moved to AGENTS.md.
+
+Use AGENTS.md as the source of truth for:
+
+- autonomous fix policy
+- terminal permissions
+- validation commands
+- Rust toolchain rules
+- safety boundaries
+- secrets policy
+- reporting format
