@@ -72,7 +72,7 @@ fn test_all_au_statements() {
         match load_res {
             Some(JobResult::DocumentLoaded { .. }) => {}
             Some(JobResult::Error { message, .. }) => {
-                eprintln!("Load error: {}", message);
+                eprintln!("Load error: {message}");
                 skipped += 1;
                 continue;
             }
@@ -111,12 +111,12 @@ fn test_all_au_statements() {
                 transactions,
             }) => (validation, transactions),
             Some(JobResult::WorkflowFailed(e)) => {
-                eprintln!("Parse failed: {:?}", e);
+                eprintln!("Parse failed: {e:?}");
                 failed += 1;
                 continue;
             }
             Some(JobResult::Error { message, .. }) => {
-                eprintln!("Parse error: {}", message);
+                eprintln!("Parse error: {message}");
                 failed += 1;
                 continue;
             }
@@ -167,8 +167,8 @@ fn test_all_au_statements() {
             page: target.page,
             line_on_page: target.line_on_page,
             bbox: target.bbox.unwrap(),
-            old_text: format!("{:.2}", old_value),
-            new_text: format!("{:.2}", new_value),
+            old_text: format!("{old_value:.2}"),
+            new_text: format!("{new_value:.2}"),
             field,
         };
 
@@ -251,7 +251,7 @@ fn test_all_au_statements() {
         }
 
         if let Some(msg) = failure_message {
-            eprintln!("FAILED: {}", msg);
+            eprintln!("FAILED: {msg}");
             failed += 1;
         } else if let Some(o) = outcome {
             eprintln!(
@@ -275,8 +275,7 @@ fn test_all_au_statements() {
             let ratio = output_bytes.len() as f64 / input_bytes.len() as f64;
             assert!(
                 ratio > 0.6 && ratio < 1.4,
-                "AST serialization should maintain roughly the same byte footprint (ratio: {})",
-                ratio
+                "AST serialization should maintain roughly the same byte footprint (ratio: {ratio})"
             );
 
             passed += 1;

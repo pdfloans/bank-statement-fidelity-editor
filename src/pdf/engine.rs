@@ -144,6 +144,7 @@ pub trait PdfEngine: Send + Sync + std::fmt::Debug {
         y: f32,
     ) -> Result<Option<TextBlock>, EngineError>;
 
+    #[allow(clippy::too_many_arguments)]
     fn apply_change(
         &self,
         input: &Path,

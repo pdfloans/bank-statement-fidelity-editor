@@ -277,7 +277,7 @@ fn test_all_au_transfer_pairs() {
                 } else {
                     "  ✗"
                 };
-                eprint!("  {}", sym);
+                eprint!("  {sym}");
             }
         }
         eprintln!("  ║");
@@ -336,7 +336,7 @@ fn test_all_au_transfer_pairs() {
         &report_path,
         serde_json::to_string_pretty(&full_report).unwrap_or_default(),
     ) {
-        eprintln!("Failed to write stress test report: {}", e);
+        eprintln!("Failed to write stress test report: {e}");
     } else {
         eprintln!("Report written to: {}", report_path.display());
     }

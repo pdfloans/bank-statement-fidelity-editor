@@ -246,6 +246,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn seed_list_is_non_empty() {
         assert!(!SEED.is_empty());
         for s in SEED {

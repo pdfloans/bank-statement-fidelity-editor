@@ -140,7 +140,15 @@ impl DocumentAiConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PdfEngineMode {
+    /// Run the native Rust engine and the PyMuPDF (Python) engine concurrently
+    /// for read operations, preferring the native result when both succeed and
+    /// transparently falling back to whichever engine survives if one fails.
+    /// This is the safest default: it keeps both engines hot for the whole
+    /// lifecycle while letting the user pick Quick (native) or Deep (PyMuPDF)
+    /// fidelity per edit.
     #[default]
+    DualConcurrent,
+    /// Native-first, fall back to PyMuPDF on error (sequential).
     Auto,
     NativeOnly,
     PyMuPdfOnly,
@@ -199,7 +207,7 @@ impl Default for AppConfig {
             gemini_auth_mode: GeminiAuthMode::ApiKey,
             is_dev_mode: cfg!(debug_assertions),
             connection_mode: ConnectionMode::Local,
-            engine_mode: PdfEngineMode::Auto,
+            engine_mode: PdfEngineMode::DualConcurrent,
         }
     }
 }
@@ -327,10 +335,16 @@ impl AppConfig {
             gemini_auth_mode,
             is_dev_mode,
             connection_mode: ConnectionMode::Local,
-            engine_mode: match env::var("PDF_ENGINE_MODE").unwrap_or_default().to_lowercase().as_str() {
+            engine_mode: match env::var("PDF_ENGINE_MODE")
+                .unwrap_or_default()
+                .to_lowercase()
+                .as_str()
+            {
                 "native" => PdfEngineMode::NativeOnly,
                 "pymupdf" => PdfEngineMode::PyMuPdfOnly,
-                _ => PdfEngineMode::Auto,
+                "auto" => PdfEngineMode::Auto,
+                "dual" | "dual_concurrent" => PdfEngineMode::DualConcurrent,
+                _ => PdfEngineMode::DualConcurrent,
             },
         })
     }

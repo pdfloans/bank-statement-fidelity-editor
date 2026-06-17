@@ -1,13 +1,13 @@
+use crate::app::gui::{AppView, MyApp, Toast, ToastKind};
 use crate::app::panels::AppPanels;
-use crate::app::gui::{MyApp, Toast, ToastKind, AppView};
+use crate::app::runtime::{Job, PythonJob};
 use crate::app::theme::Theme;
+use crate::engine::font_analysis::*;
 use crate::engine::model::*;
 use crate::engine::workflow::*;
-use crate::engine::font_analysis::*;
 use egui::*;
 use egui_plot::{Line, Plot};
 use std::path::PathBuf;
-use crate::app::runtime::{Job, PythonJob};
 
 
 pub(crate) trait AppModals {
@@ -657,12 +657,15 @@ impl AppModals for MyApp {
                         ui.label("PDF Engine Mode:");
                         egui::ComboBox::from_id_source("pdf_engine_mode_combo_modal")
                             .selected_text(match self.edit_engine_mode {
-                                crate::app::config::PdfEngineMode::Auto => "Auto (Native + PyMuPDF)",
+                                crate::app::config::PdfEngineMode::DualConcurrent => "Dual Concurrent (Safety)",
+                                crate::app::config::PdfEngineMode::Auto => "Auto (Native \u{2192} PyMuPDF)",
                                 crate::app::config::PdfEngineMode::NativeOnly => "Force Native",
                                 crate::app::config::PdfEngineMode::PyMuPdfOnly => "Force PyMuPDF",
                             })
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::Auto, "Auto (Native + PyMuPDF)");
+                                ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::DualConcurrent, "Dual Concurrent (Safety)")
+                                    .on_hover_text("Default. Runs native + PyMuPDF concurrently; if one fails it falls back to the other. Offers Quick (native) / Deep (PyMuPDF) fidelity per edit.");
+                                ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::Auto, "Auto (Native \u{2192} PyMuPDF)");
                                 ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::NativeOnly, "Force Native");
                                 ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::PyMuPdfOnly, "Force PyMuPDF");
                             });

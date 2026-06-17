@@ -236,7 +236,11 @@ fn render_page_with_pdfium(
     let width_pts = pdf_page.width().value;
     let height_pts = pdf_page.height().value;
 
-    let dpi = if dpi.is_finite() && dpi > 0.0 { dpi } else { 150.0 };
+    let dpi = if dpi.is_finite() && dpi > 0.0 {
+        dpi
+    } else {
+        150.0
+    };
     let target_width = ((width_pts * dpi / 72.0).round() as i32).max(1);
 
     let config = PdfRenderConfig::new()
@@ -323,7 +327,8 @@ impl PdfEngine for OxidizePdfEngine {
         // to edit so the Selector auto-falls back to PyMuPDF Pro which has font replication.
         if !new_text.is_ascii() {
             return Err(EngineError::FontCoverageMissing(
-                "Native engine requires ASCII for safe subset coverage; complex chars detected".into()
+                "Native engine requires ASCII for safe subset coverage; complex chars detected"
+                    .into(),
             ));
         }
 
@@ -405,10 +410,12 @@ impl PdfEngine for OxidizePdfEngine {
                     }
                     let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
                     if x_matches {
-                        println!("[DEBUG Tj] Found text '{}' at x={}, target='{}'", found_text, x, old_text);
+                        println!(
+                            "[DEBUG Tj] Found text '{found_text}' at x={x}, target='{old_text}'"
+                        );
                     }
                     let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
-                    
+
                     if text_matches || (x_matches && y_matches) {
                         // Replace the string operand
                         if !op.operands.is_empty() {
@@ -439,10 +446,12 @@ impl PdfEngine for OxidizePdfEngine {
                     }
                     let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
                     if x_matches {
-                        println!("[DEBUG TJ] Found text '{}' at x={}, target='{}'", found_text, x, old_text);
+                        println!(
+                            "[DEBUG TJ] Found text '{found_text}' at x={x}, target='{old_text}'"
+                        );
                     }
                     let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
-                    
+
                     if text_matches || (x_matches && y_matches) {
                         // Replace the entire TJ array with a single Tj string
                         op.operator = "Tj".to_string();
@@ -532,7 +541,7 @@ impl PdfEngine for OxidizePdfEngine {
         _font_path: Option<&std::path::Path>,
     ) -> Result<usize, EngineError> {
         let edits: Vec<serde_json::Value> = serde_json::from_str(edits_json)
-            .map_err(|e| EngineError::ApplyFailed(format!("Invalid edits JSON: {}", e)))?;
+            .map_err(|e| EngineError::ApplyFailed(format!("Invalid edits JSON: {e}")))?;
 
         // Stage 1 Strict Font Guard for batch edits
         for edit in &edits {
@@ -551,7 +560,8 @@ impl PdfEngine for OxidizePdfEngine {
         let mut applied_count = 0;
         let mut modified_pages = std::collections::HashSet::new();
 
-        let mut edits_by_page: std::collections::HashMap<usize, Vec<&serde_json::Value>> = std::collections::HashMap::new();
+        let mut edits_by_page: std::collections::HashMap<usize, Vec<&serde_json::Value>> =
+            std::collections::HashMap::new();
         for edit in &edits {
             if let Some(page) = edit["page"].as_u64() {
                 edits_by_page.entry(page as usize).or_default().push(edit);
@@ -561,12 +571,9 @@ impl PdfEngine for OxidizePdfEngine {
         let pages = doc.get_pages();
 
         for (page_idx, page_edits) in edits_by_page {
-            let page_id = *pages.get(&(page_idx as u32 + 1)).ok_or_else(|| {
-                EngineError::ApplyFailed(format!(
-                    "Page {} not found",
-                    page_idx
-                ))
-            })?;
+            let page_id = *pages
+                .get(&(page_idx as u32 + 1))
+                .ok_or_else(|| EngineError::ApplyFailed(format!("Page {page_idx} not found")))?;
 
             let content_bytes = doc.get_page_content(page_id).unwrap_or_default();
             if content_bytes.is_empty() {
@@ -575,7 +582,11 @@ impl PdfEngine for OxidizePdfEngine {
 
             let mut content = match lopdf::content::Content::decode(&content_bytes) {
                 Ok(c) => c,
-                Err(e) => return Err(EngineError::ApplyFailed(format!("Failed to decode content: {e}"))),
+                Err(e) => {
+                    return Err(EngineError::ApplyFailed(format!(
+                        "Failed to decode content: {e}"
+                    )))
+                }
             };
 
             let mut tm = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
@@ -655,9 +666,9 @@ impl PdfEngine for OxidizePdfEngine {
             }
 
             if modified_pages.contains(&page_id) {
-                let new_content_bytes = content
-                    .encode()
-                    .map_err(|e| EngineError::ApplyFailed(format!("Failed to encode content: {e}")))?;
+                let new_content_bytes = content.encode().map_err(|e| {
+                    EngineError::ApplyFailed(format!("Failed to encode content: {e}"))
+                })?;
 
                 doc.change_page_content(page_id, new_content_bytes)
                     .map_err(|e| EngineError::ApplyFailed(format!("Failed to update page: {e}")))?;
@@ -676,18 +687,18 @@ impl PdfEngine for OxidizePdfEngine {
         output: &std::path::Path,
         page_indices: Vec<usize>,
     ) -> Result<usize, EngineError> {
-        let mut doc = lopdf::Document::load(input)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
-        
+        let mut doc =
+            lopdf::Document::load(input).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+
         let pages = doc.get_pages();
         let mut cloned = 0;
-        
+
         for &idx in &page_indices {
             if let Some(&page_id) = pages.get(&(idx as u32 + 1)) {
                 if let Ok(page_dict) = doc.get_object(page_id) {
                     let page_dict_clone = page_dict.clone();
                     let new_page_id = doc.add_object(page_dict_clone);
-                    
+
                     // Manually append the new page to the Pages tree
                     if let Ok(catalog) = doc.catalog() {
                         if let Ok(pages_ref) = catalog.get(b"Pages") {
@@ -696,7 +707,7 @@ impl PdfEngine for OxidizePdfEngine {
                                     if let Ok(kids) = pages_dict.get_mut(b"Kids") {
                                         if let Ok(kids_array) = kids.as_array_mut() {
                                             kids_array.push(lopdf::Object::Reference(new_page_id));
-                                            
+
                                             // Update Count
                                             if let Ok(count_obj) = pages_dict.get_mut(b"Count") {
                                                 if let Ok(count) = count_obj.as_i64() {
@@ -713,8 +724,9 @@ impl PdfEngine for OxidizePdfEngine {
                 }
             }
         }
-        
-        doc.save(output).map_err(|e| EngineError::ApplyFailed(format!("Failed to save: {e}")))?;
+
+        doc.save(output)
+            .map_err(|e| EngineError::ApplyFailed(format!("Failed to save: {e}")))?;
         Ok(cloned)
     }
 
@@ -724,16 +736,17 @@ impl PdfEngine for OxidizePdfEngine {
         output: &std::path::Path,
         page_indices: Vec<usize>,
     ) -> Result<usize, EngineError> {
-        let mut doc = lopdf::Document::load(input)
-            .map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
-        
+        let mut doc =
+            lopdf::Document::load(input).map_err(|e| EngineError::LoadFailed(format!("{e}")))?;
+
         let mut page_nums = Vec::new();
         for &idx in &page_indices {
             page_nums.push(idx as u32 + 1);
         }
-        
+
         doc.delete_pages(&page_nums);
-        doc.save(output).map_err(|e| EngineError::ApplyFailed(format!("Failed to save: {e}")))?;
+        doc.save(output)
+            .map_err(|e| EngineError::ApplyFailed(format!("Failed to save: {e}")))?;
         Ok(page_nums.len())
     }
 }
@@ -751,12 +764,10 @@ mod tests {
         assert!(!caps.supports_cjk); // Not yet
     }
 
-
-
     #[test]
     fn operand_to_f32_converts_correctly() {
         assert_eq!(operand_to_f32(&lopdf::Object::Integer(42)), Some(42.0));
-        assert_eq!(operand_to_f32(&lopdf::Object::Real(3.14)), Some(3.14));
+        assert_eq!(operand_to_f32(&lopdf::Object::Real(2.5)), Some(2.5));
         assert_eq!(operand_to_f32(&lopdf::Object::Boolean(true)), None);
     }
 }

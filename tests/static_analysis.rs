@@ -9,7 +9,7 @@ fn test_no_pymupdf_in_split_merge() {
 
     for word in restricted {
         if content.to_lowercase().contains(&word.to_lowercase()) {
-            panic!("Subsystem A (split_merge) MUST NOT use PyMuPDF or PyO3. Found restricted word: '{}'", word);
+            panic!("Subsystem A (split_merge) MUST NOT use PyMuPDF or PyO3. Found restricted word: '{word}'");
         }
     }
 }

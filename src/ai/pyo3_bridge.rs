@@ -26,7 +26,9 @@ impl PyEngine {
                 .downcast::<pyo3::types::PyList>()
                 .map_err(|e| e.to_string())?;
             let candidates: Vec<std::path::PathBuf> = [
-                std::env::var("PYO3_PYTHON_DIR").ok().map(std::path::PathBuf::from),
+                std::env::var("PYO3_PYTHON_DIR")
+                    .ok()
+                    .map(std::path::PathBuf::from),
                 Some(std::path::PathBuf::from("python")),
                 Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python")),
             ]
@@ -40,8 +42,7 @@ impl PyEngine {
                 }
             }
 
-            let module =
-                PyModule::new(py, "pymupdf_pro_integration").map_err(|e| e.to_string())?;
+            let module = PyModule::new(py, "pymupdf_pro_integration").map_err(|e| e.to_string())?;
 
             let c_code = CString::new(py_code).map_err(|e| e.to_string())?;
             py.run(&c_code, Some(&module.dict()), None)
@@ -67,12 +68,7 @@ impl PyEngine {
         }
     }
 
-    fn call_json<'py, N>(
-        &self,
-        py: Python<'py>,
-        fn_name: &str,
-        args: N,
-    ) -> Result<String, String>
+    fn call_json<'py, N>(&self, py: Python<'py>, fn_name: &str, args: N) -> Result<String, String>
     where
         N: IntoPyObject<'py, Target = PyTuple>,
     {
@@ -186,16 +182,18 @@ impl PyEngine {
                     // Capture the Python exception value (which is a JSON string for our
                     // structured failures) and propagate it.
                     let msg = e.to_string();
-                    Err(if msg.contains("FONT_COVERAGE_INSUFFICIENT")
-                        || msg.contains("PDF_NOT_EDITABLE")
-                        || msg.contains("PRO_PAGE_LIMIT_EXCEEDED")
-                    {
-                        // Already structured (incl. the PyMuPDF Pro 3-page
-                        // limit token); pass through unchanged.
-                        msg
-                    } else {
-                        format!("PyMuPDF replace failed: {msg}")
-                    })
+                    Err(
+                        if msg.contains("FONT_COVERAGE_INSUFFICIENT")
+                            || msg.contains("PDF_NOT_EDITABLE")
+                            || msg.contains("PRO_PAGE_LIMIT_EXCEEDED")
+                        {
+                            // Already structured (incl. the PyMuPDF Pro 3-page
+                            // limit token); pass through unchanged.
+                            msg
+                        } else {
+                            format!("PyMuPDF replace failed: {msg}")
+                        },
+                    )
                 }
             }
         })
@@ -290,7 +288,9 @@ impl PyEngine {
                 .set_item("edits", edits_obj)
                 .map_err(|e| e.to_string())?;
             if let Some(fp) = font_path {
-                kwargs.set_item("font_path", fp).map_err(|e| e.to_string())?;
+                kwargs
+                    .set_item("font_path", fp)
+                    .map_err(|e| e.to_string())?;
             }
 
             let result = func.call(py, (), Some(&kwargs));
@@ -306,18 +306,20 @@ impl PyEngine {
                 }
                 Err(e) => {
                     let msg = e.to_string();
-                    Err(if msg.contains("FONT_COVERAGE_INSUFFICIENT")
-                        || msg.contains("PDF_NOT_EDITABLE")
-                        || msg.contains("PRO_PAGE_LIMIT_EXCEEDED")
-                    {
-                        // Already structured (incl. the PyMuPDF Pro 3-page
-                        // limit token from `_assert_within_pro_page_limit`);
-                        // pass the message through unchanged so the runtime
-                        // can match on the stable error token.
-                        msg
-                    } else {
-                        format!("PyMuPDF apply_many_edits failed: {msg}")
-                    })
+                    Err(
+                        if msg.contains("FONT_COVERAGE_INSUFFICIENT")
+                            || msg.contains("PDF_NOT_EDITABLE")
+                            || msg.contains("PRO_PAGE_LIMIT_EXCEEDED")
+                        {
+                            // Already structured (incl. the PyMuPDF Pro 3-page
+                            // limit token from `_assert_within_pro_page_limit`);
+                            // pass the message through unchanged so the runtime
+                            // can match on the stable error token.
+                            msg
+                        } else {
+                            format!("PyMuPDF apply_many_edits failed: {msg}")
+                        },
+                    )
                 }
             }
         })
@@ -374,7 +376,12 @@ impl PyEngine {
         })
     }
 
-    pub fn clone_pages(&self, pdf_path: &str, output_path: &str, page_indices: &[usize]) -> Result<String, String> {
+    pub fn clone_pages(
+        &self,
+        pdf_path: &str,
+        output_path: &str,
+        page_indices: &[usize],
+    ) -> Result<String, String> {
         Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,
@@ -384,17 +391,23 @@ impl PyEngine {
         })
     }
 
-    pub fn render_page_to_png(&self, pdf_path: &str, page_num: usize, dpi: f32) -> Result<String, String> {
+    pub fn render_page_to_png(
+        &self,
+        pdf_path: &str,
+        page_num: usize,
+        dpi: f32,
+    ) -> Result<String, String> {
         Self::safe_python_with_gil(|py| {
-            self.call_json(
-                py,
-                "render_page_to_png",
-                (pdf_path, page_num, dpi),
-            )
+            self.call_json(py, "render_page_to_png", (pdf_path, page_num, dpi))
         })
     }
 
-    pub fn remove_pages(&self, pdf_path: &str, output_path: &str, page_indices: &[usize]) -> Result<String, String> {
+    pub fn remove_pages(
+        &self,
+        pdf_path: &str,
+        output_path: &str,
+        page_indices: &[usize],
+    ) -> Result<String, String> {
         Self::safe_python_with_gil(|py| {
             self.call_json(
                 py,

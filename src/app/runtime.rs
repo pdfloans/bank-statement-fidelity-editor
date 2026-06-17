@@ -634,11 +634,15 @@ impl Runtime {
                                     output_dir,
                                     max_pages_per_chunk,
                                 } => engine
-                                    .chunk_pdf_for_docai(&pdf_path, &output_dir, max_pages_per_chunk)
+                                    .chunk_pdf_for_docai(
+                                        &pdf_path,
+                                        &output_dir,
+                                        max_pages_per_chunk,
+                                    )
                                     .map(PythonJobResult::Json),
-                                PythonJob::AnalyzeFonts { pdf_path } => engine
-                                    .analyze_fonts(&pdf_path)
-                                    .map(PythonJobResult::Json),
+                                PythonJob::AnalyzeFonts { pdf_path } => {
+                                    engine.analyze_fonts(&pdf_path).map(PythonJobResult::Json)
+                                }
                                 PythonJob::ReplicateFontForMissingChars {
                                     pdf_path,
                                     font_name,
@@ -4241,7 +4245,7 @@ mod tests {
                 assert_eq!(job_label, "runtime_bridge");
                 assert!(message.contains("disconnected"));
             }
-            res => panic!("Expected bridge error, got {:?}", res),
+            res => panic!("Expected bridge error, got {res:?}"),
         }
 
         handle.join().unwrap();
@@ -4272,11 +4276,8 @@ mod tests {
         // 2. The Runtime Job::Python handler (the logic we are testing)
         let handle = tokio::spawn(async move {
             while let Some(job) = job_rx.recv().await {
-                match job {
-                    Job::Python(py_job, reply_tx) => {
-                        dispatch_python_job(py_job, reply_tx, &python_tx_clone);
-                    }
-                    _ => {}
+                if let Job::Python(py_job, reply_tx) = job {
+                    dispatch_python_job(py_job, reply_tx, &python_tx_clone);
                 }
             }
         });

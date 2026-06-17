@@ -131,8 +131,8 @@ fn end_to_end_workflow_against_au_statement() {
         page: target.page,
         line_on_page: target.line_on_page,
         bbox: target.bbox.unwrap(),
-        old_text: format!("{:.2}", old_value),
-        new_text: format!("{:.2}", new_value),
+        old_text: format!("{old_value:.2}"),
+        new_text: format!("{new_value:.2}"),
         field,
     };
 

@@ -1254,6 +1254,26 @@ fn mint_gcp_access_token(doc_ai: &crate::app::config::DocumentAiConfig) -> Resul
     Err("Vertex mode needs a service-account JSON (GOOGLE_APPLICATION_CREDENTIALS) or ADC".into())
 }
 
+/// Helper function to redact PII (like account numbers) from transactions before
+/// sending them to the cloud for analysis. Gemini only needs the math, not the PII.
+fn scrub_pii(transactions: &[Transaction]) -> Vec<Transaction> {
+    // Basic scrubbing: replace sequences of 6+ digits (potential account/routing numbers)
+    static RE_DIGITS: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\b\d{6,}\b").unwrap());
+    let re_digits = &*RE_DIGITS;
+
+    transactions
+        .iter()
+        .map(|t| {
+            let mut scrubbed = t.clone();
+            scrubbed.raw_text = re_digits
+                .replace_all(&scrubbed.raw_text, "[REDACTED_ACCOUNT]")
+                .into_owned();
+            scrubbed
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1412,24 +1432,4 @@ mod tests {
         assert!(!report.should_reject(&[], 0.15));
         assert!(!report.should_reject(&[[0.0, 0.0, 100.0, 100.0]], 0.15));
     }
-}
-
-/// Helper function to redact PII (like account numbers) from transactions before
-/// sending them to the cloud for analysis. Gemini only needs the math, not the PII.
-fn scrub_pii(transactions: &[Transaction]) -> Vec<Transaction> {
-    // Basic scrubbing: replace sequences of 6+ digits (potential account/routing numbers)
-    static RE_DIGITS: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"\b\d{6,}\b").unwrap());
-    let re_digits = &*RE_DIGITS;
-
-    transactions
-        .iter()
-        .map(|t| {
-            let mut scrubbed = t.clone();
-            scrubbed.raw_text = re_digits
-                .replace_all(&scrubbed.raw_text, "[REDACTED_ACCOUNT]")
-                .into_owned();
-            scrubbed
-        })
-        .collect()
 }

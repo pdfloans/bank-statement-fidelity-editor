@@ -637,6 +637,7 @@ impl MyApp {
             (
                 "PDF_ENGINE_MODE",
                 match self.edit_engine_mode {
+                    crate::app::config::PdfEngineMode::DualConcurrent => "dual".to_string(),
                     crate::app::config::PdfEngineMode::Auto => "auto".to_string(),
                     crate::app::config::PdfEngineMode::NativeOnly => "native".to_string(),
                     crate::app::config::PdfEngineMode::PyMuPdfOnly => "pymupdf".to_string(),
@@ -2651,12 +2652,15 @@ impl MyApp {
                     ui.label("PDF Engine Mode:");
                     egui::ComboBox::from_id_source("pdf_engine_mode_combo")
                         .selected_text(match self.edit_engine_mode {
-                            crate::app::config::PdfEngineMode::Auto => "Auto (Native + PyMuPDF)",
+                            crate::app::config::PdfEngineMode::DualConcurrent => "Dual Concurrent (Safety)",
+                            crate::app::config::PdfEngineMode::Auto => "Auto (Native \u{2192} PyMuPDF)",
                             crate::app::config::PdfEngineMode::NativeOnly => "Force Native",
                             crate::app::config::PdfEngineMode::PyMuPdfOnly => "Force PyMuPDF",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::Auto, "Auto (Native + PyMuPDF)");
+                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::DualConcurrent, "Dual Concurrent (Safety)")
+                                .on_hover_text("Default. Runs native + PyMuPDF concurrently; if one fails it falls back to the other. Offers Quick (native) / Deep (PyMuPDF) fidelity per edit.");
+                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::Auto, "Auto (Native \u{2192} PyMuPDF)");
                             ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::NativeOnly, "Force Native");
                             ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::PyMuPdfOnly, "Force PyMuPDF");
                         });
@@ -3474,41 +3478,48 @@ impl MyApp {
 
             ui.separator();
 
-            // Stage 4-6 button: confirm & render
+            // Stage 4-6: Quick (native) vs Deep (PyMuPDF) apply options.
+            // Dual-engine safety: both engines stay loaded; if one fails the
+            // other takes over. The user picks the fidelity tier per apply and
+            // can re-run Deep if Quick doesn't suffice.
             let confirm_enabled = self.workflow_preview.is_some();
-            if ui
-                .add_enabled(confirm_enabled, egui::Button::new("③ Confirm and Render"))
-                .on_hover_text(
-                    "Apply edits to the PDF, render-validate visually in a loop, then re-parse with Document AI to confirm math",
-                )
-                .clicked()
-            {
-                // Stage 2 / Item #7: drop edits whose typed value already
-                // matches the cascade. Reduces visual noise (extra redactions)
-                // and shortens the apply loop.
-                let edits_to_apply = if let Some(p) = &self.workflow_preview {
-                    let (kept, dropped) =
-                        crate::engine::workflow::prune_redundant_edits(&self.workflow_edits, p);
-                    if !dropped.is_empty() {
-                        self.toast(
-                            ToastKind::Info,
-                            format!("Pruned {} redundant edit(s)", dropped.len()),
-                        );
-                    }
-                    kept
-                } else {
-                    self.workflow_edits.clone()
-                };
-                let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
-                    input: PathBuf::from(&self.input_path),
-                    output: PathBuf::from(&self.output_path),
-                    edits: edits_to_apply,
-                    deep_font_replication: self.settings.deep_font_replication,
-                    max_visual_attempts: 5,
-                    visual_threshold: 0.02,
-                });
-                self.in_flight += 1;
-            }
+            let edit_count = self.workflow_edits.len().max(1);
+            // Rough ETAs so the user can weigh speed vs fidelity. Native is ~1s
+            // per edit; PyMuPDF Deep adds Pro per-segment work + deep font
+            // replication overhead (~3s per edit plus a fixed warm-up).
+            let quick_eta = 2 + edit_count;
+            let deep_eta = 5 + edit_count * 3;
+            ui.label("③ Apply edits — choose fidelity:");
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        confirm_enabled,
+                        egui::Button::new(format!("⚡ Quick (Native) • ~{quick_eta}s")),
+                    )
+                    .on_hover_text(
+                        "Fast native-engine apply. Best when the native result already matches — you can still run Deep afterwards if it doesn't suffice.",
+                    )
+                    .clicked()
+                {
+                    self.dispatch_confirm_and_render(false);
+                }
+                if ui
+                    .add_enabled(
+                        confirm_enabled,
+                        egui::Button::new(format!("🎯 Deep (PyMuPDF) • ~{deep_eta}s")),
+                    )
+                    .on_hover_text(
+                        "High-fidelity PyMuPDF Pro apply with deep font replication. Slower, maximum visual fidelity.",
+                    )
+                    .clicked()
+                {
+                    self.dispatch_confirm_and_render(true);
+                }
+            });
+            ui.small(format!(
+                "Dual-engine safety: native + PyMuPDF run together; if one fails the other takes over. {} edit(s) queued.",
+                self.workflow_edits.len()
+            ));
 
             if let Some(va) = &self.workflow_visual {
                 let palette = self.settings.theme.palette();
@@ -3568,6 +3579,49 @@ impl MyApp {
                 }
             }
         });
+    }
+
+    /// Apply the queued workflow edits to the PDF and render-validate them.
+    ///
+    /// `deep` selects the Deep fidelity tier (PyMuPDF Pro per-segment edit +
+    /// deep font replication); when `false` the Quick (native) tier runs. Both
+    /// tiers share the redundant-edit pruning so the apply loop stays tight, and
+    /// both run under the dual-engine safety net so a single engine failure
+    /// falls back to the other rather than aborting the edit.
+    fn dispatch_confirm_and_render(&mut self, deep: bool) {
+        // Stage 2 / Item #7: drop edits whose typed value already matches the
+        // cascade. Reduces visual noise (extra redactions) and shortens the
+        // apply loop.
+        let edits_to_apply = if let Some(p) = &self.workflow_preview {
+            let (kept, dropped) =
+                crate::engine::workflow::prune_redundant_edits(&self.workflow_edits, p);
+            if !dropped.is_empty() {
+                self.toast(
+                    ToastKind::Info,
+                    format!("Pruned {} redundant edit(s)", dropped.len()),
+                );
+            }
+            kept
+        } else {
+            self.workflow_edits.clone()
+        };
+        self.toast(
+            ToastKind::Info,
+            if deep {
+                "Applying with Deep (PyMuPDF) fidelity…"
+            } else {
+                "Applying with Quick (Native) fidelity…"
+            },
+        );
+        let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
+            input: PathBuf::from(&self.input_path),
+            output: PathBuf::from(&self.output_path),
+            edits: edits_to_apply,
+            deep_font_replication: deep,
+            max_visual_attempts: 5,
+            visual_threshold: 0.02,
+        });
+        self.in_flight += 1;
     }
 
     fn draw_batch_panel(&mut self, ctx: &egui::Context) {
@@ -4298,9 +4352,12 @@ impl MyApp {
         let ctrl_z = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z));
         let ctrl_y = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y));
         let ctrl_s = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
-        let page_down = ctx.input(|i| i.key_pressed(egui::Key::PageDown) || i.key_pressed(egui::Key::ArrowRight));
-        let page_up = ctx.input(|i| i.key_pressed(egui::Key::PageUp) || i.key_pressed(egui::Key::ArrowLeft));
-        let zoom_in = ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals));
+        let page_down = ctx
+            .input(|i| i.key_pressed(egui::Key::PageDown) || i.key_pressed(egui::Key::ArrowRight));
+        let page_up =
+            ctx.input(|i| i.key_pressed(egui::Key::PageUp) || i.key_pressed(egui::Key::ArrowLeft));
+        let zoom_in =
+            ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals));
         let zoom_out = ctx.input(|i| i.key_pressed(egui::Key::Minus));
         let zoom_reset = ctx.input(|i| i.key_pressed(egui::Key::Num0));
 

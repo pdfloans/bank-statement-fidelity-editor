@@ -1,0 +1,7 @@
+{
+  "Step": "extract",
+  "Status": "FAIL",
+  "Exit": 3,
+  "Seconds": 0.2,
+  "Log": ".\\out\\max-test\\extract.log"
+}

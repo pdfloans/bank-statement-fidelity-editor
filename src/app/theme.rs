@@ -1,18 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
+    #[default]
     System,
     Dark,
     Light,
     Midnight,
     Solarized,
-}
-
-impl Default for Theme {
-    fn default() -> Self {
-        Theme::System
-    }
 }
 
 pub struct Palette {
@@ -74,9 +69,9 @@ impl Theme {
                 weak: egui::Color32::from_rgb(150, 150, 160),
                 accent: egui::Color32::from_rgb(99, 102, 241), // Indigo 500
                 success: egui::Color32::from_rgb(34, 197, 94), // Green 500
-                warn: egui::Color32::from_rgb(245, 158, 11), // Amber 500
-                error: egui::Color32::from_rgb(239, 68, 68), // Red 500
-                info: egui::Color32::from_rgb(56, 189, 248), // Sky 400
+                warn: egui::Color32::from_rgb(245, 158, 11),   // Amber 500
+                error: egui::Color32::from_rgb(239, 68, 68),   // Red 500
+                info: egui::Color32::from_rgb(56, 189, 248),   // Sky 400
             },
             Theme::Solarized => Palette {
                 bg: egui::Color32::from_rgb(253, 246, 227),
@@ -105,7 +100,7 @@ impl Theme {
 
     pub fn apply(self, ctx: &egui::Context) {
         let p = self.palette();
-        
+
         let resolved = if self == Theme::System {
             if dark_light::detect().unwrap_or(dark_light::Mode::Dark) == dark_light::Mode::Light {
                 Theme::Light
@@ -154,7 +149,7 @@ impl Theme {
         style.spacing.button_padding = egui::vec2(16.0, 8.0);
         style.spacing.window_margin = egui::Margin::same(16.0);
         style.spacing.menu_margin = egui::Margin::same(8.0);
-        
+
         // Modern typography sizing
         style.text_styles.insert(
             egui::TextStyle::Heading,

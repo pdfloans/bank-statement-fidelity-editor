@@ -145,6 +145,9 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "otel")]
+    use super::*;
+    #[cfg(feature = "otel")]
     use std::path::PathBuf;
 
     #[cfg(feature = "otel")]

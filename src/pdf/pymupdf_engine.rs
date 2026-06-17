@@ -43,12 +43,7 @@ impl PdfEngine for PyMuPdfEngine {
         }
     }
 
-    fn render_page(
-        &self,
-        path: &Path,
-        page: usize,
-        dpi: f32,
-    ) -> Result<RenderedPage, EngineError> {
+    fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
         use base64::Engine as _;
 
         let (tx, rx) = oneshot::channel();
@@ -63,16 +58,16 @@ impl PdfEngine for PyMuPdfEngine {
             ))
             .map_err(|_| EngineError::RenderFailed("Worker thread disconnected".into()))?;
 
-        let res = recv_blocking(rx)
-            .map_err(|e| EngineError::RenderFailed(e.to_string()))?;
+        let res = recv_blocking(rx).map_err(|e| EngineError::RenderFailed(e.to_string()))?;
 
         match res {
             PythonJobResult::Json(json) => {
-                let parsed: serde_json::Value = serde_json::from_str(&json)
-                    .map_err(|e| EngineError::RenderFailed(format!("Bad JSON from PyMuPDF render: {e}")))?;
-                let png_b64 = parsed["png_base64"]
-                    .as_str()
-                    .ok_or_else(|| EngineError::RenderFailed("Missing png_base64 in response".into()))?;
+                let parsed: serde_json::Value = serde_json::from_str(&json).map_err(|e| {
+                    EngineError::RenderFailed(format!("Bad JSON from PyMuPDF render: {e}"))
+                })?;
+                let png_b64 = parsed["png_base64"].as_str().ok_or_else(|| {
+                    EngineError::RenderFailed("Missing png_base64 in response".into())
+                })?;
                 let width_pts = parsed["width_pts"].as_f64().unwrap_or(612.0) as f32;
                 let height_pts = parsed["height_pts"].as_f64().unwrap_or(792.0) as f32;
                 let png_bytes = base64::engine::general_purpose::STANDARD
@@ -85,7 +80,9 @@ impl PdfEngine for PyMuPdfEngine {
                 })
             }
             PythonJobResult::Error(e) => Err(EngineError::RenderFailed(e)),
-            _ => Err(EngineError::RenderFailed("Unexpected result from PyMuPDF render".into())),
+            _ => Err(EngineError::RenderFailed(
+                "Unexpected result from PyMuPDF render".into(),
+            )),
         }
     }
 

@@ -69,20 +69,29 @@ impl PdfEngineSelector {
         }
     }
 
+    /// The engine mode currently configured, defaulting to `DualConcurrent`
+    /// when the config lock is momentarily contended.
+    fn current_mode(&self) -> crate::app::config::PdfEngineMode {
+        if let Ok(guard) = self.config.try_lock() {
+            guard.engine_mode
+        } else {
+            crate::app::config::PdfEngineMode::DualConcurrent
+        }
+    }
+
+    /// Sequential primary→fallback execution. Used for write operations
+    /// (`apply_change`) where running both engines against the same output
+    /// concurrently would race on the destination file. `DualConcurrent`
+    /// shares this safe sequential path for writes.
     fn try_primary_or_fallback<T, F>(&self, operation: F) -> Result<T, EngineError>
     where
         F: Fn(&dyn PdfEngine) -> Result<T, EngineError>,
     {
-        let mode = if let Ok(guard) = self.config.try_lock() {
-            guard.engine_mode
-        } else {
-            crate::app::config::PdfEngineMode::Auto
-        };
-
-        match mode {
+        match self.current_mode() {
             crate::app::config::PdfEngineMode::NativeOnly => operation(&*self.primary),
             crate::app::config::PdfEngineMode::PyMuPdfOnly => operation(&*self.fallback),
-            crate::app::config::PdfEngineMode::Auto => {
+            crate::app::config::PdfEngineMode::Auto
+            | crate::app::config::PdfEngineMode::DualConcurrent => {
                 match operation(&*self.primary) {
                     Ok(result) => Ok(result),
                     Err(EngineError::Unsupported) => {
@@ -104,6 +113,67 @@ impl PdfEngineSelector {
                 }
             }
         }
+    }
+
+    /// Read-path dispatch. In `DualConcurrent` mode the native and PyMuPDF
+    /// engines run the operation **concurrently**; the native (Quick) result is
+    /// preferred when both succeed, and the PyMuPDF (Deep) result is used as an
+    /// automatic fallback when native fails (and vice-versa). All other modes
+    /// reuse the sequential [`Self::try_primary_or_fallback`] path.
+    fn dispatch_read<T, F>(&self, operation: F) -> Result<T, EngineError>
+    where
+        T: Send,
+        F: Fn(&dyn PdfEngine) -> Result<T, EngineError> + Sync,
+    {
+        if self.current_mode() == crate::app::config::PdfEngineMode::DualConcurrent {
+            self.run_dual_concurrent(operation)
+        } else {
+            self.try_primary_or_fallback(operation)
+        }
+    }
+
+    /// Run `operation` on both engines at the same time using scoped threads.
+    /// Prefers the primary (native/Quick) result; if the primary fails, the
+    /// concurrently-computed fallback (PyMuPDF/Deep) result is used so a single
+    /// engine failure never breaks the operation.
+    fn run_dual_concurrent<T, F>(&self, operation: F) -> Result<T, EngineError>
+    where
+        T: Send,
+        F: Fn(&dyn PdfEngine) -> Result<T, EngineError> + Sync,
+    {
+        let primary = &*self.primary;
+        let fallback = &*self.fallback;
+        std::thread::scope(|scope| {
+            let primary_handle = scope.spawn(|| operation(primary));
+            let fallback_handle = scope.spawn(|| operation(fallback));
+
+            let primary_result = primary_handle.join().unwrap_or_else(|_| {
+                Err(EngineError::ExtractFailed(
+                    "Native engine thread panicked".into(),
+                ))
+            });
+
+            match primary_result {
+                Ok(value) => {
+                    // Native (Quick) won — still join the fallback thread so it
+                    // is never detached, but discard its result.
+                    let _ = fallback_handle.join();
+                    Ok(value)
+                }
+                Err(primary_err) => {
+                    tracing::warn!(
+                        engine.fallback_triggered = true,
+                        primary_error = %primary_err,
+                        "Native engine failed in DualConcurrent mode, using PyMuPDF result"
+                    );
+                    fallback_handle.join().unwrap_or_else(|_| {
+                        Err(EngineError::ExtractFailed(
+                            "PyMuPDF engine thread panicked".into(),
+                        ))
+                    })
+                }
+            }
+        })
     }
 }
 
@@ -133,7 +203,7 @@ impl PdfEngine for PdfEngineSelector {
                 return Ok(hit.clone());
             }
         }
-        let rendered = self.try_primary_or_fallback(|engine| engine.render_page(path, page, dpi))?;
+        let rendered = self.dispatch_read(|engine| engine.render_page(path, page, dpi))?;
         if let Ok(mut cache) = self.caches.rendered.lock() {
             cache.put(key, rendered.clone());
         }
@@ -143,13 +213,17 @@ impl PdfEngine for PdfEngineSelector {
     fn get_text_blocks(&self, path: &Path, page: usize) -> Result<Vec<TextBlock>, EngineError> {
         // Recommendation #7 — memoise per-page text blocks; invalidated by the
         // file revision token so edits to the PDF are always re-parsed.
-        let key: BlocksKey = (path.to_string_lossy().to_string(), page, file_revision(path));
+        let key: BlocksKey = (
+            path.to_string_lossy().to_string(),
+            page,
+            file_revision(path),
+        );
         if let Ok(mut cache) = self.caches.blocks.lock() {
             if let Some(hit) = cache.get(&key) {
                 return Ok(hit.clone());
             }
         }
-        let blocks = self.try_primary_or_fallback(|engine| engine.get_text_blocks(path, page))?;
+        let blocks = self.dispatch_read(|engine| engine.get_text_blocks(path, page))?;
         if let Ok(mut cache) = self.caches.blocks.lock() {
             cache.put(key, blocks.clone());
         }
@@ -163,7 +237,7 @@ impl PdfEngine for PdfEngineSelector {
         x: f32,
         y: f32,
     ) -> Result<Option<TextBlock>, EngineError> {
-        self.try_primary_or_fallback(|engine| engine.find_text_block_at_click(path, page, x, y))
+        self.dispatch_read(|engine| engine.find_text_block_at_click(path, page, x, y))
     }
 
     fn apply_change(
@@ -182,6 +256,6 @@ impl PdfEngine for PdfEngineSelector {
     }
 
     fn analyze_layout(&self, path: &Path) -> Result<DocumentLayout, EngineError> {
-        self.try_primary_or_fallback(|engine| engine.analyze_layout(path))
+        self.dispatch_read(|engine| engine.analyze_layout(path))
     }
 }

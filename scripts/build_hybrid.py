@@ -1,20 +1,126 @@
-"""Apply hybrid native-first-with-Python-fallback logic to runtime.rs."""
-import sys, re
+#!/usr/bin/env python3
+"""Apply hybrid native-first-with-Python-fallback logic to src/app/runtime.rs.
 
-with open('src/app/runtime.rs', 'r', encoding='utf-8') as f:
-    content = f.read()
-with open('extracted_dispatch.rs', 'r', encoding='utf-8') as f:
-    real_dispatch = f.read()
-with open('extracted_thread.rs', 'r', encoding='utf-8') as f:
-    real_thread = f.read()
+A *verified*, *idempotent*, step-by-step source transformer.
 
-# 1. Replace the stub thread with the real thread
+Each transformation is an independently checked step with one of three states:
+
+  APPLIED   the stub target was found and successfully replaced;
+  ALREADY   the target is gone and the migrated result is already present (no-op);
+  MISSING   neither the stub target nor the migrated result was found.
+
+Unlike the previous version, this script never prints blanket "success":
+
+  * it reports the exact state of every step (so it is debuggable step-by-step);
+  * it writes a timestamped .bak backup before saving;
+  * it only writes the file when a step actually changed something;
+  * `--dry-run` analyses without writing; `--strict` makes any MISSING step a
+    hard, non-zero-exit failure (useful for CI).
+
+Usage:
+    python scripts/build_hybrid.py [--file PATH] [--dry-run] [--strict]
+                                   [--no-backup] [-v]
+"""
+import argparse
+import datetime
+import re
+import shutil
+import sys
+
+_VERBOSE = False
+_steps = []  # list of (name, status, detail)
+
+
+def _log(msg):
+    print(msg, flush=True)
+
+
+def _record(name, status, detail=""):
+    _steps.append((name, status, detail))
+    icon = {"APPLIED": "[+]", "ALREADY": "[=]", "MISSING": "[!]"}.get(status, "[?]")
+    line = f"  {icon} {name}: {status}"
+    if detail and (_VERBOSE or status == "MISSING"):
+        line += f" -- {detail}"
+    _log(line)
+
+
+def apply_regex_step(name, content, pattern, replacement, applied_marker):
+    """Replace regex `pattern` with `replacement`, verifying the outcome.
+
+    `applied_marker` is a substring present once the migration has been applied;
+    it lets us recognise an already-migrated file instead of failing on it."""
+    matches = re.findall(pattern, content, flags=re.DOTALL)
+    if matches:
+        new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+        if new_content == content:
+            _record(name, "MISSING", "pattern matched but substitution changed nothing")
+            return content
+        _record(name, "APPLIED", f"{len(matches)} match(es) replaced")
+        return new_content
+    if applied_marker and applied_marker in content:
+        _record(name, "ALREADY", f"marker present: {applied_marker!r}")
+        return content
+    _record(name, "MISSING", "stub pattern not found and no applied-marker present")
+    return content
+
+
+def apply_literal_step(name, content, target, replacement):
+    """Replace a literal `target` block with `replacement`, verifying outcome."""
+    if target in content:
+        n = content.count(target)
+        _record(name, "APPLIED", f"{n} occurrence(s) replaced")
+        return content.replace(target, replacement)
+    if replacement in content:
+        _record(name, "ALREADY", "migrated hybrid block already present")
+        return content
+    _record(name, "MISSING", "stub target block not found and hybrid block absent")
+    return content
+
+
+parser = argparse.ArgumentParser(
+    description="Verified, idempotent native-first hybrid transformer for runtime.rs"
+)
+parser.add_argument("--file", default="src/app/runtime.rs", help="Rust file to transform")
+parser.add_argument("--dispatch", default="extracted_dispatch.rs", help="real dispatch fn source")
+parser.add_argument("--thread", default="extracted_thread.rs", help="real python-actor thread source")
+parser.add_argument("--dry-run", action="store_true", help="analyse only; do not write")
+parser.add_argument("--strict", action="store_true", help="treat any MISSING step as a failure")
+parser.add_argument("--no-backup", action="store_true", help="do not write a .bak backup")
+parser.add_argument("-v", "--verbose", action="store_true", help="show detail for every step")
+args = parser.parse_args()
+_VERBOSE = args.verbose
+
+_log("== build_hybrid: native-first hybrid transform ==")
+_log(f"  target file : {args.file}")
+_log(f"  mode        : {'DRY-RUN' if args.dry_run else 'WRITE'}")
+_log("")
+
+try:
+    with open(args.file, "r", encoding="utf-8") as f:
+        original = f.read()
+    with open(args.dispatch, "r", encoding="utf-8") as f:
+        real_dispatch = f.read()
+    with open(args.thread, "r", encoding="utf-8") as f:
+        real_thread = f.read()
+except OSError as e:
+    _log(f"[x] Could not read inputs: {e}")
+    sys.exit(2)
+
+content = original
+
+# 1. Replace the stub thread with the real Python-actor thread
 stub_thread_pattern = r'        // Python actor removed\n        let _python_stub_thread = thread::spawn\(move \|\| \{.*?\n        \}\);\n'
-content = re.sub(stub_thread_pattern, real_thread, content, flags=re.DOTALL)
+content = apply_regex_step(
+    "1. thread stub -> real python actor", content,
+    stub_thread_pattern, real_thread, "_python_actor_thread",
+)
 
 # 2. Replace the dispatch_python_job stub with the real dispatch function
 stub_dispatch_pattern = r'/// Dispatches a Python job\nfn dispatch_python_job.*?\}\n'
-content = re.sub(stub_dispatch_pattern, real_dispatch, content, flags=re.DOTALL)
+content = apply_regex_step(
+    "2. dispatch_python_job stub -> real", content,
+    stub_dispatch_pattern, real_dispatch, "python actor channel disconnected",
+)
 
 # 3. Hybridize ClonePages in TransferTransactions
 clone_pages_target = '''                                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -78,7 +184,10 @@ clone_pages_hybrid = '''                                    let eng = engine_for
                                             other => tracing::warn!("[TRANSFER] (Python) Page cloning failed: {:?}", other),
                                         }
                                     }'''
-content = content.replace(clone_pages_target, clone_pages_hybrid)
+content = apply_literal_step(
+    "3. ClonePages -> native-first hybrid", content,
+    clone_pages_target, clone_pages_hybrid,
+)
 
 # 4. Hybridize RemovePages
 remove_pages_target = '''                                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -142,7 +251,10 @@ remove_pages_hybrid = '''                                    let eng = engine_fo
                                             other => tracing::warn!("[TRANSFER] (Python) Page removal failed: {:?}", other),
                                         }
                                     }'''
-content = content.replace(remove_pages_target, remove_pages_hybrid)
+content = apply_literal_step(
+    "4. RemovePages -> native-first hybrid", content,
+    remove_pages_target, remove_pages_hybrid,
+)
 
 # 5. Hybridize ApplyManyEdits (Chunked)
 apply_many_target_1 = '''                                                    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -234,7 +346,10 @@ apply_many_hybrid_1 = '''                                                    let
                                                             }
                                                         }
                                                     }'''
-content = content.replace(apply_many_target_1, apply_many_hybrid_1)
+content = apply_literal_step(
+    "5. ApplyManyEdits (chunked) -> native-first hybrid", content,
+    apply_many_target_1, apply_many_hybrid_1,
+)
 
 # 6. Hybridize ApplyManyEdits (Direct)
 apply_many_target_2 = '''                                        let edits_json = serde_json::to_string(&batch_edits).unwrap_or_default();
@@ -321,8 +436,46 @@ apply_many_hybrid_2 = '''                                        let edits_json 
                                                 _ => tracing::error!("[TRANSFER] (Python) Batch edit failed with unexpected result"),
                                             }
                                         }'''
-content = content.replace(apply_many_target_2, apply_many_hybrid_2)
+content = apply_literal_step(
+    "6. ApplyManyEdits (direct) -> native-first hybrid", content,
+    apply_many_target_2, apply_many_hybrid_2,
+)
 
-with open('src/app/runtime.rs', 'w', encoding='utf-8') as f:
+# --- Summary + verified, safe write -------------------------------------
+_log("")
+applied = [s for s in _steps if s[1] == "APPLIED"]
+already = [s for s in _steps if s[1] == "ALREADY"]
+missing = [s for s in _steps if s[1] == "MISSING"]
+changed = content != original
+
+_log("== Summary ==")
+_log(f"  steps     : {len(_steps)}")
+_log(f"  applied   : {len(applied)}")
+_log(f"  already   : {len(already)}")
+_log(f"  missing   : {len(missing)}")
+_log(f"  changed   : {changed}")
+
+if args.strict and missing:
+    _log("")
+    _log(f"[x] {len(missing)} step(s) MISSING under --strict; refusing to continue.")
+    sys.exit(1)
+
+if not changed:
+    _log("")
+    _log("[=] Nothing to write: file already matches the desired hybrid state.")
+    sys.exit(0)
+
+if args.dry_run:
+    _log("")
+    _log("[i] DRY-RUN: changes detected but not written.")
+    sys.exit(0)
+
+if not args.no_backup:
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup = f"{args.file}.{ts}.bak"
+    shutil.copy2(args.file, backup)
+    _log(f"  backup    : {backup}")
+
+with open(args.file, "w", encoding="utf-8") as f:
     f.write(content)
-print('Applied Hybrid Logic to runtime.rs successfully')
+_log(f"[+] Wrote hybrid logic to {args.file} ({len(applied)} step(s) applied).")

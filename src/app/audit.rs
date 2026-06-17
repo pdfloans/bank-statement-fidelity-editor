@@ -380,8 +380,7 @@ mod tests {
                 err.downcast_ref::<AuditError>(),
                 Some(AuditError::Read { .. })
             ),
-            "expected AuditError::Read, got {:?}",
-            err
+            "expected AuditError::Read, got {err:?}"
         );
         // The error message should carry the offending path for diagnosis.
         assert!(err.to_string().contains("does_not_exist.log"));

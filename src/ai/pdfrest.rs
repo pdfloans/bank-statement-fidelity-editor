@@ -208,4 +208,3 @@ impl PdfRestClient {
         Ok(downloaded_paths)
     }
 }
-

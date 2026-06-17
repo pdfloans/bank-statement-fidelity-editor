@@ -1321,9 +1321,9 @@ pub fn run(
             let parsed_mode = if mode == "remap" {
                 crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
                     from_start: chrono::NaiveDate::from_ymd_opt(2025, 1, 1)
-                        .unwrap_or_else(|| chrono::NaiveDate::MIN),
+                        .unwrap_or(chrono::NaiveDate::MIN),
                     to_start: chrono::NaiveDate::from_ymd_opt(2025, 2, 1)
-                        .unwrap_or_else(|| chrono::NaiveDate::MIN),
+                        .unwrap_or(chrono::NaiveDate::MIN),
                 }
             } else {
                 crate::engine::date_adjust::DateAdjustMode::ShiftDays(30)

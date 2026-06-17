@@ -53,9 +53,9 @@ async fn gemini_client_can_propose_a_balance_plan() {
             use dual_core_pdf_pipeline::ai::gemini_client::GeminiError;
             match e {
                 GeminiError::LowConfidence(c) => {
-                    println!("✅ Gemini ok (low-confidence path): {:.2}", c);
+                    println!("✅ Gemini ok (low-confidence path): {c:.2}");
                 }
-                other => panic!("Gemini call failed: {}", other),
+                other => panic!("Gemini call failed: {other}"),
             }
         }
     }
@@ -96,6 +96,6 @@ async fn document_ai_can_parse_a_real_statement() {
             println!("   opening: {:.2}", stmt.opening_balance);
             println!("   closing: {:.2}", stmt.closing_balance);
         }
-        Err(e) => panic!("Document AI call failed: {}", e),
+        Err(e) => panic!("Document AI call failed: {e}"),
     }
 }

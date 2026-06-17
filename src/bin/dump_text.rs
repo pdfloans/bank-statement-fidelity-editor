@@ -16,7 +16,7 @@ fn main() {
         if op.operator == "Tj" {
             if let Some(lopdf::Object::String(bytes, _)) = op.operands.first() {
                 let text = String::from_utf8_lossy(bytes);
-                println!("Tj: '{}'", text);
+                println!("Tj: '{text}'");
             }
         } else if op.operator == "TJ" {
             if let Some(lopdf::Object::Array(ref arr)) = op.operands.first() {
@@ -26,7 +26,7 @@ fn main() {
                         combined.push_str(&String::from_utf8_lossy(bytes));
                     }
                 }
-                println!("TJ: '{}'", combined);
+                println!("TJ: '{combined}'");
             }
         }
     }

@@ -543,7 +543,6 @@ pub async fn verify_edit_pages_with_padding(
         report_files.push(edit_png_path.to_string_lossy().to_string());
         let (original_img, edited_img) = (o_img, e_img);
 
-
         // Build intended-edit exclusion rects in image space (with padding).
         let scale = BASE_DPI / 72.0;
         let img_w = original_img.width() as f32;
@@ -637,13 +636,12 @@ pub async fn verify_edit_pages_with_padding(
             }
             let o_region =
                 render_region_gray(&original_doc, page_idx, *bbox, 3.0, EDIT_REGION_DPI)?;
-            let e_region =
-                render_region_gray(&edited_doc, page_idx, *bbox, 3.0, EDIT_REGION_DPI)?;
+            let e_region = render_region_gray(&edited_doc, page_idx, *bbox, 3.0, EDIT_REGION_DPI)?;
             let (score, _dx, _dy) = region_fidelity_score(&o_region, &e_region);
             max_edit_region_score = max_edit_region_score.max(score);
         }
     }
-    
+
     // Eagerly release PyMuPDF/pdfium memory before proceeding to reporting
     drop(original_doc);
     drop(edited_doc);
@@ -667,8 +665,8 @@ pub async fn verify_edit_pages_with_padding(
     // scary "Balance Engine error: Missing opening balance" in that case is
     // misleading, so we degrade gracefully to a visual-only verdict and mark
     // math_valid = true (nothing to disprove).
-    let has_balance_data = !math_inputs.transactions.is_empty()
-        && math_inputs.opening_balance != Decimal::ZERO;
+    let has_balance_data =
+        !math_inputs.transactions.is_empty() && math_inputs.opening_balance != Decimal::ZERO;
     let (math_valid, math_message) = if !has_balance_data {
         (
             true,
@@ -705,8 +703,6 @@ pub async fn verify_edit_pages_with_padding(
         "\nPerceptual SSIM (min, outside edits): {min_ssim:.4} (Floor: {SSIM_FAILURE_FLOOR})"
     ));
     final_message.push_str(&format!("\n{math_message}"));
-
-
 
     Ok(VerificationReport {
         math_valid,
