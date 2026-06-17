@@ -5,7 +5,7 @@ on:
   push:
     tags:
       - 'v*'
-    branches: [main]
+    branches: [main, fix-ci-and-railway]
 
 jobs:
   build-mac-silicon:

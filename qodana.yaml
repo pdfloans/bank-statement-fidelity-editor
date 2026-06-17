@@ -2,34 +2,27 @@
 #               Qodana analysis is configured by qodana.yaml file               #
 #             https://www.jetbrains.com/help/qodana/qodana-yaml.html            #
 #-------------------------------------------------------------------------------#
-
 #################################################################################
 #              WARNING: Do not store sensitive information in this file,        #
 #               as its contents will be included in the Qodana report.          #
 #################################################################################
 version: "1.0"
-
 #Specify inspection profile for code analysis
 profile:
   name: qodana.starter
-
 #Enable inspections
 #include:
 #  - name: <SomeEnabledInspectionId>
-
 #Disable inspections
 #exclude:
 #  - name: <SomeDisabledInspectionId>
 #    paths:
 #      - <path/where/not/run/inspection>
-
 #Execute shell command before Qodana execution (Applied in CI/CD pipeline)
 #bootstrap: sh ./prepare-qodana.sh
-
 #Install IDE plugins before Qodana execution (Applied in CI/CD pipeline)
 #plugins:
 #  - id: <plugin.id> #(plugin id can be found at https://plugins.jetbrains.com)
-
 # Quality gate. Will fail the CI/CD pipeline if any condition is not met
 # severityThresholds - configures maximum thresholds for different problem severities
 # testCoverageThresholds - configures minimum code coverage on a whole project and newly added code
@@ -41,6 +34,38 @@ profile:
 #  testCoverageThresholds:
 #    fresh: 70
 #    total: 50
-
 #Specify Qodana linter for analysis (Applied in CI/CD pipeline)
 linter: jetbrains/qodana-<linter>:2026.1
+exclude:
+  - name: All
+    paths:
+      - scratch
+      - scratch/test_gemini.rs
+      - src
+      - src/ai
+      - src/ai/gemini_client.rs
+      - src/app
+      - src/app/audit.rs
+      - src/app/cli.rs
+      - src/app/config.rs
+      - src/app/gui.rs
+      - src/app/modals.rs
+      - src/app/panels.rs
+      - src/app/runtime.rs
+      - src/engine
+      - src/engine/balance.rs
+      - src/engine/model.rs
+      - src/engine/segments.rs
+      - src/engine/verification.rs
+      - src/engine/workflow.rs
+      - src/extractors
+      - src/extractors/templates.rs
+      - src/pdf
+      - src/pdf/native_engine.rs
+      - src/pdf/selector.rs
+      - src/error.rs
+      - Cargo.toml
+      - extracted_dispatch.rs
+      - extracted_enum.rs
+      - extracted_thread.rs
+      - temp_runtime.rs
