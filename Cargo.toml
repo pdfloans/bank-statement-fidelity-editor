@@ -7,8 +7,17 @@ authors = ["Grok xAI"]
 license = "MIT OR Apache-2.0"
 
 [features]
-default = []
+default = ["otel"]
 dev = []
+# Recommendation #8: OTLP/OpenTelemetry export is opt-in. Enabled by default
+# for parity with previous behaviour, but can be disabled (e.g. for the
+# desktop GUI) to skip exporter init cost when no collector is configured:
+#   cargo build --no-default-features --features <...>
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
+# Recommendation #4: pure-Rust OCR (ocrs + rten). Off by default because
+# rten >=0.24 requires rustc >=1.89 while this project pins 1.88.0. Enable on
+# a newer toolchain with `--features ocr` once models are placed in models/.
+ocr = ["dep:ocrs", "dep:rten", "dep:rten-imageproc", "dep:rten-tensor"]
 
 [dependencies]
 pyo3 = { version = "0.24.1", features = ["auto-initialize"] }
@@ -40,10 +49,12 @@ image_hasher = "3"
 tracing-appender = "0.2.5"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
-opentelemetry = "0.21.0"
-opentelemetry_sdk = { version = "0.21.0", features = ["rt-tokio"] }
-opentelemetry-otlp = "0.14.0"
-tracing-opentelemetry = "0.22.0"
+# Recommendation #8: OpenTelemetry export is gated behind the `otel` feature
+# so builds that don't need a collector can drop the exporter entirely.
+opentelemetry = { version = "0.21.0", optional = true }
+opentelemetry_sdk = { version = "0.21.0", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.14.0", optional = true }
+tracing-opentelemetry = { version = "0.22.0", optional = true }
 jsonwebtoken = "9"
 serde_yaml = "0.9.0"
 regex = "1.12.3"
@@ -77,6 +88,18 @@ winnow = "0.7"
 imageproc = "0.25"
 zeroize = "1.9.0"
 
+# Recommendation #2/#7: small LRU cache for rendered pages + text blocks.
+lru = "0.12"
+# Recommendation #3: data-parallel CPU loops (already transitively present via
+# polars; declared directly so we can use it explicitly).
+rayon = "1"
+
+# Recommendation #4: pure-Rust OCR engine (optional, see `ocr` feature).
+ocrs = { version = "0.12", optional = true }
+rten = { version = "0.24", default-features = false, features = ["rten_format"], optional = true }
+rten-imageproc = { version = "0.24", optional = true }
+rten-tensor = { version = "0.24", optional = true }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tempfile = "3.27.0"
@@ -109,6 +132,9 @@ opt-level = 1
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+# Recommendation #6: use unwinding (not abort) so the many existing
+# `catch_unwind` guards (Python actor, render_page, job workers) actually
+# isolate panics in release builds instead of taking down the whole GUI.
+panic = "unwind"
 strip = true
 debug = false

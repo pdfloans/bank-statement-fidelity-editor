@@ -1,7 +1,11 @@
 use crate::app::config::AppConfig;
+#[cfg(feature = "otel")]
 use opentelemetry::KeyValue;
+#[cfg(feature = "otel")]
 use opentelemetry_otlp::WithExportConfig;
+#[cfg(feature = "otel")]
 use opentelemetry_sdk::trace;
+#[cfg(feature = "otel")]
 use opentelemetry_sdk::Resource;
 use std::sync::Once;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -16,6 +20,7 @@ pub struct TelemetryGuard {
 
 impl Drop for TelemetryGuard {
     fn drop(&mut self) {
+        #[cfg(feature = "otel")]
         opentelemetry::global::shutdown_tracer_provider();
     }
 }
@@ -82,6 +87,7 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
         .with(file_layer)
         .with(error_layer);
 
+    #[cfg(feature = "otel")]
     if let Some(endpoint) = &cfg.otel_endpoint {
         // OTLP requires a running tokio runtime — gracefully degrade if absent.
         let in_tokio = tokio::runtime::Handle::try_current().is_ok();
@@ -129,14 +135,19 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
         subscriber.init();
     }
 
+    // Recommendation #8: when built without the `otel` feature, there is no
+    // exporter to install — just bring up stdout/file logging.
+    #[cfg(not(feature = "otel"))]
+    subscriber.init();
+
     TelemetryGuard {}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
 
+    #[cfg(feature = "otel")]
     #[test]
     fn init_with_unreachable_otlp_endpoint_does_not_panic() {
         let cfg = AppConfig {

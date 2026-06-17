@@ -165,6 +165,11 @@ pub enum PythonJob {
         output_path: String,
         page_indices: Vec<usize>,
     },
+    RenderPageToPng {
+        pdf_path: String,
+        page_num: usize,
+        dpi: f32,
+    },
 }
 
 #[derive(Debug)]
@@ -660,6 +665,13 @@ impl Runtime {
                                     page_indices,
                                 } => engine
                                     .remove_pages(&pdf_path, &output_path, &page_indices)
+                                    .map(PythonJobResult::Json),
+                                PythonJob::RenderPageToPng {
+                                    pdf_path,
+                                    page_num,
+                                    dpi,
+                                } => engine
+                                    .render_page_to_png(&pdf_path, page_num, dpi)
                                     .map(PythonJobResult::Json),
                             }));
 
@@ -2513,7 +2525,7 @@ impl Runtime {
 
                             if page_count > 3 {
                                 // ---- 3-Page-Mode segmented batch apply ----
-                                use crate::engine::pdf_split_merge::{split_pdf, merge_pdfs};
+                                use crate::engine::pdf_split_merge::{merge_pdfs, split_pdf};
                                 let _ = res_tx.send(JobResult::Progress { label: "Splitting statement into <=3-page segments".into(), fraction: 0.1 });
 
                                 // 1) Split (pure-Rust lopdf) on a blocking task.

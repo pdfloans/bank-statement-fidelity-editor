@@ -45,12 +45,48 @@ impl PdfEngine for PyMuPdfEngine {
 
     fn render_page(
         &self,
-        _path: &Path,
-        _page: usize,
-        _dpi: f32,
+        path: &Path,
+        page: usize,
+        dpi: f32,
     ) -> Result<RenderedPage, EngineError> {
-        // We use pdfium/mupdf for rendering, PyMuPDF for editing
-        Err(EngineError::Unsupported)
+        use base64::Engine as _;
+
+        let (tx, rx) = oneshot::channel();
+        self.job_tx
+            .send(crate::app::runtime::Job::Python(
+                PythonJob::RenderPageToPng {
+                    pdf_path: path.to_string_lossy().to_string(),
+                    page_num: page,
+                    dpi,
+                },
+                tx,
+            ))
+            .map_err(|_| EngineError::RenderFailed("Worker thread disconnected".into()))?;
+
+        let res = recv_blocking(rx)
+            .map_err(|e| EngineError::RenderFailed(e.to_string()))?;
+
+        match res {
+            PythonJobResult::Json(json) => {
+                let parsed: serde_json::Value = serde_json::from_str(&json)
+                    .map_err(|e| EngineError::RenderFailed(format!("Bad JSON from PyMuPDF render: {e}")))?;
+                let png_b64 = parsed["png_base64"]
+                    .as_str()
+                    .ok_or_else(|| EngineError::RenderFailed("Missing png_base64 in response".into()))?;
+                let width_pts = parsed["width_pts"].as_f64().unwrap_or(612.0) as f32;
+                let height_pts = parsed["height_pts"].as_f64().unwrap_or(792.0) as f32;
+                let png_bytes = base64::engine::general_purpose::STANDARD
+                    .decode(png_b64)
+                    .map_err(|e| EngineError::RenderFailed(format!("base64 decode failed: {e}")))?;
+                Ok(RenderedPage {
+                    png_bytes,
+                    width_pts,
+                    height_pts,
+                })
+            }
+            PythonJobResult::Error(e) => Err(EngineError::RenderFailed(e)),
+            _ => Err(EngineError::RenderFailed("Unexpected result from PyMuPDF render".into())),
+        }
     }
 
     fn get_text_blocks(&self, path: &Path, page: usize) -> Result<Vec<TextBlock>, EngineError> {

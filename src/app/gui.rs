@@ -679,6 +679,36 @@ impl MyApp {
         }
     }
 
+    /// Pair edited PDFs with their corresponding originals for batch verification.
+    ///
+    /// Convention: an edited file is named `<base>_edited.pdf`. Its original is
+    /// looked up as `<base>_original.pdf` first, falling back to a bare
+    /// `<base>.pdf` in the same set. Returns `(original, edited)` pairs.
+    fn pair_originals_and_edited(files: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
+        use std::collections::HashMap;
+        let by_stem: HashMap<String, PathBuf> = files
+            .iter()
+            .filter_map(|p| {
+                p.file_stem()
+                    .map(|s| (s.to_string_lossy().to_string(), p.clone()))
+            })
+            .collect();
+
+        let mut pairs = Vec::new();
+        for (stem, edited) in &by_stem {
+            if let Some(base) = stem.strip_suffix("_edited") {
+                if let Some(original) = by_stem
+                    .get(&format!("{base}_original"))
+                    .or_else(|| by_stem.get(base))
+                {
+                    pairs.push((original.clone(), edited.clone()));
+                }
+            }
+        }
+        pairs.sort();
+        pairs
+    }
+
     #[allow(dead_code)]
     fn toast_with_action(
         &mut self,
@@ -3593,7 +3623,25 @@ impl MyApp {
                     self.toast(ToastKind::Info, format!("Queued {} balancing jobs", self.batch_files.len()));
                 }
                 if ui.add_enabled(has_files, egui::Button::new("Verify All against Originals")).clicked() {
-                    self.toast(ToastKind::Info, "Batch Verify requires paired _original and _edited files, not yet implemented.");
+                    let pairs = Self::pair_originals_and_edited(&self.batch_files);
+                    if pairs.is_empty() {
+                        self.toast(ToastKind::Warn, "No paired _original/_edited PDFs found in folder.");
+                    } else {
+                        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+                        for (original, edited) in &pairs {
+                            let stem = edited.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                            let _ = self.job_tx.send(Job::Verify {
+                                original: original.clone(),
+                                edited: edited.clone(),
+                                output_dir: PathBuf::from("audit/verify/batch").join(&timestamp).join(&stem),
+                                intended_bboxes: Vec::new(),
+                                use_pdfrest: self.settings.use_pdfrest,
+                                pdfrest_key: self.config.pdfrest_api_key.clone(),
+                            });
+                            self.in_flight += 1;
+                        }
+                        self.toast(ToastKind::Info, format!("Queued {} verification job(s)", pairs.len()));
+                    }
                 }
             });
 

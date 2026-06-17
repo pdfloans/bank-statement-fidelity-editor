@@ -198,6 +198,78 @@ fn extract_string_operand(operands: &[lopdf::Object]) -> Option<String> {
     None
 }
 
+/// Recommendation #1 — faithful page rasterisation using `pdfium-render`.
+///
+/// Binds to a local `pdfium` library first (so a shipped binary wins) and
+/// falls back to the system library. Renders the requested page at `dpi`
+/// using anti-aliasing flags pinned identically to the fidelity verifier
+/// (`use_lcd_text_rendering(false)` + smoothing on) so previews match what
+/// the verifier scores. Returns PNG bytes plus the page size in points.
+fn render_page_with_pdfium(
+    path: &Path,
+    page: usize,
+    dpi: f32,
+) -> Result<RenderedPage, EngineError> {
+    use pdfium_render::prelude::*;
+
+    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+        .or_else(|_| Pdfium::bind_to_system_library())
+        .map_err(|e| EngineError::RenderFailed(format!("Failed to bind pdfium: {e}")))?;
+    let pdfium = Pdfium::new(bindings);
+
+    let document = pdfium
+        .load_pdf_from_file(path, None)
+        .map_err(|e| EngineError::RenderFailed(format!("Failed to load PDF: {e}")))?;
+
+    let pages = document.pages();
+    let page_count = pages.len() as usize;
+    if page >= page_count {
+        return Err(EngineError::RenderFailed(format!(
+            "Page {page} out of range (document has {page_count} pages)"
+        )));
+    }
+
+    let pdf_page = pages
+        .get(page as u16)
+        .map_err(|e| EngineError::RenderFailed(format!("Failed to get page {page}: {e}")))?;
+
+    let width_pts = pdf_page.width().value;
+    let height_pts = pdf_page.height().value;
+
+    let dpi = if dpi.is_finite() && dpi > 0.0 { dpi } else { 150.0 };
+    let target_width = ((width_pts * dpi / 72.0).round() as i32).max(1);
+
+    let config = PdfRenderConfig::new()
+        .set_target_width(target_width)
+        .set_clear_color(PdfColor::WHITE)
+        .use_lcd_text_rendering(false)
+        .set_text_smoothing(true)
+        .set_path_smoothing(true)
+        .set_image_smoothing(true)
+        .render_annotations(true)
+        .render_form_data(true);
+
+    let image = pdf_page
+        .render_with_config(&config)
+        .map_err(|e| EngineError::RenderFailed(format!("pdfium render failed: {e}")))?
+        .as_image()
+        .into_rgba8();
+
+    let mut png_bytes = Vec::new();
+    image
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .map_err(|e| EngineError::RenderFailed(format!("Failed to encode PNG: {e}")))?;
+
+    Ok(RenderedPage {
+        png_bytes,
+        width_pts,
+        height_pts,
+    })
+}
+
 impl PdfEngine for OxidizePdfEngine {
     fn capabilities(&self) -> EngineCapabilities {
         EngineCapabilities {
@@ -209,50 +281,12 @@ impl PdfEngine for OxidizePdfEngine {
     }
 
     fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
-        // Fallback Native Renderer (Structural/Layout mode)
-        // Since full PDF rasterization via tiny-skia is Phase 6, we draw text block
-        // bounding boxes on a white canvas. This allows UI interaction (clicking,
-        // selecting text for edits) without needing external C++ renderers.
-
-        let width_pts = 600.0; // Standard A4 estimated width
-        let height_pts = 850.0;
-        let width_px = (width_pts * dpi / 72.0) as u32;
-        let height_px = (height_pts * dpi / 72.0) as u32;
-
-        let mut img =
-            image::RgbaImage::from_pixel(width_px, height_px, image::Rgba([255, 255, 255, 255]));
-
-        if let Ok(blocks) = self.get_text_blocks(path, page) {
-            for b in blocks {
-                let x0 = (b.bbox[0] * dpi / 72.0) as i32;
-                // PDF y=0 is bottom; image y=0 is top
-                let y0 = (height_px as f32 - (b.bbox[3] * dpi / 72.0)) as i32;
-                let x1 = (b.bbox[2] * dpi / 72.0) as i32;
-                let y1 = (height_px as f32 - (b.bbox[1] * dpi / 72.0)) as i32;
-
-                let rect = imageproc::rect::Rect::at(x0.max(0), y0.max(0))
-                    .of_size(((x1 - x0).max(1)) as u32, ((y1 - y0).max(1)) as u32);
-
-                imageproc::drawing::draw_hollow_rect_mut(
-                    &mut img,
-                    rect,
-                    image::Rgba([0, 0, 0, 100]),
-                );
-            }
-        }
-
-        let mut bytes = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut bytes);
-        img.write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| {
-                EngineError::RenderFailed(format!("Failed to encode fallback PNG: {}", e))
-            })?;
-
-        Ok(RenderedPage {
-            png_bytes: bytes,
-            width_pts,
-            height_pts,
-        })
+        // Recommendation #1: faithful, pure-Rust(ish) rasterisation via
+        // `pdfium-render` (already a dependency, already used by the fidelity
+        // verifier). This makes the native engine the primary preview path so
+        // previews no longer depend on the GIL-locked Python actor, while
+        // PyMuPDF stays as the automatic fallback in the selector.
+        render_page_with_pdfium(path, page, dpi)
     }
 
     fn get_text_blocks(&self, path: &Path, page: usize) -> Result<Vec<TextBlock>, EngineError> {

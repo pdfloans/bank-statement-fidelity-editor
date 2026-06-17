@@ -384,6 +384,16 @@ impl PyEngine {
         })
     }
 
+    pub fn render_page_to_png(&self, pdf_path: &str, page_num: usize, dpi: f32) -> Result<String, String> {
+        Self::safe_python_with_gil(|py| {
+            self.call_json(
+                py,
+                "render_page_to_png",
+                (pdf_path, page_num, dpi),
+            )
+        })
+    }
+
     pub fn remove_pages(&self, pdf_path: &str, output_path: &str, page_indices: &[usize]) -> Result<String, String> {
         Self::safe_python_with_gil(|py| {
             self.call_json(

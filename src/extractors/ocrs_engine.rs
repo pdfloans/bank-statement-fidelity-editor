@@ -52,40 +52,80 @@ impl OcrsEngine {
             ExtractorError::ExtractionFailed(format!("Failed to decode image: {e}"))
         })?;
 
-        let gray = img.to_luma8();
-
-        // For now, use a simplified text extraction approach based on
-        // connected component analysis. The full ocrs integration requires
-        // the ONNX model files to be present at the configured paths.
-        //
-        // In production, this would:
-        // 1. Load detection model: rten::Model::load_file(&self.config.detection_model_path)
-        // 2. Load recognition model: rten::Model::load_file(&self.config.recognition_model_path)
-        // 3. Create OcrEngine with both models
-        // 4. Run detection → recognition pipeline
-        //
-        // Until the model files are downloaded and placed, we return a
-        // descriptive error so the caller falls back to Document AI.
-
-        let (w, h) = (gray.width(), gray.height());
+        let (w, h) = (img.width(), img.height());
         if w == 0 || h == 0 {
             return Err(ExtractorError::ExtractionFailed("Empty image".into()));
         }
 
-        // Check if model files exist
+        // Check the model files exist before doing any heavy work.
         let det_path = Path::new(&self.config.detection_model_path);
         let rec_path = Path::new(&self.config.recognition_model_path);
-
         if !det_path.exists() || !rec_path.exists() {
             return Err(ExtractorError::ExtractionFailed(format!(
                 "OCRS model files not found. Expected:\n  Detection: {}\n  Recognition: {}\n\
-                 Download models from https://github.com/nicholaskell/ocrs-models",
+                 Download them with `ocrs download-models` or from \
+                 https://github.com/robertknight/ocrs-models",
                 self.config.detection_model_path, self.config.recognition_model_path,
             )));
         }
 
+        self.run_ocr(&img)
+    }
+
+    /// Real detection→recognition pipeline (Recommendation #4), gated behind
+    /// the `ocr` cargo feature because `ocrs`/`rten` require rustc >= 1.89.
+    #[cfg(feature = "ocr")]
+    fn run_ocr(&self, img: &image::DynamicImage) -> Result<String, ExtractorError> {
+        use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
+        use rten::Model;
+
+        let detection_model = Model::load_file(&self.config.detection_model_path)
+            .map_err(|e| ExtractorError::ExtractionFailed(format!("load detection model: {e}")))?;
+        let recognition_model =
+            Model::load_file(&self.config.recognition_model_path).map_err(|e| {
+                ExtractorError::ExtractionFailed(format!("load recognition model: {e}"))
+            })?;
+
+        let engine = OcrEngine::new(OcrEngineParams {
+            detection_model: Some(detection_model),
+            recognition_model: Some(recognition_model),
+            ..Default::default()
+        })
+            .map_err(|e| ExtractorError::ExtractionFailed(format!("init OcrEngine: {e}")))?;
+
+        let rgb = img.to_rgb8();
+        let img_source = ImageSource::from_bytes(rgb.as_raw(), rgb.dimensions())
+            .map_err(|e| ExtractorError::ExtractionFailed(format!("image source: {e}")))?;
+        let ocr_input = engine
+            .prepare_input(img_source)
+            .map_err(|e| ExtractorError::ExtractionFailed(format!("prepare input: {e}")))?;
+
+        let word_rects = engine
+            .detect_words(&ocr_input)
+            .map_err(|e| ExtractorError::ExtractionFailed(format!("detect words: {e}")))?;
+        let line_rects = engine.find_text_lines(&ocr_input, &word_rects);
+        let line_texts = engine
+            .recognize_text(&ocr_input, &line_rects)
+            .map_err(|e| ExtractorError::ExtractionFailed(format!("recognize text: {e}")))?;
+
+        let text = line_texts
+            .iter()
+            .flatten()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(text)
+    }
+
+    /// Fallback when the crate is built without the `ocr` feature: the models
+    /// can't be executed (no `rten`), so report a clear, actionable error and
+    /// let the caller fall back to Document AI.
+    #[cfg(not(feature = "ocr"))]
+    fn run_ocr(&self, _img: &image::DynamicImage) -> Result<String, ExtractorError> {
         Err(ExtractorError::ExtractionFailed(
-            "OCRS engine: model loading not yet wired (requires rten integration)".into(),
+            "OCRS support not compiled in. Rebuild with `--features ocr` on Rust >= 1.89 \
+             to enable the pure-Rust ocrs + rten OCR pipeline."
+                .into(),
         ))
     }
 }

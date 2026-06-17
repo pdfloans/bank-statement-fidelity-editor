@@ -145,6 +145,34 @@ def _ensure_pro_unlocked(pdf_path=None):
     pymupdf.pro.unlock(PYMUPDF_PRO_KEY)
 
 
+def render_page_to_png(pdf_path: str, page_num: int = 0, dpi: float = 150.0):
+    """Render a single PDF page to PNG bytes using PyMuPDF (no Pro needed).
+
+    Returns a dict with keys: png_bytes (base64), width_pts, height_pts.
+    This uses the standard (free) PyMuPDF rasteriser which handles all fonts,
+    embedded images, vector graphics, etc. — producing a faithful preview
+    even when the native Rust engine cannot.
+    """
+    import base64
+    doc = pymupdf.open(pdf_path)
+    if page_num >= doc.page_count:
+        doc.close()
+        raise ValueError(f"Page {page_num} out of range (document has {doc.page_count} pages)")
+    page = doc[page_num]
+    zoom = dpi / 72.0
+    mat = pymupdf.Matrix(zoom, zoom)
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+    png_bytes = pix.tobytes("png")
+    width_pts = page.rect.width
+    height_pts = page.rect.height
+    doc.close()
+    return {
+        "png_base64": base64.b64encode(png_bytes).decode("ascii"),
+        "width_pts": width_pts,
+        "height_pts": height_pts,
+    }
+
+
 def get_text_blocks(pdf_path: str, page_num: int = 0):
     """Return list of text spans with precise bounding boxes and font info"""
     # Pro 3-page guard (Req 5): verify <=3 pages BEFORE unlocking Pro.

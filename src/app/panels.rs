@@ -1,12 +1,12 @@
-use crate::app::gui::{MyApp, Toast, ToastKind, AppView};
+use crate::app::gui::{AppView, MyApp, Toast, ToastKind};
 use crate::app::theme::Theme;
+use crate::engine::font_analysis::*;
 use crate::engine::model::*;
 use crate::engine::workflow::*;
-use crate::engine::font_analysis::*;
 use egui::*;
 
-use std::path::PathBuf;
 use crate::app::runtime::{Job, PythonJob};
+use std::path::PathBuf;
 
 
 pub(crate) trait AppPanels {
@@ -301,7 +301,25 @@ impl AppPanels for MyApp {
                         self.toast(ToastKind::Info, format!("Queued {} balancing jobs", self.batch_files.len()));
                     }
                     if ui.add_enabled(has_files, egui::Button::new("Verify All against Originals")).clicked() {
-                        self.toast(ToastKind::Info, "Batch Verify requires paired _original and _edited files, not yet implemented.");
+                        let pairs = Self::pair_originals_and_edited(&self.batch_files);
+                        if pairs.is_empty() {
+                            self.toast(ToastKind::Warn, "No paired _original/_edited PDFs found in folder.");
+                        } else {
+                            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+                            for (original, edited) in &pairs {
+                                let stem = edited.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                                let _ = self.job_tx.send(Job::Verify {
+                                    original: original.clone(),
+                                    edited: edited.clone(),
+                                    output_dir: PathBuf::from("audit/verify/batch").join(&timestamp).join(&stem),
+                                    intended_bboxes: Vec::new(),
+                                    use_pdfrest: self.settings.use_pdfrest,
+                                    pdfrest_key: self.config.pdfrest_api_key.clone(),
+                                });
+                                self.in_flight += 1;
+                            }
+                            self.toast(ToastKind::Info, format!("Queued {} verification job(s)", pairs.len()));
+                        }
                     }
                 });
     

@@ -21,6 +21,7 @@ use crate::engine::model::Transaction;
 use image::{GrayImage, RgbaImage};
 use image_hasher::{HashAlg, HasherConfig};
 use pdfium_render::prelude::*;
+use rayon::prelude::*;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -43,6 +44,19 @@ pub struct VerificationReport {
     /// best-shift alignment). Higher = more drift/shape mismatch.
     #[serde(default)]
     pub max_edit_region_score: f64,
+    /// Recommendation #5: worst (minimum) perceptual SSIM across checked
+    /// pages, computed outside the intended-edit regions. `1.0` = pixel-perfect
+    /// structural match; lower = the page diverged structurally from the
+    /// original somewhere it should not have.
+    #[serde(default = "default_min_ssim")]
+    pub min_ssim: f64,
+}
+
+/// Serde default so reports deserialised from older runs (which lack the
+/// field) report a perfect SSIM rather than `0.0` (which would read as a
+/// catastrophic mismatch).
+fn default_min_ssim() -> f64 {
+    1.0
 }
 
 #[derive(Error, Debug)]
@@ -72,6 +86,13 @@ pub struct MathInputs {
 /// Page-level diff gate. Localized tile scoring (Item #17) is far more
 /// sensitive than a whole-page average, so the threshold can stay tight.
 const VISUAL_DIFF_THRESHOLD: f64 = 0.02;
+
+/// Recommendation #5: minimum acceptable perceptual SSIM (outside the intended
+/// edit regions). A faithful edit leaves the rest of the page essentially
+/// unchanged (SSIM ≈ 1.0); this floor is deliberately low so it only fails on
+/// catastrophic structural divergence (e.g. a blank/garbled render or the
+/// wrong page) rather than penalising sub-pixel anti-aliasing noise.
+const SSIM_FAILURE_FLOOR: f64 = 0.40;
 
 /// Base render DPI for whole-page comparison.
 const BASE_DPI: f32 = 300.0;
@@ -117,22 +138,112 @@ fn to_gray(img: &RgbaImage) -> GrayImage {
 /// changes that a flat luminance diff averages away (Item #17).
 fn gradient_magnitude(g: &GrayImage) -> GrayImage {
     let (w, h) = (g.width(), g.height());
-    let mut out = GrayImage::new(w, h);
     if w < 3 || h < 3 {
-        return out;
+        return GrayImage::new(w, h);
     }
-    let at = |x: u32, y: u32| g.get_pixel(x, y)[0] as i32;
-    for y in 1..h - 1 {
-        for x in 1..w - 1 {
-            let gx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1))
-                - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
-            let gy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1))
-                - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
-            let mag = ((gx * gx + gy * gy) as f64).sqrt().min(255.0) as u8;
-            out.put_pixel(x, y, image::Luma([mag]));
+    // Recommendation #3: the Sobel pass is the heaviest per-page CPU loop in
+    // the verifier. Compute it row-parallel with rayon; each output row only
+    // reads neighbouring input rows, so the work is embarrassingly parallel.
+    let src = g.as_raw();
+    let at = |x: u32, y: u32| src[(y * w + x) as usize] as i32;
+    let mut buf = vec![0u8; (w * h) as usize];
+    buf.par_chunks_mut(w as usize)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let y = y as u32;
+            if y == 0 || y == h - 1 {
+                return;
+            }
+            for x in 1..w - 1 {
+                let gx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1))
+                    - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+                let gy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1))
+                    - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+                row[x as usize] = ((gx * gx + gy * gy) as f64).sqrt().min(255.0) as u8;
+            }
+        });
+    GrayImage::from_raw(w, h, buf).unwrap_or_else(|| GrayImage::new(w, h))
+}
+
+/// Recommendation #5 — mean Structural Similarity Index (SSIM) over two
+/// aligned grayscale images, computed on non-overlapping windows. SSIM is a
+/// perceptual metric (luminance + contrast + structure) that correlates with
+/// "do these look the same to a human?" far better than a raw pixel/hash
+/// diff, so it makes a much more trustworthy fidelity signal.
+///
+/// Returns a value in `[-1, 1]` where `1.0` is identical. Windows whose
+/// centre lies inside any `exclude` rect (image space) are skipped so the
+/// intended edits don't drag the score down. Window evaluation is parallelised
+/// with rayon (Recommendation #3).
+fn mean_ssim(a: &GrayImage, b: &GrayImage, exclude: &[(u32, u32, u32, u32)]) -> f64 {
+    const WIN: u32 = 8;
+    // Constants from the original SSIM paper for 8-bit dynamic range.
+    const C1: f64 = (0.01 * 255.0) * (0.01 * 255.0);
+    const C2: f64 = (0.03 * 255.0) * (0.03 * 255.0);
+
+    let w = a.width().min(b.width());
+    let h = a.height().min(b.height());
+    if w < WIN || h < WIN {
+        return 1.0;
+    }
+    let pa = a.as_raw();
+    let pb = b.as_raw();
+    let aw = a.width();
+    let bw = b.width();
+
+    // Collect window origins, then evaluate them in parallel.
+    let mut origins: Vec<(u32, u32)> = Vec::new();
+    let mut wy = 0;
+    while wy + WIN <= h {
+        let mut wx = 0;
+        while wx + WIN <= w {
+            origins.push((wx, wy));
+            wx += WIN;
         }
+        wy += WIN;
     }
-    out
+
+    let (sum, count) = origins
+        .par_iter()
+        .filter_map(|&(wx, wy)| {
+            let cx = wx + WIN / 2;
+            let cy = wy + WIN / 2;
+            if exclude
+                .iter()
+                .any(|(x0, y0, x1, y1)| cx >= *x0 && cx < *x1 && cy >= *y0 && cy < *y1)
+            {
+                return None;
+            }
+            let n = (WIN * WIN) as f64;
+            let (mut sa, mut sb, mut saa, mut sbb, mut sab) = (0.0, 0.0, 0.0, 0.0, 0.0);
+            for y in wy..wy + WIN {
+                for x in wx..wx + WIN {
+                    let va = pa[(y * aw + x) as usize] as f64;
+                    let vb = pb[(y * bw + x) as usize] as f64;
+                    sa += va;
+                    sb += vb;
+                    saa += va * va;
+                    sbb += vb * vb;
+                    sab += va * vb;
+                }
+            }
+            let mua = sa / n;
+            let mub = sb / n;
+            let va = saa / n - mua * mua;
+            let vb = sbb / n - mub * mub;
+            let cov = sab / n - mua * mub;
+            let ssim = ((2.0 * mua * mub + C1) * (2.0 * cov + C2))
+                / ((mua * mua + mub * mub + C1) * (va + vb + C2));
+            Some(ssim)
+        })
+        .map(|s| (s, 1u64))
+        .reduce(|| (0.0, 0u64), |acc, x| (acc.0 + x.0, acc.1 + x.1));
+
+    if count == 0 {
+        1.0
+    } else {
+        sum / count as f64
+    }
 }
 
 /// Item #17: localized tile-max score over a region of two aligned gray
@@ -378,6 +489,8 @@ pub async fn verify_edit_pages_with_padding(
     let mut max_tile_score: f64 = 0.0;
     let mut max_edit_region_score: f64 = 0.0;
     let mut legacy_pixel_score: f64 = 0.0;
+    // Recommendation #5: track the worst (minimum) perceptual SSIM across pages.
+    let mut min_ssim: f64 = 1.0;
 
     for i in 0..original_len {
         // Stage 2 / Item #2: skip pages the caller hasn't asked us to check.
@@ -464,6 +577,12 @@ pub async fn verify_edit_pages_with_padding(
         );
         max_tile_score = max_tile_score.max(page_tile_score);
 
+        // Recommendation #5: perceptual SSIM on the same grayscale buffers,
+        // skipping the intended-edit regions. This is the trustworthy
+        // "does the rest of the page still look identical?" signal.
+        let page_ssim = mean_ssim(&orig_gray, &edit_gray, &exclude_rects);
+        min_ssim = min_ssim.min(page_ssim);
+
         // Keep a legacy whole-page perceptual-hash + pixel score for the
         // human-facing report number (it's informative, not the gate).
         let hasher = HasherConfig::new()
@@ -529,8 +648,14 @@ pub async fn verify_edit_pages_with_padding(
     drop(original_doc);
     drop(edited_doc);
 
-    // Item #17: the gate is the worst localized tile OUTSIDE intended edits.
-    let only_intended_changes = max_tile_score < VISUAL_DIFF_THRESHOLD;
+    // Item #17 + Recommendation #5: the gate is the worst localized tile
+    // OUTSIDE intended edits, AND a catastrophic-mismatch floor on perceptual
+    // SSIM. The SSIM floor is intentionally lenient (it only trips when a page
+    // diverges structurally far beyond a faithful edit) so it strengthens the
+    // gate against gross corruption/blank-page renders without flipping the
+    // many legitimately-passing edits the tile gate already accepts.
+    let only_intended_changes =
+        max_tile_score < VISUAL_DIFF_THRESHOLD && min_ssim >= SSIM_FAILURE_FLOOR;
     // Report number favours the most sensitive signal we computed.
     let max_visual_score = max_tile_score.max(legacy_pixel_score);
 
@@ -576,6 +701,9 @@ pub async fn verify_edit_pages_with_padding(
     final_message.push_str(&format!(
         "\nEdit-region fidelity (max residual): {max_edit_region_score:.4}"
     ));
+    final_message.push_str(&format!(
+        "\nPerceptual SSIM (min, outside edits): {min_ssim:.4} (Floor: {SSIM_FAILURE_FLOOR})"
+    ));
     final_message.push_str(&format!("\n{math_message}"));
 
 
@@ -588,6 +716,7 @@ pub async fn verify_edit_pages_with_padding(
         message: final_message,
         max_tile_score,
         max_edit_region_score,
+        min_ssim,
     })
 }
 
