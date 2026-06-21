@@ -1,38 +1,5 @@
-# AGENTS.md
-
-## Project type
-
-Rust desktop/CLI project using Cargo.
-
-## Autonomous fix policy
-
 Agent instructions have moved to AGENTS.md.
 
-Use AGENTS.md as the source of truth for autonomous fix policy, terminal permissions, validation commands, Rust toolchain rules, safety boundaries, secrets policy, and reporting format.
-
-The agent may automatically modify:
-
-- `rust-toolchain.toml`
-- `.cargo/config.toml`
-- `Cargo.toml`
-- `Cargo.lock`
-- Rust source files under `src/`
-- tests under `tests/`
-- CI files under `.github/workflows/`
-
-The agent should not modify:
-
-- `.env`
-- private keys
-- production credentials
-- generated PDF outputs
-- audit/history files unless explicitly asked
-
-## Standard validation commands
-
-After any fix, run:
-
-Use Rust 1.88.0 unless a task explicitly requires another version.
-
-If `rust-toolchain.toml` contains `channel = "dev"`, replace it with:AGENTS.md
-toml [toolchain] channel = "1.88.0" components = ["rustfmt", "clippy"]
+Use AGENTS.md as the source of truth for autonomous fix policy, terminal
+permissions, validation commands, Rust toolchain rules, safety boundaries,
+secrets policy, and reporting format.
