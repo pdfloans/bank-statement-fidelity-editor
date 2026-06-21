@@ -225,6 +225,15 @@ pub struct AppSettings {
     pub advanced_mode: bool,
     #[serde(default)]
     pub remote_engine_url: String,
+    /// Backend preference: which AI provider to use for balance/vision.
+    #[serde(default)]
+    pub ai_provider: crate::app::config::AiProviderMode,
+    /// Backend preference: which document parser to use for extraction.
+    #[serde(default)]
+    pub document_parser: crate::app::config::DocumentParserMode,
+    /// Backend preference: which renderer for verification diffs.
+    #[serde(default)]
+    pub verification_renderer: crate::app::config::VerificationMode,
 }
 
 /// serde default for `three_page_mode`. NOTE: a bare `#[serde(default)]`
@@ -251,6 +260,9 @@ impl Default for AppSettings {
             three_page_mode: true,
             advanced_mode: false,
             remote_engine_url: String::new(),
+            ai_provider: crate::app::config::AiProviderMode::default(),
+            document_parser: crate::app::config::DocumentParserMode::default(),
+            verification_renderer: crate::app::config::VerificationMode::default(),
         }
     }
 }
@@ -917,6 +929,8 @@ impl eframe::App for MyApp {
             let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
                 input: PathBuf::from(&self.input_path),
                 version: Some(self.selected_parser_version.clone()),
+                parser_mode: self.settings.document_parser,
+                ai_provider: self.settings.ai_provider,
             });
             self.in_flight += 1;
             self.workflow_edits.clear();
@@ -1197,6 +1211,8 @@ impl MyApp {
                 let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
                     input: PathBuf::from(&self.input_path),
                     version: Some(self.selected_parser_version.clone()),
+                    parser_mode: self.settings.document_parser,
+                    ai_provider: self.settings.ai_provider,
                 });
             }
             JobResult::HistoryUpdated { history } => {
@@ -2649,23 +2665,6 @@ impl MyApp {
                     });
                     ui.end_row();
 
-                    ui.label("PDF Engine Mode:");
-                    egui::ComboBox::from_id_source("pdf_engine_mode_combo")
-                        .selected_text(match self.edit_engine_mode {
-                            crate::app::config::PdfEngineMode::DualConcurrent => "Dual Concurrent (Safety)",
-                            crate::app::config::PdfEngineMode::Auto => "Auto (Native \u{2192} PyMuPDF)",
-                            crate::app::config::PdfEngineMode::NativeOnly => "Force Native",
-                            crate::app::config::PdfEngineMode::PyMuPdfOnly => "Force PyMuPDF",
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::DualConcurrent, "Dual Concurrent (Safety)")
-                                .on_hover_text("Default. Runs native + PyMuPDF concurrently; if one fails it falls back to the other. Offers Quick (native) / Deep (PyMuPDF) fidelity per edit.");
-                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::Auto, "Auto (Native \u{2192} PyMuPDF)");
-                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::NativeOnly, "Force Native");
-                            ui.selectable_value(&mut self.edit_engine_mode, crate::app::config::PdfEngineMode::PyMuPdfOnly, "Force PyMuPDF");
-                        });
-                    ui.end_row();
-
                     ui.label("Doc AI project ID:");
                     ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
                     ui.end_row();
@@ -3373,6 +3372,8 @@ impl MyApp {
                     let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
                         input: PathBuf::from(&self.input_path),
                         version: Some(self.selected_parser_version.clone()),
+                        parser_mode: self.settings.document_parser,
+                        ai_provider: self.settings.ai_provider,
                     });
                     self.in_flight += 1;
                     self.workflow_edits.clear();

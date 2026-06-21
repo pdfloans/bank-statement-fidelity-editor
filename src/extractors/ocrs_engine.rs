@@ -91,7 +91,7 @@ impl OcrsEngine {
             recognition_model: Some(recognition_model),
             ..Default::default()
         })
-            .map_err(|e| ExtractorError::ExtractionFailed(format!("init OcrEngine: {e}")))?;
+        .map_err(|e| ExtractorError::ExtractionFailed(format!("init OcrEngine: {e}")))?;
 
         let rgb = img.to_rgb8();
         let img_source = ImageSource::from_bytes(rgb.as_raw(), rgb.dimensions())

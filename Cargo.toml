@@ -87,6 +87,8 @@ winnow = "0.7"
 # Vision & OCR (future phases)
 imageproc = "0.25"
 zeroize = "1.9.0"
+flate2 = "1.1"
+tar = "0.4"
 
 # Recommendation #2/#7: small LRU cache for rendered pages + text blocks.
 lru = "0.12"

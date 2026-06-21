@@ -7,6 +7,7 @@ pub mod history;
 pub mod layout;
 pub mod model;
 pub mod number_format;
+pub mod offline_parser;
 pub mod pdf_split_merge;
 pub mod resource_check;
 pub mod segments;

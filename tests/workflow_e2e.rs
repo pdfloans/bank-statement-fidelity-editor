@@ -78,6 +78,8 @@ fn end_to_end_workflow_against_au_statement() {
         .send(Job::WorkflowParseAndValidate {
             input: pdf.clone(),
             version: None,
+            parser_mode: dual_core_pdf_pipeline::app::config::DocumentParserMode::DocumentAi,
+            ai_provider: dual_core_pdf_pipeline::app::config::AiProviderMode::GeminiApiKey,
         })
         .unwrap();
     let parse = drain_until(

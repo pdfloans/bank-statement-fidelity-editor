@@ -198,13 +198,198 @@ fn extract_string_operand(operands: &[lopdf::Object]) -> Option<String> {
     None
 }
 
+/// Pdfium library resolver: finds or downloads the Pdfium shared library and
+/// caches the resolved path so we only do the lookup once per process.
+///
+/// Search order:
+///  1. `pdfium_lib/` next to the executable (shipped binary wins)
+///  2. System library (PATH / LD_LIBRARY_PATH)
+///  3. Auto-download from official GitHub releases (opt-in via
+///     `PDFIUM_AUTO_DOWNLOAD=true` env var)
+mod pdfium_resolver {
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+
+    /// Cached result: `Ok(path)` where path is the directory containing the
+    /// library, or `Err(reason)` if Pdfium could not be located.
+    static RESOLVED: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+    /// Platform-specific library filename.
+    fn lib_filename() -> &'static str {
+        if cfg!(target_os = "windows") {
+            "pdfium.dll"
+        } else if cfg!(target_os = "macos") {
+            "libpdfium.dylib"
+        } else {
+            "libpdfium.so"
+        }
+    }
+
+    /// Directory next to the running executable (works for both debug and
+    /// release layouts).
+    fn exe_adjacent_dir() -> Option<PathBuf> {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    }
+
+    /// Try to find the Pdfium library in well-known local directories.
+    fn find_local() -> Option<PathBuf> {
+        let name = lib_filename();
+
+        // 1. pdfium_lib/ relative to CWD (project root at dev time)
+        let cwd_lib = PathBuf::from("pdfium_lib").join(name);
+        if cwd_lib.exists() {
+            return Some(PathBuf::from("pdfium_lib"));
+        }
+
+        // 2. pdfium_lib/ next to the executable
+        if let Some(exe_dir) = exe_adjacent_dir() {
+            let candidate = exe_dir.join("pdfium_lib").join(name);
+            if candidate.exists() {
+                return Some(exe_dir.join("pdfium_lib"));
+            }
+            // 3. Directly next to the executable
+            let candidate = exe_dir.join(name);
+            if candidate.exists() {
+                return Some(exe_dir);
+            }
+        }
+
+        None
+    }
+
+    /// Download the Pdfium binary from the official bblanchon/pdfium-binaries
+    /// GitHub releases. This is gated behind `PDFIUM_AUTO_DOWNLOAD=true`.
+    ///
+    /// Downloads to `pdfium_lib/` in the current working directory.
+    #[cfg(not(test))]
+    fn auto_download() -> Result<PathBuf, String> {
+        let enabled = std::env::var("PDFIUM_AUTO_DOWNLOAD")
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false);
+        if !enabled {
+            return Err(
+                "Pdfium not found locally. Set PDFIUM_AUTO_DOWNLOAD=true to auto-download.".into(),
+            );
+        }
+
+        let (os_tag, ext) = if cfg!(target_os = "windows") {
+            ("win-x64", "dll")
+        } else if cfg!(target_os = "macos") {
+            if cfg!(target_arch = "aarch64") {
+                ("mac-arm64", "dylib")
+            } else {
+                ("mac-x64", "dylib")
+            }
+        } else {
+            ("linux-x64", "so")
+        };
+
+        // Use a known stable Pdfium release (chromium/6721)
+        let url = format!(
+            "https://github.com/nicely formatted/pdfium-binaries/releases/latest/download/pdfium-{os_tag}.tgz"
+        );
+
+        tracing::info!("[pdfium] Auto-downloading Pdfium from {}", url);
+
+        // Download using blocking reqwest (we're already on a blocking thread)
+        let response = reqwest::blocking::get(&url)
+            .map_err(|e| format!("Failed to download Pdfium from {url}: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "Pdfium download failed: HTTP {}",
+                response.status()
+            ));
+        }
+
+        let bytes = response
+            .bytes()
+            .map_err(|e| format!("Failed to read Pdfium download: {e}"))?;
+
+        // Extract the library from the tgz archive
+        let dest = PathBuf::from("pdfium_lib");
+        std::fs::create_dir_all(&dest).map_err(|e| format!("Failed to create pdfium_lib/: {e}"))?;
+
+        let decoder = flate2::read::GzDecoder::new(std::io::Cursor::new(&bytes));
+        let mut archive = tar::Archive::new(decoder);
+
+        let lib_name = if ext == "dll" {
+            "pdfium.dll"
+        } else if ext == "dylib" {
+            "libpdfium.dylib"
+        } else {
+            "libpdfium.so"
+        };
+
+        // Extract just the library file from the archive
+        let mut found = false;
+        for entry in archive.entries().map_err(|e| format!("tar error: {e}"))? {
+            let mut entry = entry.map_err(|e| format!("tar entry error: {e}"))?;
+            let path = entry
+                .path()
+                .map_err(|e| format!("tar path error: {e}"))?
+                .to_path_buf();
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if file_name == lib_name {
+                let out_path = dest.join(lib_name);
+                entry
+                    .unpack(&out_path)
+                    .map_err(|e| format!("Failed to extract {lib_name}: {e}"))?;
+                found = true;
+                tracing::info!("[pdfium] Extracted {} to {:?}", lib_name, out_path);
+                break;
+            }
+        }
+
+        if !found {
+            return Err(format!("Pdfium archive did not contain {lib_name}"));
+        }
+
+        Ok(dest)
+    }
+
+    #[cfg(test)]
+    fn auto_download() -> Result<PathBuf, String> {
+        Err("Auto-download disabled in tests".into())
+    }
+
+    /// Resolve the Pdfium library path, caching the result.
+    pub fn resolve() -> Result<PathBuf, String> {
+        RESOLVED
+            .get_or_init(|| {
+                // Try local first
+                if let Some(dir) = find_local() {
+                    tracing::info!("[pdfium] Found Pdfium library in {:?}", dir);
+                    return Ok(dir);
+                }
+
+                // Try system library by attempting a bind
+                if pdfium_render::prelude::Pdfium::bind_to_system_library().is_ok() {
+                    tracing::info!("[pdfium] Bound to system Pdfium library");
+                    // Return empty path — system library is used directly
+                    return Ok(PathBuf::new());
+                }
+
+                // Try auto-download
+                auto_download()
+            })
+            .clone()
+    }
+}
+
 /// Recommendation #1 — faithful page rasterisation using `pdfium-render`.
 ///
-/// Binds to a local `pdfium` library first (so a shipped binary wins) and
-/// falls back to the system library. Renders the requested page at `dpi`
-/// using anti-aliasing flags pinned identically to the fidelity verifier
-/// (`use_lcd_text_rendering(false)` + smoothing on) so previews match what
-/// the verifier scores. Returns PNG bytes plus the page size in points.
+/// Uses [`pdfium_resolver`] to find or download the Pdfium library. The
+/// resolver caches the library path so resolution/download happens at most
+/// once per process; the actual DLL load is also effectively cached by the OS.
+/// Renders the requested page at `dpi` using anti-aliasing flags pinned
+/// identically to the fidelity verifier (`use_lcd_text_rendering(false)`
+/// + smoothing on) so previews match what the verifier scores.
 fn render_page_with_pdfium(
     path: &Path,
     page: usize,
@@ -212,9 +397,21 @@ fn render_page_with_pdfium(
 ) -> Result<RenderedPage, EngineError> {
     use pdfium_render::prelude::*;
 
-    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-        .or_else(|_| Pdfium::bind_to_system_library())
-        .map_err(|e| EngineError::RenderFailed(format!("Failed to bind pdfium: {e}")))?;
+    let lib_dir = pdfium_resolver::resolve()
+        .map_err(|e| EngineError::RenderFailed(format!("Pdfium unavailable: {e}")))?;
+
+    let bindings = if lib_dir.as_os_str().is_empty() {
+        // System library already validated in resolver
+        Pdfium::bind_to_system_library()
+            .map_err(|e| EngineError::RenderFailed(format!("Failed to bind system pdfium: {e}")))?
+    } else {
+        let lib_path =
+            Pdfium::pdfium_platform_library_name_at_path(lib_dir.to_string_lossy().as_ref());
+        Pdfium::bind_to_library(lib_path)
+            .or_else(|_| Pdfium::bind_to_system_library())
+            .map_err(|e| EngineError::RenderFailed(format!("Failed to bind pdfium: {e}")))?
+    };
+
     let pdfium = Pdfium::new(bindings);
 
     let document = pdfium

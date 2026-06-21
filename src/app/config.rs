@@ -140,15 +140,15 @@ impl DocumentAiConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PdfEngineMode {
-    /// Run the native Rust engine and the PyMuPDF (Python) engine concurrently
-    /// for read operations, preferring the native result when both succeed and
-    /// transparently falling back to whichever engine survives if one fails.
-    /// This is the safest default: it keeps both engines hot for the whole
-    /// lifecycle while letting the user pick Quick (native) or Deep (PyMuPDF)
-    /// fidelity per edit.
-    #[default]
+    /// Run both engines concurrently for read operations, preferring the
+    /// primary (PyMuPDF) result when both succeed and transparently falling
+    /// back to whichever engine survives if one fails.
     DualConcurrent,
-    /// Native-first, fall back to PyMuPDF on error (sequential).
+    /// Primary-first (PyMuPDF), fall back to native on error (sequential).
+    /// This is the default: PyMuPDF has the highest fidelity and always works
+    /// out of the box; the native engine (pdfium) is used as a fallback when
+    /// PyMuPDF is unavailable.
+    #[default]
     Auto,
     NativeOnly,
     PyMuPdfOnly,
@@ -167,12 +167,96 @@ impl Default for ConnectionMode {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Backend preference enums (persisted in AppSettings, used by runtime)
+// ---------------------------------------------------------------------------
+
+/// Which AI provider to use for balance analysis, completeness checks, and
+/// vision validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiProviderMode {
+    /// OpenAI GPT as a fallback (requires `OPENAI_API_KEY` in settings).
+    #[default]
+    OpenAiFallback,
+    /// Skip AI entirely — manual-only editing with no AI balance/vision calls.
+    ManualOnly,
+    /// Google Gemini via AI Studio API key (default, easiest setup).
+    GeminiApiKey,
+    /// Google Gemini via Vertex AI (enterprise, uses service-account / ADC).
+    GeminiVertex,
+}
+
+impl AiProviderMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::GeminiApiKey => "Gemini (API Key)",
+            Self::GeminiVertex => "Gemini (Vertex AI)",
+            Self::OpenAiFallback => "OpenAI (Fallback)",
+            Self::ManualOnly => "Manual Only (No AI)",
+        }
+    }
+}
+
+/// Which document parser to use for extracting transactions from PDFs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentParserMode {
+    /// Mindee Financial Document API (excellent accuracy, simple API-key
+    /// auth, per-field bounding boxes). Default parser — best balance of
+    /// accuracy, ease of setup, and cost.
+    #[default]
+    MindeeFinDoc,
+    /// PyMuPDF built-in text extraction (no external dependencies, good for
+    /// well-structured PDFs with selectable text).
+    PyMuPdfBuiltin,
+    /// Local OCR via `ocrs` + `rten` (pure Rust, works offline on scanned
+    /// documents, requires `--features ocr`).
+    LocalOcrs,
+    /// Google Document AI (highest accuracy on trained layouts, requires
+    /// GCP credentials). First fallback when Mindee is unavailable.
+    DocumentAi,
+}
+
+impl DocumentParserMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::DocumentAi => "Google Document AI",
+            Self::MindeeFinDoc => "Mindee (Financial Doc)",
+            Self::PyMuPdfBuiltin => "PyMuPDF (Built-in)",
+            Self::LocalOcrs => "Local OCR (ocrs)",
+        }
+    }
+}
+
+/// Which renderer to use for verification (visual diff) of edited PDFs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationMode {
+    /// Local Pdfium rendering (default, fast, no network).
+    #[default]
+    LocalPdfium,
+    /// pdfRest cloud rendering (Adobe-tier fidelity, requires API key).
+    PdfRestCloud,
+}
+
+impl VerificationMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LocalPdfium => "Local (Pdfium)",
+            Self::PdfRestCloud => "pdfRest (Cloud)",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gemini_api_key: Option<String>,
     pub pdfrest_api_key: Option<String>,
     pub lipi_api_key: Option<String>,
     pub document_ai: Option<DocumentAiConfig>,
+    /// Mindee API key for the Financial Document model.
+    pub mindee_api_key: Option<String>,
     pub pymupdf_pro_key: Option<String>, // Changed to Option - must come from env
     pub passphrase: String,
     pub otel_endpoint: Option<String>,
@@ -198,6 +282,7 @@ impl Default for AppConfig {
             pdfrest_api_key: None,
             lipi_api_key: None,
             document_ai: None,
+            mindee_api_key: None,
             pymupdf_pro_key: None,
             passphrase: "DEV_PASSPHRASE".into(),
             otel_endpoint: None,
@@ -207,7 +292,7 @@ impl Default for AppConfig {
             gemini_auth_mode: GeminiAuthMode::ApiKey,
             is_dev_mode: cfg!(debug_assertions),
             connection_mode: ConnectionMode::Local,
-            engine_mode: PdfEngineMode::DualConcurrent,
+            engine_mode: PdfEngineMode::Auto,
         }
     }
 }
@@ -230,6 +315,7 @@ impl AppConfig {
         let gemini_api_key = clean_key(env::var("GEMINI_API_KEY"));
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
+        let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
 
         // Document AI configuration
@@ -326,6 +412,7 @@ impl AppConfig {
             pdfrest_api_key,
             lipi_api_key,
             document_ai: doc_ai,
+            mindee_api_key,
             pymupdf_pro_key,
             passphrase,
             otel_endpoint,
@@ -344,7 +431,7 @@ impl AppConfig {
                 "pymupdf" => PdfEngineMode::PyMuPdfOnly,
                 "auto" => PdfEngineMode::Auto,
                 "dual" | "dual_concurrent" => PdfEngineMode::DualConcurrent,
-                _ => PdfEngineMode::DualConcurrent,
+                _ => PdfEngineMode::Auto,
             },
         })
     }
@@ -414,7 +501,7 @@ impl AppConfig {
 
     /// Returns true if the application has valid AI configuration for extraction.
     pub fn has_ai_for_extraction(&self) -> bool {
-        self.document_ai.is_some()
+        self.document_ai.is_some() || self.mindee_api_key.is_some()
     }
 }
 

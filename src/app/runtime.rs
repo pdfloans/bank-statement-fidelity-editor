@@ -276,6 +276,10 @@ pub enum Job {
     WorkflowParseAndValidate {
         input: PathBuf,
         version: Option<String>,
+        /// Which document parser the user selected in Backend Preferences.
+        parser_mode: crate::app::config::DocumentParserMode,
+        /// Which AI provider the user selected (used for completeness validation).
+        ai_provider: crate::app::config::AiProviderMode,
     },
     /// Stage 3: build a balance preview from edits without writing the PDF.
     WorkflowPreview {
@@ -538,8 +542,8 @@ impl Runtime {
         let history = Arc::new(Mutex::new(ChangeHistory::new()));
         let config_holder = Arc::new(Mutex::new(config));
 
-        let primary_engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
-        let fallback_engine = Arc::new(crate::pdf::PyMuPdfEngine::new(job_tx.clone()));
+        let primary_engine = Arc::new(crate::pdf::PyMuPdfEngine::new(job_tx.clone()));
+        let fallback_engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
         let engine: Arc<dyn crate::pdf::PdfEngine> = Arc::new(crate::pdf::PdfEngineSelector::new(
             primary_engine,
             fallback_engine,
@@ -2430,52 +2434,89 @@ impl Runtime {
                             let _permit = semaphore.acquire().await.unwrap();
                             let _ = res_tx.send(JobResult::Progress { label: "Smart Balance Analysis".to_string(), fraction: 0.1 });
                             
-                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: "Smart Balance Engine requires GEMINI_API_KEY + Document AI configuration. See README §Configuration.".into() });
+                            let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
+                            let gemini = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg).ok().map(Arc::new);
+
+                            // If both AI services are available, use the full smart engine
+                            if let (Some(doc_ai), Some(gemini)) = (doc_ai, gemini) {
+                                let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
+                                
+                                let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
+                                    template_provider as Arc<dyn crate::extractors::GeometryProvider>,
+                                ]));
+
+                                let mut smart_engine = crate::engine::statement::SmartDocumentEngine::new(eng.clone(), doc_ai, gemini, merger);
+                                
+                                let _ = res_tx.send(JobResult::Progress { label: "Loading Document".to_string(), fraction: 0.3 });
+                                
+                                let (dummy_tx, _) = std::sync::mpsc::channel();
+                                if let Err(e) = smart_engine.load_full_document(&dummy_tx, &path).await {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Failed to load document: {e}") });
                                     return;
                                 }
-                            };
-                            
-                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
-                                Ok(c) => Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: "Smart Balance Engine requires GEMINI_API_KEY + Document AI configuration. See README §Configuration.".into() });
-                                    return;
-                                }
-                            };
+                                
+                                let _ = res_tx.send(JobResult::Progress { label: "Analyzing layout and semantic meaning".to_string(), fraction: 0.6 });
 
-                            let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
-                            
-                            let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
-                                template_provider as Arc<dyn crate::extractors::GeometryProvider>,
-                            ]));
+                                match smart_engine.balance_entire_statement(&path).await {
+                                    Ok(changes) => {
+                                        let imbalance = smart_engine.calculate_global_imbalance();
+                                        let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes });
+                                        let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
+                                    }
+                                    Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Gemini confidence {c:.2} below 0.7 threshold; not enough certainty to propose adjustments.") });
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: e.to_string() });
+                                    }
+                                }
+                            } else {
+                                // ── Offline fallback: local balance analysis ─────────
+                                tracing::info!("[balance] AI services not configured; using offline balance analysis");
+                                let _ = res_tx.send(JobResult::Progress { label: "Using offline balance analysis (no AI)...".to_string(), fraction: 0.3 });
 
-                            let mut smart_engine = crate::engine::statement::SmartDocumentEngine::new(eng.clone(), doc_ai, gemini, merger);
-                            
-                            let _ = res_tx.send(JobResult::Progress { label: "Loading Document".to_string(), fraction: 0.3 });
-                            
-                            let (dummy_tx, _) = std::sync::mpsc::channel();
-                            if let Err(e) = smart_engine.load_full_document(&dummy_tx, &path).await {
-                                let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Failed to load document: {e}") });
-                                return;
-                            }
-                            
-                            let _ = res_tx.send(JobResult::Progress { label: "Analyzing layout and semantic meaning".to_string(), fraction: 0.6 });
+                                let eng_clone = eng.clone();
+                                let path_clone = path.clone();
+                                let stmt = match tokio::task::spawn_blocking(move || {
+                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                }).await {
+                                    Ok(Ok(s)) => s,
+                                    Ok(Err(e)) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Offline balance analysis failed: {e}") });
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Offline balance panicked: {e}") });
+                                        return;
+                                    }
+                                };
 
-                            match smart_engine.balance_entire_statement(&path).await {
-                                Ok(changes) => {
-                                    let imbalance = smart_engine.calculate_global_imbalance();
-                                    let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes });
-                                    let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
+                                let _ = res_tx.send(JobResult::Progress { label: "Computing balance chain locally...".to_string(), fraction: 0.6 });
+
+                                // Compute running balance chain from offline-parsed transactions
+                                let mut changes = Vec::new();
+                                let mut running = stmt.opening_balance;
+                                for tx in &stmt.transactions {
+                                    let net = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO) - tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                    running += net;
+                                    if let Some(printed_bal) = tx.running_balance {
+                                        if (running - printed_bal).abs() > rust_decimal_macros::dec!(0.01) {
+                                            changes.push(crate::engine::model::ProposedChange {
+                                                page: tx.page,
+                                                old_text: format!("{printed_bal}"),
+                                                new_text: format!("{running}"),
+                                                reason: format!("Computed balance {running} differs from printed {printed_bal}"),
+                                                confidence: 0.6,
+                                                affects_subsequent_balances: true,
+                                                bbox: tx.bbox,
+                                            });
+                                        }
+                                    }
                                 }
-                                Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Gemini confidence {c:.2} below 0.7 threshold; not enough certainty to propose adjustments.") });
-                                }
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: e.to_string() });
-                                }
+
+                                let imbalance = (running - stmt.closing_balance).abs();
+                                let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes });
+                                let _ = res_tx.send(JobResult::Progress { label: "Done (offline mode)".to_string(), fraction: 1.0 });
                             }
                         });
                     }
@@ -2772,70 +2813,125 @@ impl Runtime {
                             let _permit = semaphore.acquire().await.unwrap();
                             let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statement…".to_string(), fraction: 0.1 });
 
-                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: "Adjust-and-apply requires GEMINI_API_KEY + Document AI configuration. Set them in Settings → API keys.".into() });
+                            let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
+                            let gemini = crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await.ok().map(Arc::new);
+
+                            if let (Some(doc_ai), Some(gemini)) = (doc_ai, gemini) {
+                                // ── Online: full smart engine ──────────────────────
+                                let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
+                                let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
+                                    template_provider as Arc<dyn crate::extractors::GeometryProvider>,
+                                ]));
+
+                                let mut smart_engine = crate::engine::statement::SmartDocumentEngine::new(eng.clone(), doc_ai, gemini, merger);
+
+                                let _ = res_tx.send(JobResult::Progress { label: "Loading document".to_string(), fraction: 0.3 });
+                                let (dummy_tx, _) = std::sync::mpsc::channel();
+                                if let Err(e) = smart_engine.load_full_document(&dummy_tx, &input).await {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Failed to load document: {e}") });
                                     return;
                                 }
-                            };
-                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await {
-                                Ok(c) => Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: "Adjust-and-apply requires GEMINI_API_KEY + Document AI configuration. Set them in Settings → API keys.".into() });
-                                    return;
-                                }
-                            };
 
-                            let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
-                            let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
-                                template_provider as Arc<dyn crate::extractors::GeometryProvider>,
-                            ]));
-
-                            let mut smart_engine = crate::engine::statement::SmartDocumentEngine::new(eng.clone(), doc_ai, gemini, merger);
-
-                            let _ = res_tx.send(JobResult::Progress { label: "Loading document".to_string(), fraction: 0.3 });
-                            let (dummy_tx, _) = std::sync::mpsc::channel();
-                            if let Err(e) = smart_engine.load_full_document(&dummy_tx, &input).await {
-                                let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Failed to load document: {e}") });
-                                return;
-                            }
-
-                            let _ = res_tx.send(JobResult::Progress { label: "Computing balanced adjustments".to_string(), fraction: 0.6 });
-                            match smart_engine.balance_entire_statement(&input).await {
-                                Ok(changes) => {
-                                    let imbalance = smart_engine.calculate_global_imbalance();
-                                    // Always surface the proposal so the table updates.
-                                    let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes: changes.clone() });
-                                    if auto_apply && !changes.is_empty() {
-                                        // Chain straight into applying every proposed
-                                        // change to the PDF (reuses the tested path).
-                                        let edits = changes.into_iter().map(|c| crate::engine::workflow::UserEdit {
-                                            page: c.page,
-                                            line_on_page: 0,
-                                            bbox: c.bbox.unwrap_or([0.0, 0.0, 0.0, 0.0]),
-                                            old_text: c.old_text,
-                                            new_text: c.new_text,
-                                            field: crate::engine::workflow::EditField::RunningBalance,
-                                        }).collect();
-                                        
-                                        let _ = job_tx_ref.send(Job::WorkflowConfirmAndRender {
-                                            input: input.clone(),
-                                            output: output.clone(),
-                                            edits,
-                                            deep_font_replication: true, // as per unified cascade
-                                            max_visual_attempts: 5,
-                                            visual_threshold: 0.02,
-                                        });
-                                    } else if changes.is_empty() {
-                                        let _ = res_tx.send(JobResult::Progress { label: "Already balanced — nothing to apply".to_string(), fraction: 1.0 });
+                                let _ = res_tx.send(JobResult::Progress { label: "Computing balanced adjustments".to_string(), fraction: 0.6 });
+                                match smart_engine.balance_entire_statement(&input).await {
+                                    Ok(changes) => {
+                                        let imbalance = smart_engine.calculate_global_imbalance();
+                                        let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes: changes.clone() });
+                                        if auto_apply && !changes.is_empty() {
+                                            let edits = changes.into_iter().map(|c| crate::engine::workflow::UserEdit {
+                                                page: c.page,
+                                                line_on_page: 0,
+                                                bbox: c.bbox.unwrap_or([0.0, 0.0, 0.0, 0.0]),
+                                                old_text: c.old_text,
+                                                new_text: c.new_text,
+                                                field: crate::engine::workflow::EditField::RunningBalance,
+                                            }).collect();
+                                            
+                                            let _ = job_tx_ref.send(Job::WorkflowConfirmAndRender {
+                                                input: input.clone(),
+                                                output: output.clone(),
+                                                edits,
+                                                deep_font_replication: true,
+                                                max_visual_attempts: 5,
+                                                visual_threshold: 0.02,
+                                            });
+                                        } else if changes.is_empty() {
+                                            let _ = res_tx.send(JobResult::Progress { label: "Already balanced — nothing to apply".to_string(), fraction: 1.0 });
+                                        }
+                                    }
+                                    Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Gemini confidence {c:.2} below 0.7 threshold; not enough certainty to auto-apply adjustments.") });
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: e.to_string() });
                                     }
                                 }
-                                Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Gemini confidence {c:.2} below 0.7 threshold; not enough certainty to auto-apply adjustments.") });
+                            } else {
+                                // ── Offline fallback: local balance + optional auto-apply ──
+                                tracing::info!("[balance_and_apply_all] AI not configured; using offline balance");
+                                let _ = res_tx.send(JobResult::Progress { label: "Using offline balance analysis (no AI)...".to_string(), fraction: 0.3 });
+
+                                let eng_clone = eng.clone();
+                                let path_clone = input.clone();
+                                let stmt = match tokio::task::spawn_blocking(move || {
+                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                }).await {
+                                    Ok(Ok(s)) => s,
+                                    Ok(Err(e)) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Offline balance analysis failed: {e}") });
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: format!("Offline balance panicked: {e}") });
+                                        return;
+                                    }
+                                };
+
+                                let _ = res_tx.send(JobResult::Progress { label: "Computing balance chain locally...".to_string(), fraction: 0.6 });
+
+                                let mut changes = Vec::new();
+                                let mut running = stmt.opening_balance;
+                                for tx in &stmt.transactions {
+                                    let net = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO) - tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                    running += net;
+                                    if let Some(printed_bal) = tx.running_balance {
+                                        if (running - printed_bal).abs() > rust_decimal_macros::dec!(0.01) {
+                                            changes.push(crate::engine::model::ProposedChange {
+                                                page: tx.page,
+                                                old_text: format!("{printed_bal}"),
+                                                new_text: format!("{running}"),
+                                                reason: format!("Computed balance {running} differs from printed {printed_bal}"),
+                                                confidence: 0.6,
+                                                affects_subsequent_balances: true,
+                                                bbox: tx.bbox,
+                                            });
+                                        }
+                                    }
                                 }
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "balance_and_apply_all".into(), message: e.to_string() });
+
+                                let imbalance = (running - stmt.closing_balance).abs();
+                                let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes: changes.clone() });
+
+                                if auto_apply && !changes.is_empty() {
+                                    let edits = changes.into_iter().map(|c| crate::engine::workflow::UserEdit {
+                                        page: c.page,
+                                        line_on_page: 0,
+                                        bbox: c.bbox.unwrap_or([0.0, 0.0, 0.0, 0.0]),
+                                        old_text: c.old_text,
+                                        new_text: c.new_text,
+                                        field: crate::engine::workflow::EditField::RunningBalance,
+                                    }).collect();
+
+                                    let _ = job_tx_ref.send(Job::WorkflowConfirmAndRender {
+                                        input: input.clone(),
+                                        output: output.clone(),
+                                        edits,
+                                        deep_font_replication: true,
+                                        max_visual_attempts: 5,
+                                        visual_threshold: 0.02,
+                                    });
+                                } else if changes.is_empty() {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Already balanced — nothing to apply (offline)".to_string(), fraction: 1.0 });
                                 }
                             }
                         });
@@ -2948,10 +3044,7 @@ impl Runtime {
                         }
                     }
 
-                    // -----------------------------------------------------------------
-                    // Stage 1: Document AI parse + Gemini completeness validate.
-                    // -----------------------------------------------------------------
-                    Job::WorkflowParseAndValidate { input, version } => {
+                    Job::WorkflowParseAndValidate { input, version, parser_mode, ai_provider } => {
                         let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowParseAndValidate");
                         let cfg = config_for_tokio.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
@@ -2959,108 +3052,322 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                 stage: crate::engine::workflow::WorkflowStage::Parsing,
                             });
-                            let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
 
-                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => std::sync::Arc::new(c),
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("Document AI not configured: {e}"))));
-                                    return;
-                                }
-                            };
+                            // ─── Tier 1: Determine parsing strategy ───────────────────
+                            use crate::app::config::DocumentParserMode;
 
-                            // Stage 3 / Item #16: page count first
-                            let page_count = {
-                                let p = input.clone();
-                                tokio::task::spawn_blocking(move || -> usize {
-                                    use pdfium_render::prelude::Pdfium;
-                                    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-                                        .or_else(|_| Pdfium::bind_to_system_library());
-                                    let pdfium = match bindings {
-                                        Ok(b) => Pdfium::new(b),
-                                        Err(e) => {
-                                            tracing::error!("Failed to bind Pdfium: {}", e);
-                                            return 0;
+                            let stmt = match parser_mode {
+                                // ── Document AI (online) ────────────────────────────
+                                DocumentParserMode::DocumentAi => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
+
+                                    let doc_ai_result = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg);
+                                    match doc_ai_result {
+                                        Ok(client) => {
+                                            let doc_ai = std::sync::Arc::new(client);
+
+                                            // Page count for smart batching
+                                            let page_count = {
+                                                let p = input.clone();
+                                                tokio::task::spawn_blocking(move || -> usize {
+                                                    use pdfium_render::prelude::Pdfium;
+                                                    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
+                                                        .or_else(|_| Pdfium::bind_to_system_library());
+                                                    let pdfium = match bindings {
+                                                        Ok(b) => Pdfium::new(b),
+                                                        Err(e) => {
+                                                            tracing::error!("Failed to bind Pdfium: {}", e);
+                                                            return 0;
+                                                        }
+                                                    };
+                                                    pdfium
+                                                        .load_pdf_from_file(&p, None)
+                                                        .map(|d| d.pages().len() as usize)
+                                                        .unwrap_or(0)
+                                                })
+                                                .await
+                                                .unwrap_or(0)
+                                            };
+
+                                            let final_version = version.unwrap_or_else(|| "pretrained-bankstatement-v5.0-2023-12-06".to_string());
+                                            let _ = res_tx.send(JobResult::Progress { label: format!("Parsing with {final_version}..."), fraction: 0.4 });
+
+                                            match doc_ai.parse_smart_batch(&input, Some(&final_version), page_count).await {
+                                                Ok(s) => {
+                                                    tracing::info!("[workflow] Parser version {} yielded {} transactions.", final_version, s.transactions.len());
+                                                    
+                                                    // Phase 5: Fidelity Check (Strict Math Verification)
+                                                    let mut retail_sum = s.opening_balance;
+                                                    let mut formal_sum = s.opening_balance;
+                                                    for tx in &s.transactions {
+                                                        let d = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                                        let c = tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                                        retail_sum += d - c;
+                                                        formal_sum += c - d;
+                                                    }
+                                                    let expected = s.closing_balance;
+                                                    let retail_diff = (retail_sum - expected).abs();
+                                                    let formal_diff = (formal_sum - expected).abs();
+                                                    let one_cent = rust_decimal_macros::dec!(0.01);
+                                                    
+                                                    if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
+                                                        let msg = format!("AI Fidelity Math Check Failed. Expected Closing: {expected}, computed: {retail_sum} (retail) or {formal_sum} (formal).");
+                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
+                                                        return;
+                                                    }
+
+                                                    s
+                                                }
+                                                Err(e) => {
+                                                    // Auto-fallback to offline parsing
+                                                    tracing::warn!("[workflow] Document AI parse failed: {e}; falling back to offline parser");
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Document AI failed ({e}), falling back to offline parser..."), fraction: 0.3 });
+
+                                                    let eng = engine_for_tokio.clone();
+                                                    let path = input.clone();
+                                                    match tokio::task::spawn_blocking(move || {
+                                                        crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                                    }).await {
+                                                        Ok(Ok(s)) => s,
+                                                        Ok(Err(e2)) => {
+                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                format!("Document AI failed: {e}. Offline fallback also failed: {e2}")
+                                                            )));
+                                                            return;
+                                                        }
+                                                        Err(e2) => {
+                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                format!("Document AI failed: {e}. Offline fallback panicked: {e2}")
+                                                            )));
+                                                            return;
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
+                                        Err(e) => {
+                                            // Document AI not configured — auto-fallback to offline
+                                            tracing::warn!("[workflow] Document AI not configured: {e}; auto-falling back to offline parser");
+                                            let _ = res_tx.send(JobResult::Progress { label: "Document AI not configured, using offline parser...".into(), fraction: 0.3 });
+
+                                            let eng = engine_for_tokio.clone();
+                                            let path = input.clone();
+                                            match tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                            }).await {
+                                                Ok(Ok(s)) => s,
+                                                Ok(Err(e2)) => {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                        format!("Document AI not configured ({e}) and offline parser failed: {e2}")
+                                                    )));
+                                                    return;
+                                                }
+                                                Err(e2) => {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                        format!("Offline parser panicked: {e2}")
+                                                    )));
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // ── Mindee Financial Document (online) ──────────────
+                                DocumentParserMode::MindeeFinDoc => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with Mindee (Financial Doc)...".into(), fraction: 0.2 });
+
+                                    match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
+                                        Ok(client) => {
+                                            let _ = res_tx.send(JobResult::Progress { label: "Mindee: uploading document...".into(), fraction: 0.3 });
+
+                                            match client.parse_statement(&input).await {
+                                                Ok(s) => {
+                                                    tracing::info!("[workflow] Mindee yielded {} transactions.", s.transactions.len());
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Mindee: {} transactions extracted", s.transactions.len()), fraction: 0.6 });
+
+                                                    // Phase 5: Fidelity Check (Strict Math Verification)
+                                                    let mut retail_sum = s.opening_balance;
+                                                    let mut formal_sum = s.opening_balance;
+                                                    for tx in &s.transactions {
+                                                        let d = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                                        let c = tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                                        retail_sum += d - c;
+                                                        formal_sum += c - d;
+                                                    }
+                                                    let expected = s.closing_balance;
+                                                    let retail_diff = (retail_sum - expected).abs();
+                                                    let formal_diff = (formal_sum - expected).abs();
+                                                    let one_cent = rust_decimal_macros::dec!(0.01);
+
+                                                    if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
+                                                        let msg = format!("Mindee Fidelity Math Check Failed. Expected Closing: {expected}, computed: {retail_sum} (retail) or {formal_sum} (formal).");
+                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
+                                                        return;
+                                                    }
+
+                                                    s
+                                                }
+                                                Err(e) => {
+                                                    // Auto-fallback to offline parsing
+                                                    tracing::warn!("[workflow] Mindee parse failed: {e}; falling back to offline parser");
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Mindee failed ({e}), falling back to offline parser..."), fraction: 0.3 });
+
+                                                    let eng = engine_for_tokio.clone();
+                                                    let path = input.clone();
+                                                    match tokio::task::spawn_blocking(move || {
+                                                        crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                                    }).await {
+                                                        Ok(Ok(s)) => s,
+                                                        Ok(Err(e2)) => {
+                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                format!("Mindee failed: {e}. Offline fallback also failed: {e2}")
+                                                            )));
+                                                            return;
+                                                        }
+                                                        Err(e2) => {
+                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                format!("Mindee failed: {e}. Offline fallback panicked: {e2}")
+                                                            )));
+                                                            return;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            // Mindee not configured — auto-fallback to offline
+                                            tracing::warn!("[workflow] Mindee not configured: {e}; auto-falling back to offline parser");
+                                            let _ = res_tx.send(JobResult::Progress { label: "Mindee not configured, using offline parser...".into(), fraction: 0.3 });
+
+                                            let eng = engine_for_tokio.clone();
+                                            let path = input.clone();
+                                            match tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                            }).await {
+                                                Ok(Ok(s)) => s,
+                                                Ok(Err(e2)) => {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                        format!("Mindee not configured ({e}) and offline parser failed: {e2}")
+                                                    )));
+                                                    return;
+                                                }
+                                                Err(e2) => {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                        format!("Offline parser panicked: {e2}")
+                                                    )));
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // ── PyMuPDF built-in (offline) ──────────────────────
+                                DocumentParserMode::PyMuPdfBuiltin => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with PyMuPDF (offline)...".into(), fraction: 0.3 });
+                                    let eng = engine_for_tokio.clone();
+                                    let path = input.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                    }).await {
+                                        Ok(Ok(s)) => s,
+                                        Ok(Err(e)) => {
+                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                format!("Offline parser failed: {e}")
+                                            )));
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                format!("Offline parser panicked: {e}")
+                                            )));
+                                            return;
+                                        }
+                                    }
+                                }
+
+                                // ── Local OCR (ocrs, offline, feature-gated) ────────
+                                DocumentParserMode::LocalOcrs => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with Local OCR (ocrs)...".into(), fraction: 0.3 });
+
+                                    // Try ocrs first, fallback to PyMuPDF text extraction
+                                    let eng = engine_for_tokio.clone();
+                                    let path = input.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        // First try OCR-based extraction
+                                        let ocrs_result = {
+                                            let ocr_engine = crate::extractors::OcrsEngine::new(
+                                                crate::extractors::ocrs_engine::OcrsConfig::default(),
+                                            );
+                                            use crate::extractors::GeometryProvider;
+                                            ocr_engine.extract_line_geometry(&path)
+                                        };
+
+                                        match ocrs_result {
+                                            Ok(geometries) if !geometries.is_empty() => {
+                                                let total_pages = geometries.iter().map(|g| g.page).max().unwrap_or(0) + 1;
+                                                crate::engine::offline_parser::parse_statement_from_geometry(&geometries, total_pages)
+                                            }
+                                            Ok(_) | Err(_) => {
+                                                // OCR produced nothing or failed — fallback to text layer
+                                                tracing::warn!("[workflow] LocalOCR produced no results; falling back to PyMuPDF text extraction");
+                                                crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                            }
+                                        }
+                                    }).await {
+                                        Ok(Ok(s)) => s,
+                                        Ok(Err(e)) => {
+                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                format!("Local OCR + offline parser failed: {e}")
+                                            )));
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                format!("Local OCR panicked: {e}")
+                                            )));
+                                            return;
+                                        }
+                                    }
+                                }
+                            };
+
+                            // ─── AI Completeness Validation ───────────────────────────
+                            // If AI provider is ManualOnly, skip Gemini validation entirely
+                            use crate::app::config::AiProviderMode;
+
+                            let (score, notes, missing, _math_ok) = match ai_provider {
+                                AiProviderMode::ManualOnly => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "AI validation skipped (Manual Only mode)".into(), fraction: 0.7 });
+                                    (0.8, "AI validation skipped (Manual Only mode).".into(), vec![], false)
+                                }
+                                _ => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Asking Gemini to validate completeness".into(), fraction: 0.7 });
+
+                                    let gemini_init_and_validate = async {
+                                        let g = crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await?;
+                                        g.validate_parse_completeness(
+                                            &stmt.transactions,
+                                            crate::engine::model::dec_to_f64(stmt.opening_balance),
+                                            crate::engine::model::dec_to_f64(stmt.closing_balance),
+                                            stmt.total_pages,
+                                        ).await
                                     };
-                                    pdfium
-                                        .load_pdf_from_file(&p, None)
-                                        .map(|d| d.pages().len() as usize)
-                                        .unwrap_or(0)
-                                })
-                                .await
-                                .unwrap_or(0)
-                            };
 
-
-                            let final_version = version.unwrap_or_else(|| "pretrained-bankstatement-v5.0-2023-12-06".to_string());
-                            let _ = res_tx.send(JobResult::Progress { label: format!("Parsing with {final_version}..."), fraction: 0.4 });
-
-                            let parse_result = doc_ai.parse_smart_batch(&input, Some(&final_version), page_count).await;
-
-                            let stmt = match parse_result {
-                                Ok(s) => {
-                                    tracing::info!("[workflow] Parser version {} yielded {} transactions.", final_version, s.transactions.len());
-                                    
-                                    // Phase 5: Fidelity Check (Strict Math Verification)
-                                    // We check both retail (debit = in, credit = out) and formal (credit = in, debit = out) conventions.
-                                    let mut retail_sum = s.opening_balance;
-                                    let mut formal_sum = s.opening_balance;
-                                    for tx in &s.transactions {
-                                        let d = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                        let c = tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                        retail_sum += d - c;
-                                        formal_sum += c - d;
+                                    match tokio::time::timeout(std::time::Duration::from_secs(30), gemini_init_and_validate).await {
+                                        Ok(Ok(r)) => (r.completeness_score, r.notes, r.missing_rows, r.math_consistent),
+                                        Ok(Err(e)) => {
+                                            tracing::warn!("[workflow] Gemini validation failed: {e}; continuing");
+                                            let _ = res_tx.send(JobResult::Progress { label: format!("AI validation skipped: {e}"), fraction: 0.7 });
+                                            (0.7, format!("Gemini validation skipped: {e}"), vec![], false)
+                                        }
+                                        Err(_elapsed) => {
+                                            tracing::warn!("[workflow] Gemini validation timed out after 30s; continuing without AI validation");
+                                            let _ = res_tx.send(JobResult::Progress { label: "AI validation timed out after 30s".into(), fraction: 0.7 });
+                                            (0.7, "Gemini validation timed out; skipped.".into(), vec![], false)
+                                        }
                                     }
-                                    let expected = s.closing_balance;
-                                    let retail_diff = (retail_sum - expected).abs();
-                                    let formal_diff = (formal_sum - expected).abs();
-                                    let one_cent = rust_decimal_macros::dec!(0.01);
-                                    
-                                    if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
-                                        let msg = format!("AI Fidelity Math Check Failed. Expected Closing: {expected}, computed: {retail_sum} (retail) or {formal_sum} (formal).");
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
-                                        return;
-                                    }
-
-                                    s
-                                }
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(format!("docai parse: {e}"))));
-                                    return;
-                                }
-                            };
-
-                            let _ = res_tx.send(JobResult::Progress { label: "Asking Gemini to validate completeness".into(), fraction: 0.7 });
-
-                            // Gemini validation. If Gemini isn't configured we still
-                            // proceed but report a synthetic completeness score of 0.5
-                            // so the user sees that AI validation was skipped.
-                            // Wrapped in a 30-second timeout so the UI never hangs
-                            // (the Pro fallback chain + retries can take 15+ minutes
-                            // with the 300s HTTP timeout if the API is unreachable).
-                            let gemini_init_and_validate = async {
-                                let g = crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await?;
-                                g.validate_parse_completeness(
-                                    &stmt.transactions,
-                                    crate::engine::model::dec_to_f64(stmt.opening_balance),
-                                    crate::engine::model::dec_to_f64(stmt.closing_balance),
-                                    stmt.total_pages,
-                                ).await
-                            };
-
-                            let (score, notes, missing, _math_ok) = match tokio::time::timeout(std::time::Duration::from_secs(30), gemini_init_and_validate).await {
-                                Ok(Ok(r)) => (r.completeness_score, r.notes, r.missing_rows, r.math_consistent),
-                                Ok(Err(e)) => {
-                                    tracing::warn!("[workflow] Gemini validation failed: {e}; continuing");
-                                    // Send a detailed error progress update so the user can see *why* it failed
-                                    let _ = res_tx.send(JobResult::Progress { label: format!("AI validation skipped: {e}"), fraction: 0.7 });
-                                    (0.7, format!("Gemini validation skipped: {e}"), vec![], false)
-                                }
-                                Err(_elapsed) => {
-                                    tracing::warn!("[workflow] Gemini validation timed out after 30s; continuing without AI validation");
-                                    let _ = res_tx.send(JobResult::Progress { label: "AI validation timed out after 30s".into(), fraction: 0.7 });
-                                    (0.7, "Gemini validation timed out; skipped.".into(), vec![], false)
                                 }
                             };
 
@@ -3075,11 +3382,7 @@ impl Runtime {
                                 missing_rows: missing,
                             };
 
-                            // Stage 2 / Item #11: cross-check against the deterministic
-                            // template extractor. If the template found materially more
-                            // rows than Document AI did, we down-weight Gemini's
-                            // completeness score. This is a free signal — no extra
-                            // network calls — so we always run it.
+                            // Cross-check against the deterministic template extractor
                             let template_row_count = {
                                 let eng = engine_for_tokio.clone();
                                 let path = input.clone();
@@ -3108,7 +3411,6 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                 stage: crate::engine::workflow::WorkflowStage::Editing(validation),
                             });
-                            // Must send a terminal result since we removed JobGuard's manual complete.
                             let _ = res_tx.send(JobResult::JobCompleted("WorkflowParseAndValidate".into()));
                         });
                     }

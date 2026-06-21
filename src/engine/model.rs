@@ -106,7 +106,13 @@ impl Transaction {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Provenance {
-    DocumentAI { confidence: f32 },
+    DocumentAI {
+        confidence: f32,
+    },
+    /// Extracted via the Mindee Financial Document API.
+    Mindee {
+        confidence: f32,
+    },
     Manual,
     Computed,
 }

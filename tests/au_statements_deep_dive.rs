@@ -88,6 +88,8 @@ fn test_all_au_statements() {
             .send(Job::WorkflowParseAndValidate {
                 input: pdf.clone(),
                 version: Some("pretrained-bankstatement-v5.0-2023-12-06".to_string()),
+                parser_mode: dual_core_pdf_pipeline::app::config::DocumentParserMode::DocumentAi,
+                ai_provider: dual_core_pdf_pipeline::app::config::AiProviderMode::GeminiApiKey,
             })
             .unwrap();
 

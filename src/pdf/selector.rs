@@ -75,7 +75,7 @@ impl PdfEngineSelector {
         if let Ok(guard) = self.config.try_lock() {
             guard.engine_mode
         } else {
-            crate::app::config::PdfEngineMode::DualConcurrent
+            crate::app::config::PdfEngineMode::Auto
         }
     }
 
@@ -155,7 +155,7 @@ impl PdfEngineSelector {
 
             match primary_result {
                 Ok(value) => {
-                    // Native (Quick) won — still join the fallback thread so it
+                    // Primary won — still join the fallback thread so it
                     // is never detached, but discard its result.
                     let _ = fallback_handle.join();
                     Ok(value)
@@ -164,11 +164,11 @@ impl PdfEngineSelector {
                     tracing::warn!(
                         engine.fallback_triggered = true,
                         primary_error = %primary_err,
-                        "Native engine failed in DualConcurrent mode, using PyMuPDF result"
+                        "Primary engine failed in DualConcurrent mode, using fallback result"
                     );
                     fallback_handle.join().unwrap_or_else(|_| {
                         Err(EngineError::ExtractFailed(
-                            "PyMuPDF engine thread panicked".into(),
+                            "Fallback engine thread panicked".into(),
                         ))
                     })
                 }
