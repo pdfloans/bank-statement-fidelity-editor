@@ -78,3 +78,5 @@ output_test.pdf
 .aider*
 
 keys/
+
+node_modules/

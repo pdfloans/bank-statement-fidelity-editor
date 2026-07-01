@@ -277,6 +277,7 @@ pub struct AppConfig {
     /// Which PDF engine backend to use
     pub engine_mode: PdfEngineMode,
     pub llamaparse_api_key: Option<String>,
+    pub applitools_api_key: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -298,6 +299,7 @@ impl Default for AppConfig {
             connection_mode: ConnectionMode::Local,
             engine_mode: PdfEngineMode::Auto,
             llamaparse_api_key: None,
+            applitools_api_key: None,
         }
     }
 }
@@ -322,6 +324,7 @@ impl AppConfig {
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
         let llamaparse_api_key = clean_key(env::var("LLAMAPARSE_API_KEY"));
+        let applitools_api_key = clean_key(env::var("APPLITOOLS_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
 
         // Document AI configuration
@@ -420,6 +423,7 @@ impl AppConfig {
             document_ai: doc_ai,
             mindee_api_key,
             llamaparse_api_key,
+            applitools_api_key,
             pymupdf_pro_key,
             passphrase,
             otel_endpoint,
