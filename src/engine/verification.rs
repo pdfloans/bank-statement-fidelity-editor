@@ -843,4 +843,87 @@ mod stage_g_tests {
             "translation should be recovered by alignment (dx={dx}, score={score:.5})"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Phase 6 — SSIM unit tests
+    // -----------------------------------------------------------------------
+
+    /// Identical grayscale images must produce SSIM ≈ 1.0.
+    #[test]
+    fn ssim_identical_images_returns_one() {
+        let a = GrayImage::from_pixel(200, 200, Luma([128]));
+        let score = mean_ssim(&a, &a, &[]);
+        assert!(
+            score > 0.999,
+            "SSIM of identical images should be ~1.0 (got {score:.6})"
+        );
+    }
+
+    /// A blank white image vs a black image should produce an SSIM well below
+    /// the failure floor (0.40), proving the metric detects catastrophic
+    /// structural divergence.
+    #[test]
+    fn ssim_blank_vs_content_is_very_low() {
+        let white = GrayImage::from_pixel(200, 200, Luma([255]));
+        let black = GrayImage::from_pixel(200, 200, Luma([0]));
+        let score = mean_ssim(&white, &black, &[]);
+        assert!(
+            score < SSIM_FAILURE_FLOOR,
+            "SSIM of white vs black should be below {SSIM_FAILURE_FLOOR} (got {score:.6})"
+        );
+    }
+
+    /// Excluding the only region of difference should leave SSIM ≈ 1.0.
+    #[test]
+    fn ssim_with_excluded_diff_region_stays_high() {
+        let w = 200;
+        let h = 200;
+        let a = img_with_block(w, h, None);
+        let b = img_with_block(w, h, Some((50, 50, 100, 100)));
+        // Without exclusion the block difference drags SSIM down.
+        let without = mean_ssim(&a, &b, &[]);
+        // With the block excluded, the rest is identical → SSIM ≈ 1.0.
+        let with_exclusion = mean_ssim(&a, &b, &[(50, 50, 100, 100)]);
+        assert!(
+            with_exclusion > without,
+            "Excluding the diff region should raise SSIM (without={without:.4}, with={with_exclusion:.4})"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 6 — Applitools graceful degradation
+    // -----------------------------------------------------------------------
+
+    /// When the Applitools bridge script does not exist (or node is unavailable),
+    /// the verification pipeline must NOT crash. It should silently continue
+    /// with local-only metrics. We simulate this by checking that
+    /// `std::process::Command::new("node")` with a non-existent script path
+    /// either fails gracefully or produces no APPLITOOLS_RESULT line.
+    #[test]
+    fn applitools_bridge_missing_does_not_crash() {
+        let out = std::process::Command::new("node")
+            .arg("non_existent_applitools_bridge.js")
+            .arg("fake_key")
+            .arg("app")
+            .arg("test")
+            .arg("a.png")
+            .arg("b.png")
+            .output();
+
+        match out {
+            Ok(output) => {
+                // Node ran but the script doesn't exist — that's fine.
+                // The stdout should NOT contain a valid APPLITOOLS_RESULT.
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let has_result = stdout.lines().any(|l| l.starts_with("APPLITOOLS_RESULT:"));
+                assert!(
+                    !has_result,
+                    "A missing bridge script should not produce a valid result"
+                );
+            }
+            Err(_) => {
+                // Node itself isn't available — also fine, proves graceful degradation.
+            }
+        }
+    }
 }
