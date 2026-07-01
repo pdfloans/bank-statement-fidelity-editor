@@ -628,6 +628,15 @@ impl AppPanels for MyApp {
                                                         input,
                                                         output: std::path::PathBuf::from(&self.output_path),
                                                         edits: vec![edit],
+                                                        original_transactions: self.workflow_transactions.clone(),
+                                                        opening_balance: self.workflow_validation.as_ref().map(|v| v.opening_balance).unwrap_or_default(),
+                                                        expected_closing: self.workflow_validation.as_ref().and_then(|v| {
+                                                            if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
+                                                                Some(v.closing_balance)
+                                                            } else {
+                                                                None
+                                                            }
+                                                        }),
                                                         deep_font_replication: self.settings.deep_font_replication,
                                                         max_visual_attempts: 3,
                                                         visual_threshold: 0.05,
@@ -882,9 +891,18 @@ impl AppPanels for MyApp {
                         self.workflow_edits.clone()
                     };
                     let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
-                        input: PathBuf::from(&self.input_path),
-                        output: PathBuf::from(&self.output_path),
+                        input: std::path::PathBuf::from(&self.input_path),
+                        output: std::path::PathBuf::from(&self.output_path),
                         edits: edits_to_apply,
+                        original_transactions: self.workflow_transactions.clone(),
+                        opening_balance: self.workflow_validation.as_ref().map(|v| v.opening_balance).unwrap_or_default(),
+                        expected_closing: self.workflow_validation.as_ref().and_then(|v| {
+                            if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
+                                Some(v.closing_balance)
+                            } else {
+                                None
+                            }
+                        }),
                         deep_font_replication: self.settings.deep_font_replication,
                         max_visual_attempts: 5,
                         visual_threshold: 0.02,

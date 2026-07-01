@@ -101,6 +101,8 @@ ocrs = { version = "0.12", optional = true }
 rten = { version = "0.24", default-features = false, features = ["rten_format"], optional = true }
 rten-imageproc = { version = "0.24", optional = true }
 rten-tensor = { version = "0.24", optional = true }
+typst = "0.14.0"
+subsetter = "0.2.6"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

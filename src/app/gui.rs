@@ -214,7 +214,7 @@ pub struct AppSettings {
     #[serde(default)]
     pub webhook_url: String,
     #[serde(default)]
-    pub openai_api_key: String,
+    pub llamaparse_api_key: String,
     /// Master toggle for "3 Page Mode" — the DEFAULT operating mode.
     /// When true, opened PDFs are transparently split into <=3-page
     /// segments for Pro editing and re-merged on save. Defaults to TRUE,
@@ -256,7 +256,7 @@ impl Default for AppSettings {
             deep_font_replication: false,
             show_welcome: true,
             webhook_url: String::new(),
-            openai_api_key: String::new(),
+            llamaparse_api_key: String::new(),
             three_page_mode: true,
             advanced_mode: false,
             remote_engine_url: String::new(),
@@ -653,6 +653,7 @@ impl MyApp {
                     crate::app::config::PdfEngineMode::Auto => "auto".to_string(),
                     crate::app::config::PdfEngineMode::NativeOnly => "native".to_string(),
                     crate::app::config::PdfEngineMode::PyMuPdfOnly => "pymupdf".to_string(),
+                    crate::app::config::PdfEngineMode::TypstReconstruct => "typst".to_string(),
                 },
             ),
         ];
@@ -965,6 +966,15 @@ impl eframe::App for MyApp {
                     input: PathBuf::from(&self.input_path),
                     output: PathBuf::from(&self.output_path),
                     edits: kept,
+                    original_transactions: self.workflow_transactions.clone(),
+                    opening_balance: self.workflow_validation.as_ref().map(|v| v.opening_balance).unwrap_or_default(),
+                    expected_closing: self.workflow_validation.as_ref().and_then(|v| {
+                        if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
+                            Some(v.closing_balance)
+                        } else {
+                            None
+                        }
+                    }),
                     deep_font_replication: self.settings.deep_font_replication,
                     max_visual_attempts: 5,
                     visual_threshold: 0.02,
@@ -2154,8 +2164,8 @@ impl MyApp {
                         ui.label("Webhook (optional):");
                         ui.text_edit_singleline(&mut self.settings.webhook_url)
                             .on_hover_text("POST a JSON payload to this URL on each successful edit");
-                        ui.label("OpenAI API key (optional fallback):");
-                        ui.add(egui::TextEdit::singleline(&mut self.settings.openai_api_key).password(true))
+                        ui.label("LlamaParse API key:");
+                        ui.add(egui::TextEdit::singleline(&mut self.settings.llamaparse_api_key).password(true))
                             .on_hover_text("Used only if Gemini fails");
                         if ui.button("Save settings").on_hover_text("Persist these settings on disk").clicked() {
                             // On persistence failure, the in-memory `self.settings`
@@ -3618,6 +3628,15 @@ impl MyApp {
             input: PathBuf::from(&self.input_path),
             output: PathBuf::from(&self.output_path),
             edits: edits_to_apply,
+            original_transactions: self.workflow_transactions.clone(),
+            opening_balance: self.workflow_validation.as_ref().map(|v| v.opening_balance).unwrap_or_default(),
+            expected_closing: self.workflow_validation.as_ref().and_then(|v| {
+                if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
+                    Some(v.closing_balance)
+                } else {
+                    None
+                }
+            }),
             deep_font_replication: deep,
             max_visual_attempts: 5,
             visual_threshold: 0.02,
@@ -4019,6 +4038,15 @@ impl MyApp {
                                                     input,
                                                     output: std::path::PathBuf::from(&self.output_path),
                                                     edits: vec![edit],
+                                                    original_transactions: self.workflow_transactions.clone(),
+                                                    opening_balance: self.workflow_validation.as_ref().map(|v| v.opening_balance).unwrap_or_default(),
+                                                    expected_closing: self.workflow_validation.as_ref().and_then(|v| {
+                                                        if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
+                                                            Some(v.closing_balance)
+                                                        } else {
+                                                            None
+                                                        }
+                                                    }),
                                                     deep_font_replication: self.settings.deep_font_replication,
                                                     max_visual_attempts: 3,
                                                     visual_threshold: 0.05,

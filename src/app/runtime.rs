@@ -294,6 +294,9 @@ pub enum Job {
         input: PathBuf,
         output: PathBuf,
         edits: Vec<crate::engine::workflow::UserEdit>,
+        original_transactions: Vec<crate::engine::model::Transaction>,
+        opening_balance: rust_decimal::Decimal,
+        expected_closing: Option<rust_decimal::Decimal>,
         deep_font_replication: bool,
         max_visual_attempts: u32,
         visual_threshold: f64,
@@ -2851,6 +2854,9 @@ impl Runtime {
                                                 input: input.clone(),
                                                 output: output.clone(),
                                                 edits,
+                                                original_transactions: vec![],
+                                                opening_balance: rust_decimal::Decimal::ZERO,
+                                                expected_closing: None,
                                                 deep_font_replication: true,
                                                 max_visual_attempts: 5,
                                                 visual_threshold: 0.02,
@@ -2926,6 +2932,9 @@ impl Runtime {
                                         input: input.clone(),
                                         output: output.clone(),
                                         edits,
+                                        original_transactions: vec![],
+                                        opening_balance: rust_decimal::Decimal::ZERO,
+                                        expected_closing: None,
                                         deep_font_replication: true,
                                         max_visual_attempts: 5,
                                         visual_threshold: 0.02,
@@ -3169,6 +3178,35 @@ impl Runtime {
                                                     return;
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+
+                                // ── LlamaParse (online) ──────────────
+                                DocumentParserMode::LlamaParse => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
+
+                                    match crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
+                                        Ok(client) => {
+                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse: uploading document...".into(), fraction: 0.3 });
+
+                                            match client.parse_statement(&input).await {
+                                                Ok(s) => {
+                                                    tracing::info!("[workflow] LlamaParse yielded {} transactions.", s.transactions.len());
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse: {} transactions extracted", s.transactions.len()), fraction: 0.6 });
+                                                    s
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("[workflow] LlamaParse extraction failed: {e}");
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse extraction failed: {e}"), fraction: 0.0 });
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("[workflow] LlamaParse client init failed: {e}");
+                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse init failed (check API key)".into(), fraction: 0.0 });
+                                            return;
                                         }
                                     }
                                 }
@@ -3439,7 +3477,7 @@ impl Runtime {
                     // Stages 4 + 5 + 6: apply, render, validate visually in a loop,
                     // then do a final Document AI math sanity pass.
                     // -----------------------------------------------------------------
-                    Job::WorkflowConfirmAndRender { input, output, edits, deep_font_replication, max_visual_attempts, visual_threshold } => {
+                    Job::WorkflowConfirmAndRender { input, output, edits, deep_font_replication, max_visual_attempts, visual_threshold, original_transactions, opening_balance, expected_closing } => {
                         let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowConfirmAndRender");
                         let eng = engine_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
@@ -3724,7 +3762,48 @@ impl Runtime {
                                 
                                 let mut apply_result: Result<PythonJobResult, tokio::sync::oneshot::error::RecvError>;
 
-                                if let Some(ref map) = map_opt {
+                                if cfg.engine_mode == crate::app::config::PdfEngineMode::TypstReconstruct {
+                                    tracing::info!("[workflow] Reconstructing PDF using TypstEngine...");
+                                    let mut working_transactions = original_transactions.clone();
+                                    for e in &edits {
+                                        if let Some(row) = working_transactions.iter_mut().find(|t| t.page == e.page && t.line_on_page == e.line_on_page) {
+                                            match e.field {
+                                                crate::engine::workflow::EditField::Date => row.date = e.new_text.clone(),
+                                                crate::engine::workflow::EditField::Description => row.raw_text = e.new_text.clone(),
+                                                crate::engine::workflow::EditField::Debit => {
+                                                    let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                                                    if let Ok(v) = std::str::FromStr::from_str(&cleaned) { row.debit = Some(v); row.credit = None; } else { row.debit = None; }
+                                                }
+                                                crate::engine::workflow::EditField::Credit => {
+                                                    let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                                                    if let Ok(v) = std::str::FromStr::from_str(&cleaned) { row.credit = Some(v); row.debit = None; } else { row.credit = None; }
+                                                }
+                                                crate::engine::workflow::EditField::RunningBalance => {
+                                                    let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                                                    if let Ok(v) = std::str::FromStr::from_str(&cleaned) { row.running_balance = Some(v); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 2. Recompute running balances using the same logic as preview
+                                    if let Ok(recomputed) = crate::engine::balance::process_and_reconcile(working_transactions.clone(), opening_balance, expected_closing).map(|(r, _)| r) {
+                                        working_transactions = recomputed;
+                                    }
+
+                                    let reconstructed_statement = crate::ai::document_ai::BankStatement {
+                                        transactions: working_transactions,
+                                        opening_balance,
+                                        closing_balance: expected_closing.unwrap_or(rust_decimal::Decimal::ZERO),
+                                        account_number: None,
+                                        total_pages: 1,
+                                    };
+                                    let typst_engine = crate::engine::typst_engine::TypstEngine::new();
+                                    match typst_engine.reconstruct_pdf(&reconstructed_statement, &scratch).await {
+                                        Ok(_) => apply_result = Ok(PythonJobResult::Json("{\"success\":true}".into())),
+                                        Err(e) => apply_result = Ok(PythonJobResult::Error(format!("Typst failed: {e}"))),
+                                    }
+                                } else if let Some(ref map) = map_opt {
                                     // 3-page mode: segmented batch apply. 
                                     // Caching is bypassed in this mode for simplicity.
                                     let mut final_paths = Vec::new();

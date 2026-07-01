@@ -91,6 +91,7 @@ impl PdfEngineSelector {
             crate::app::config::PdfEngineMode::NativeOnly => operation(&*self.primary),
             crate::app::config::PdfEngineMode::PyMuPdfOnly => operation(&*self.fallback),
             crate::app::config::PdfEngineMode::Auto
+            | crate::app::config::PdfEngineMode::TypstReconstruct
             | crate::app::config::PdfEngineMode::DualConcurrent => {
                 match operation(&*self.primary) {
                     Ok(result) => Ok(result),

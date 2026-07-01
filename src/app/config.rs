@@ -151,7 +151,10 @@ pub enum PdfEngineMode {
     #[default]
     Auto,
     NativeOnly,
+    /// Force PyMuPDF (highest fidelity edit-in-place).
     PyMuPdfOnly,
+    /// Completely rebuild the PDF from scratch using Typst and font subsetting.
+    TypstReconstruct,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,10 +179,8 @@ impl Default for ConnectionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AiProviderMode {
-    /// OpenAI GPT as a fallback (requires `OPENAI_API_KEY` in settings).
-    #[default]
-    OpenAiFallback,
     /// Skip AI entirely — manual-only editing with no AI balance/vision calls.
+    #[default]
     ManualOnly,
     /// Google Gemini via AI Studio API key (default, easiest setup).
     GeminiApiKey,
@@ -192,7 +193,6 @@ impl AiProviderMode {
         match self {
             Self::GeminiApiKey => "Gemini (API Key)",
             Self::GeminiVertex => "Gemini (Vertex AI)",
-            Self::OpenAiFallback => "OpenAI (Fallback)",
             Self::ManualOnly => "Manual Only (No AI)",
         }
     }
@@ -207,6 +207,8 @@ pub enum DocumentParserMode {
     /// accuracy, ease of setup, and cost.
     #[default]
     MindeeFinDoc,
+    /// LlamaParse (API-based document parser using LLMs for extraction).
+    LlamaParse,
     /// PyMuPDF built-in text extraction (no external dependencies, good for
     /// well-structured PDFs with selectable text).
     PyMuPdfBuiltin,
@@ -223,6 +225,7 @@ impl DocumentParserMode {
         match self {
             Self::DocumentAi => "Google Document AI",
             Self::MindeeFinDoc => "Mindee (Financial Doc)",
+            Self::LlamaParse => "LlamaParse",
             Self::PyMuPdfBuiltin => "PyMuPDF (Built-in)",
             Self::LocalOcrs => "Local OCR (ocrs)",
         }
@@ -273,6 +276,7 @@ pub struct AppConfig {
     pub connection_mode: ConnectionMode,
     /// Which PDF engine backend to use
     pub engine_mode: PdfEngineMode,
+    pub llamaparse_api_key: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -293,6 +297,7 @@ impl Default for AppConfig {
             is_dev_mode: cfg!(debug_assertions),
             connection_mode: ConnectionMode::Local,
             engine_mode: PdfEngineMode::Auto,
+            llamaparse_api_key: None,
         }
     }
 }
@@ -316,6 +321,7 @@ impl AppConfig {
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
+        let llamaparse_api_key = clean_key(env::var("LLAMAPARSE_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
 
         // Document AI configuration
@@ -413,6 +419,7 @@ impl AppConfig {
             lipi_api_key,
             document_ai: doc_ai,
             mindee_api_key,
+            llamaparse_api_key,
             pymupdf_pro_key,
             passphrase,
             otel_endpoint,
@@ -430,6 +437,7 @@ impl AppConfig {
                 "native" => PdfEngineMode::NativeOnly,
                 "pymupdf" => PdfEngineMode::PyMuPdfOnly,
                 "auto" => PdfEngineMode::Auto,
+                "typst" => PdfEngineMode::TypstReconstruct,
                 "dual" | "dual_concurrent" => PdfEngineMode::DualConcurrent,
                 _ => PdfEngineMode::Auto,
             },
@@ -501,7 +509,7 @@ impl AppConfig {
 
     /// Returns true if the application has valid AI configuration for extraction.
     pub fn has_ai_for_extraction(&self) -> bool {
-        self.document_ai.is_some() || self.mindee_api_key.is_some()
+        self.document_ai.is_some() || self.mindee_api_key.is_some() || self.llamaparse_api_key.is_some()
     }
 }
 

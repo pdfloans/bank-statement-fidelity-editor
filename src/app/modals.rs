@@ -207,8 +207,9 @@ impl AppModals for MyApp {
                             ui.label("Webhook (optional):");
                             ui.text_edit_singleline(&mut self.settings.webhook_url)
                                 .on_hover_text("POST a JSON payload to this URL on each successful edit");
-                            ui.label("OpenAI API key (optional fallback):");
-                            ui.add(egui::TextEdit::singleline(&mut self.settings.openai_api_key).password(true))
+                            ui.label("LlamaParse API key:");
+                            ui.add(egui::TextEdit::singleline(&mut self.settings.llamaparse_api_key).password(true))
+                                .on_hover_text("Required for LlamaParse extraction mode. Get it from cloud.llamaindex.ai");
                                 .on_hover_text("Used only if Gemini fails");
                             if ui.button("Save settings").on_hover_text("Persist these settings on disk").clicked() {
                                 // On persistence failure, the in-memory `self.settings`
@@ -289,6 +290,7 @@ impl AppModals for MyApp {
                                 PdfEngineMode::DualConcurrent => "Dual Concurrent",
                                 PdfEngineMode::NativeOnly => "Force Native (Pdfium)",
                                 PdfEngineMode::PyMuPdfOnly => "Force PyMuPDF",
+                                PdfEngineMode::TypstReconstruct => "Reconstruct (Typst)",
                             })
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::Auto, "Auto (PyMuPDF → Native)")
@@ -299,6 +301,8 @@ impl AppModals for MyApp {
                                     .on_hover_text("Only use the native Rust + Pdfium engine. Faster but lower fidelity for complex fonts.");
                                 ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::PyMuPdfOnly, "Force PyMuPDF")
                                     .on_hover_text("Only use PyMuPDF via the Python bridge. Highest fidelity, handles CJK and complex fonts.");
+                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::TypstReconstruct, "Reconstruct (Typst + Subsetter)")
+                                    .on_hover_text("NEW: Rebuilds the PDF from scratch using Typst and font subsetting instead of editing the original.");
                             });
                         ui.end_row();
 
@@ -307,8 +311,7 @@ impl AppModals for MyApp {
                         egui::ComboBox::from_id_source("bp_ai_provider")
                             .selected_text(self.settings.ai_provider.label())
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::OpenAiFallback, "OpenAI (Fallback)")
-                                    .on_hover_text("Default. Uses OpenAI GPT models instead of Gemini. Requires an OpenAI API key in the settings below.");
+
                                 ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::ManualOnly, "Manual Only (No AI)")
                                     .on_hover_text("Skips all AI calls. You edit manually — no AI balance analysis, no vision validation, no completeness checks.");
                                 ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiApiKey, "Gemini (API Key)")
@@ -392,10 +395,12 @@ impl AppModals for MyApp {
                         "⚠ pdfRest selected but no API key configured.",
                     );
                 }
-                if self.settings.ai_provider == AiProviderMode::OpenAiFallback && self.settings.openai_api_key.is_empty() {
-                    ui.colored_label(
-                        self.settings.theme.palette().warn,
-                        "⚠ OpenAI selected but no API key set in Settings → OpenAI API key.",
+                if self.settings.document_parser == DocumentParserMode::LlamaParse && self.settings.llamaparse_api_key.is_empty() {
+                    ui.label(
+                        egui::RichText::new(
+                        "⚠ LlamaParse selected but no API key set in Settings → LlamaParse API key.",
+                        )
+                        .color(egui::Color32::YELLOW),
                     );
                 }
                 if self.settings.document_parser == DocumentParserMode::MindeeFinDoc && self.config.mindee_api_key.is_none() {

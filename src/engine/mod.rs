@@ -17,3 +17,4 @@ pub mod transfer;
 pub mod transfer_test_harness;
 pub mod verification;
 pub mod workflow;
+pub mod typst_engine;
