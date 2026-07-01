@@ -113,15 +113,15 @@ impl AppPanels for MyApp {
                             ui.close_menu();
                         }
                     });
-    
+
                     ui.separator();
                     ui.heading("Bank Statement Fidelity Editor");
                     ui.separator();
-    
+
                     ui.selectable_value(&mut self.current_view, AppView::SingleDocument, "Single Statement");
                     ui.selectable_value(&mut self.current_view, AppView::BatchProcessing, "Batch Processing");
                     ui.selectable_value(&mut self.current_view, AppView::AuditExplorer, "Audit Explorer");
-    
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("⚙️ Settings & Tools").clicked() {
                             self.show_settings_modal = true;
@@ -138,7 +138,7 @@ impl AppPanels for MyApp {
                                 }
                             }
                         }
-                        
+
                         if let Some(p) = &self.progress {
                             ui.add(
                                 egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
@@ -221,7 +221,7 @@ impl AppPanels for MyApp {
                             self.request_render("current");
                         }
                     });
-    
+
                     egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                         for i in 0..self.total_pages {
                             let selected = i == self.current_page;
@@ -231,7 +231,7 @@ impl AppPanels for MyApp {
                             }
                         }
                     });
-    
+
                     ui.separator();
                     ui.heading("Targeted Edit");
                     if let Some(block) = self.selected_block.clone() {
@@ -252,7 +252,7 @@ impl AppPanels for MyApp {
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.heading("Batch Processing Dashboard");
                 ui.add_space(10.0);
-                
+
                 ui.horizontal(|ui| {
                     if ui.button("📂 Select Directory").clicked() {
                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
@@ -274,11 +274,11 @@ impl AppPanels for MyApp {
                         ui.label("Drag and drop a folder of statements here, or click to select a directory.");
                     }
                 });
-    
+
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(10.0);
-                
+
                 ui.horizontal(|ui| {
                     let has_files = !self.batch_files.is_empty();
                     if ui.add_enabled(has_files, egui::Button::new("Extract All to JSON")).clicked() {
@@ -322,9 +322,9 @@ impl AppPanels for MyApp {
                         }
                     }
                 });
-    
+
                 ui.add_space(10.0);
-                
+
                 if !self.batch_files.is_empty() {
                     ui.heading(format!("{} PDF(s) found", self.batch_files.len()));
                     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -362,13 +362,13 @@ impl AppPanels for MyApp {
                         ui.add(egui::Slider::new(&mut self.curtain_ratio, 0.0..=1.0).text("split"));
                     }
                 });
-    
+
                 egui::Frame::canvas(ui.style()).show(ui, |ui| {
                     let (response, painter) = ui.allocate_painter(
                         ui.available_size(),
                         egui::Sense::drag().union(egui::Sense::click()),
                     );
-    
+
                     // Zoom — Ctrl+wheel
                     let zoom_scroll = ui.input(|i| {
                         if i.modifiers.command {
@@ -381,13 +381,13 @@ impl AppPanels for MyApp {
                         self.zoom_factor = (self.zoom_factor + zoom_scroll * 0.002).clamp(0.1, 5.0);
                         self.fit_to_view = false;
                     }
-    
+
                     // Pan — any drag (primary, middle, etc.)
                     if response.dragged() {
                         self.pan_offset += response.drag_delta();
                         self.fit_to_view = false;
                     }
-    
+
                     if let Some(texture) = self.current_page_texture.clone() {
                         let tex_size = texture.size_vec2();
                         if self.fit_to_view {
@@ -396,14 +396,14 @@ impl AppPanels for MyApp {
                         let size = tex_size * self.zoom_factor;
                         let center = response.rect.center() + self.pan_offset;
                         let rect = egui::Rect::from_center_size(center, size);
-    
+
                         painter.image(
                             texture.id(),
                             rect,
                             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                             egui::Color32::WHITE,
                         );
-    
+
                         // Curtain diff: paint the "after" texture clipped to ratio
                         if self.show_curtain {
                             if let Some(after) = self.after_texture.clone() {
@@ -425,7 +425,7 @@ impl AppPanels for MyApp {
                                     egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 0)),
                                 );
                             }
-    
+
                             // Hotspot Highlighting: draw red/green boxes around modified regions
                             if let Some((w, h)) = self.current_page_size_pts {
                                 for edit in &self.workflow_edits {
@@ -435,20 +435,20 @@ impl AppPanels for MyApp {
                                         let sy0 = rect.min.y + (y0 / h) * size.y;
                                         let sx1 = rect.min.x + (x1 / w) * size.x;
                                         let sy1 = rect.min.y + (y1 / h) * size.y;
-                                        
+
                                         let item_rect = egui::Rect::from_min_max(
                                             egui::pos2(sx0, sy0),
                                             egui::pos2(sx1, sy1),
                                         );
-                                        
+
                                         let split_x = rect.min.x + rect.width() * self.curtain_ratio;
-                                        
+
                                         if sx0 < split_x {
                                             let mut r = item_rect;
                                             r.max.x = r.max.x.min(split_x);
                                             painter.rect_stroke(r, 2.0, egui::Stroke::new(2.0, egui::Color32::from_rgba_premultiplied(255, 50, 50, 150)));
                                         }
-                                        
+
                                         if sx1 > split_x {
                                             let mut r = item_rect;
                                             r.min.x = r.min.x.max(split_x);
@@ -458,7 +458,7 @@ impl AppPanels for MyApp {
                                 }
                             }
                         }
-    
+
                         // Click → resolve text block via Python
                         if response.clicked() {
                             if let Some(pos) = response.interact_pointer_pos() {
@@ -490,7 +490,7 @@ impl AppPanels for MyApp {
                                 }
                             }
                         }
-    
+
                         // Selected bbox highlight
                         if let Some(block) = &self.selected_block {
                             if block.page == self.current_page {
@@ -508,7 +508,7 @@ impl AppPanels for MyApp {
                                 );
                             }
                         }
-    
+
                         // Stage 5 / Item #20: live diff overlay during preview.
                         // Translucent yellow over each `will_change` bbox on the
                         // current page; tooltip shows old → new.
@@ -608,7 +608,7 @@ impl AppPanels for MyApp {
                                                 )
                                                 .fill(self.settings.theme.palette().accent)
                                             );
-                                            
+
                                             if apply_btn.on_hover_text("Replace the selected text and instantly verify math + fidelity.").clicked() {
                                                 if let Some(block) = self.selected_block.clone() {
                                                     let input = if self.current_pdf_path.exists() {
@@ -644,9 +644,9 @@ impl AppPanels for MyApp {
                                                     self.in_flight += 1;
                                                 }
                                             }
-    
+
                                             ui.add_space(12.0);
-    
+
                                             let adjust_btn = ui.add(
                                                 egui::Button::new(
                                                     egui::RichText::new("⚖ Auto-Balance Entire Statement")
@@ -674,11 +674,11 @@ impl AppPanels for MyApp {
                                                 }
                                             }
                                         });
-    
+
                                         ui.add_space(12.0);
                                         ui.separator();
                                         ui.add_space(12.0);
-    
+
                                         // Secondary Tool Row
                                         ui.horizontal(|ui| {
                                             if ui.button("✨ AI Fix Text/Layout").on_hover_text("Use Gemini to automatically fix layout and text discrepancies on this page").clicked() {
@@ -694,21 +694,21 @@ impl AppPanels for MyApp {
                                                 self.toast(ToastKind::Info, "Requesting AI Layout Fix…");
                                                 self.in_flight += 1;
                                             }
-                                            
+
                                             ui.add_space(8.0);
-                                            
+
                                             if ui.button("📅 Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
                                                 self.show_date_adjust_dialog = true;
                                             }
-                                            
+
                                             ui.add_space(8.0);
-    
+
                                             if ui.button("🔄 Transfer Transactions").on_hover_text("Transfer transactions from another bank statement PDF into this one").clicked() {
                                                 self.show_transfer_dialog = true;
                                             }
-                                            
+
                                             ui.add_space(8.0);
-    
+
                                             if ui.button("🧪 Test Transfers").on_hover_text("Cross-test transfers between multiple statements").clicked() {
                                                 self.show_transfer_test_dialog = true;
                                             }
@@ -738,7 +738,7 @@ impl AppPanels for MyApp {
             ui.collapsing("🤖 Workflow (AI parse → preview → render → verify)", |ui| {
                 let stage = self.workflow_stage.clone();
                 let p = self.settings.theme.palette();
-    
+
                 // Step indicator. Stage 13 / Item #1: each label is hoverable
                 // so the user can read what the step actually does, and the
                 // active step gets a strong color so the indicator never looks
@@ -771,11 +771,11 @@ impl AppPanels for MyApp {
                     }
                 });
                 ui.label(format!("Status: {}", stage.label()));
-    
+
                 ui.separator();
-    
-    
-    
+
+
+
                 if let Some(v) = &self.workflow_validation {
                     ui.label(format!(
                         "Found {} txs • opening ${:.2} • closing ${:.2}",
@@ -796,14 +796,14 @@ impl AppPanels for MyApp {
                         }
                     }
                 }
-    
+
                 ui.separator();
-    
+
                 // Stage 5 / Item #6 + #8: inline edit table with per-row revert.
                 self.draw_workflow_edit_table(ui);
-    
+
                 ui.separator();
-    
+
                 // Stage 3 button: balance preview
                 let preview_enabled = self.workflow_validation.is_some();
                 ui.label(format!("Pending edits queued: {}", self.workflow_edits.len()));
@@ -826,7 +826,7 @@ impl AppPanels for MyApp {
                         self.in_flight += 1;
                     }
                 }
-    
+
                 if let Some(p) = &self.workflow_preview {
                     let changed = p.rows.iter().filter(|r| r.will_change).count();
                     let kind_color = if p.balanced { self.settings.theme.palette().success } else { self.settings.theme.palette().warn };
@@ -862,9 +862,9 @@ impl AppPanels for MyApp {
                         }
                     });
                 }
-    
+
                 ui.separator();
-    
+
                 // Stage 4-6 button: confirm & render
                 let confirm_enabled = self.workflow_preview.is_some();
                 if ui
@@ -909,7 +909,7 @@ impl AppPanels for MyApp {
                     });
                     self.in_flight += 1;
                 }
-    
+
                 if let Some(va) = &self.workflow_visual {
                     let palette = self.settings.theme.palette();
                     let c = if va.passed() { palette.success } else { palette.warn };
@@ -932,7 +932,7 @@ impl AppPanels for MyApp {
                         o.transactions_re_parsed, o.final_imbalance
                     ));
                 }
-    
+
                 // Stage 12 / Item #3: surface cascade results so the user can
                 // see exactly which tier(s) closed any font-coverage gap.
                 if !self.font_cascade_reports.is_empty() {
@@ -976,21 +976,21 @@ impl AppPanels for MyApp {
                 return;
             }
             let palette = self.settings.theme.palette();
-    
+
             ui.label(format!(
                 "📋 Inline edit ({} rows) — Tab to next field, ↶ reverts row",
                 self.workflow_transactions.len()
             ));
-    
+
             // Snapshot what we need; the closure below mutates self.workflow_edits
             // and self.workflow_cell_buffers, so collect transaction copies first.
             let txs: Vec<crate::engine::model::Transaction> =
                 self.workflow_transactions.clone();
-    
+
             let mut cell_changes: Vec<(usize, usize, EditField, String, [f32; 4], String)> =
                 Vec::new();
             let mut row_reverts: Vec<(usize, usize)> = Vec::new();
-    
+
             egui::ScrollArea::both()
                 .max_height(220.0)
                 .id_source("workflow-edit-table")
@@ -1020,7 +1020,7 @@ impl AppPanels for MyApp {
                                     .workflow_edits
                                     .iter()
                                     .any(|e| e.page == key.0 && e.line_on_page == key.1);
-    
+
                                 body.row(20.0, |mut row| {
                                     row.col(|ui| {
                                         ui.label(format!("{}", tx.page + 1));
@@ -1028,7 +1028,7 @@ impl AppPanels for MyApp {
                                     row.col(|ui| {
                                         ui.label(format!("{}", tx.line_on_page + 1));
                                     });
-    
+
                                     // Date — text field
                                     row.col(|ui| {
                                         let buf = Self::cell_buffer(
@@ -1052,7 +1052,7 @@ impl AppPanels for MyApp {
                                             ));
                                         }
                                     });
-    
+
                                     // Description — text field
                                     row.col(|ui| {
                                         let buf = Self::cell_buffer(
@@ -1076,7 +1076,7 @@ impl AppPanels for MyApp {
                                             ));
                                         }
                                     });
-    
+
                                     // Debit / Credit / Balance — money fields with red border on parse failure.
                                     Self::money_cell(
                                         &mut row,
@@ -1108,7 +1108,7 @@ impl AppPanels for MyApp {
                                         palette.warn,
                                         &mut cell_changes,
                                     );
-    
+
                                     // Revert column
                                     row.col(|ui| {
                                         let label = if has_edit { "↶" } else { " " };
@@ -1127,7 +1127,7 @@ impl AppPanels for MyApp {
                             }
                         });
                 });
-    
+
             // Apply collected changes after the table render so we don't double-borrow self.
             for (page, line, field, new_text, bbox, old_text) in cell_changes {
                 self.upsert_edit(UserEdit {
@@ -1163,7 +1163,7 @@ impl AppPanels for MyApp {
                     return;
                 }
             };
-    
+
             let header = if analysis.summary.all_fonts_covered {
                 format!(
                     "🔤 Font analysis — ✅ {} font(s), all covered",
@@ -1175,7 +1175,7 @@ impl AppPanels for MyApp {
                     analysis.summary.fonts_needing_action, analysis.summary.total_fonts
                 )
             };
-    
+
             ui.collapsing(header, |ui| {
                 // High-level summary line.
                 let summary_color = if analysis.summary.all_fonts_covered {
@@ -1184,7 +1184,7 @@ impl AppPanels for MyApp {
                     palette.warn
                 };
                 ui.colored_label(summary_color, analysis.one_line_summary());
-    
+
                 if !analysis.summary.all_fonts_covered {
                     ui.horizontal(|ui| {
                         if analysis.summary.missing_digit_count > 0 {
@@ -1207,18 +1207,18 @@ impl AppPanels for MyApp {
                         }
                     });
                 }
-    
+
                 ui.separator();
-    
+
                 if ui.button("🔄 Re-analyze").clicked() {
                     let _ = self.job_tx.send(Job::AnalyzeFonts {
                         path: PathBuf::from(&self.input_path),
                     });
                     self.in_flight += 1;
                 }
-    
+
                 ui.separator();
-    
+
                 // Per-font breakdown.
                 egui::ScrollArea::vertical()
                     .id_source("font-analysis-list")
@@ -1312,7 +1312,7 @@ impl AppPanels for MyApp {
             let p = self.settings.theme.palette();
             // Subtle gradient background
             painter.rect_filled(rect, 0.0, p.bg);
-    
+
             // If a PDF is currently open but the texture hasn't streamed in yet
             if self.current_pdf_path.exists() {
                 ui.allocate_ui_at_rect(rect, |ui| {
@@ -1328,7 +1328,7 @@ impl AppPanels for MyApp {
                 });
                 return;
             }
-    
+
             // Brand block
             let center = rect.center();
             painter.text(

@@ -24,7 +24,7 @@ pub fn global_http_client() -> ClientWithMiddleware {
             .timeout(std::time::Duration::from_secs(60))
             .tcp_keepalive(std::time::Duration::from_secs(60))
             .build();
-        
+
         let reqwest_client = match reqwest_client {
             Ok(client) => client,
             Err(e) => {
@@ -38,7 +38,7 @@ pub fn global_http_client() -> ClientWithMiddleware {
                     })
             }
         };
-            
+
         ClientBuilder::new(reqwest_client)
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
             .build()
@@ -513,7 +513,9 @@ impl AppConfig {
 
     /// Returns true if the application has valid AI configuration for extraction.
     pub fn has_ai_for_extraction(&self) -> bool {
-        self.document_ai.is_some() || self.mindee_api_key.is_some() || self.llamaparse_api_key.is_some()
+        self.document_ai.is_some()
+            || self.mindee_api_key.is_some()
+            || self.llamaparse_api_key.is_some()
     }
 }
 

@@ -1,6 +1,5 @@
 use crate::ai::document_ai::BankStatement;
 use crate::app::config::AppConfig;
-use crate::engine::model::{Provenance, Transaction};
 use reqwest::StatusCode;
 use reqwest_middleware::ClientWithMiddleware;
 use rust_decimal::Decimal;
@@ -54,7 +53,9 @@ impl LlamaParseClient {
             .llamaparse_api_key
             .clone()
             .filter(|s| !s.is_empty())
-            .ok_or(LlamaParseError::MissingConfig("LLAMAPARSE_API_KEY is not set"))?;
+            .ok_or(LlamaParseError::MissingConfig(
+                "LLAMAPARSE_API_KEY is not set",
+            ))?;
 
         let http = crate::app::config::global_http_client();
 
@@ -70,7 +71,9 @@ impl LlamaParseClient {
     }
 
     pub async fn parse_statement(&self, pdf_path: &Path) -> Result<BankStatement, LlamaParseError> {
-        let cache = match crate::ai::docai_cache::DocAiCache::open_default(self.passphrase.as_deref().unwrap_or_default()) {
+        let cache = match crate::ai::docai_cache::DocAiCache::open_default(
+            self.passphrase.as_deref().unwrap_or_default(),
+        ) {
             Ok(c) => Some(c),
             Err(e) => {
                 tracing::warn!("[llamaparse] Could not open cache: {}", e);
@@ -79,7 +82,14 @@ impl LlamaParseClient {
         };
 
         let cache_key = cache.as_ref().and_then(|_c| {
-            crate::ai::docai_cache::DocAiCache::make_key(pdf_path, "llamaparse", "global", "default", "v1").ok()
+            crate::ai::docai_cache::DocAiCache::make_key(
+                pdf_path,
+                "llamaparse",
+                "global",
+                "default",
+                "v1",
+            )
+            .ok()
         });
 
         if let (Some(c), Some(h)) = (cache.as_ref(), cache_key.as_ref()) {
@@ -92,7 +102,7 @@ impl LlamaParseClient {
         let job_id = self.upload_document(pdf_path).await?;
         self.poll_until_complete(&job_id).await?;
         let markdown = self.fetch_markdown(&job_id).await?;
-        
+
         let stmt = self.parse_markdown_to_statement(&markdown)?;
 
         if let (Some(ref c), Some(ref h)) = (&cache, &cache_key) {
@@ -116,7 +126,7 @@ impl LlamaParseClient {
             .file_name(filename)
             .mime_str("application/pdf")
             .unwrap_or_else(|_| reqwest::multipart::Part::bytes(Vec::new()));
-        
+
         let form = reqwest::multipart::Form::new().part("file", part);
 
         let url = format!("{LLAMAPARSE_API_BASE}/upload");
@@ -188,7 +198,7 @@ impl LlamaParseClient {
 
     async fn fetch_markdown(&self, job_id: &str) -> Result<String, LlamaParseError> {
         let url = format!("{LLAMAPARSE_API_BASE}/job/{job_id}/result/markdown");
-        
+
         let resp = self
             .http
             .get(&url)
@@ -210,13 +220,18 @@ impl LlamaParseClient {
         Ok(md_resp.markdown)
     }
 
-    fn parse_markdown_to_statement(&self, _markdown: &str) -> Result<BankStatement, LlamaParseError> {
+    fn parse_markdown_to_statement(
+        &self,
+        _markdown: &str,
+    ) -> Result<BankStatement, LlamaParseError> {
         // TODO: Implement a robust parser that extracts tables from Markdown.
         // For now, we return a fallback empty statement because generic markdown
         // parsing without an LLM is error-prone. In a full implementation, we would
         // either use regex to find table boundaries and map columns, or request
         // structured JSON from LlamaParse's premium mode.
-        tracing::warn!("[llamaparse] Markdown parsing is partially implemented. Returning empty statement.");
+        tracing::warn!(
+            "[llamaparse] Markdown parsing is partially implemented. Returning empty statement."
+        );
         Ok(BankStatement {
             total_pages: 1,
             transactions: vec![],

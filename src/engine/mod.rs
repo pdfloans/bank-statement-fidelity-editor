@@ -15,6 +15,6 @@ pub mod statement;
 pub mod text_editor;
 pub mod transfer;
 pub mod transfer_test_harness;
+pub mod typst_engine;
 pub mod verification;
 pub mod workflow;
-pub mod typst_engine;

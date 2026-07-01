@@ -1,4 +1,4 @@
-// pyo3_bridge removed — zero FFI architecture
+// pyo3_bridge removed â€” zero FFI architecture
 use crate::app::audit::AuditLog;
 use crate::engine::history::{ChangeHistory, ChangeRecord};
 use crate::engine::segments::{GlobalEdit, SegmentManager, SegmentMap};
@@ -127,7 +127,7 @@ pub enum PythonJob {
         edits_json: String,
         font_path: Option<String>,
     },
-    /// Stage 3 / Item #16: split a PDF into chunks ≤30 pages so Document AI
+    /// Stage 3 / Item #16: split a PDF into chunks â‰¤30 pages so Document AI
     /// can parse documents above its single-request page cap.
     ChunkPdfForDocai {
         pdf_path: String,
@@ -139,8 +139,8 @@ pub enum PythonJob {
     AnalyzeFonts {
         pdf_path: String,
     },
-    /// Stage 11: targeted font cascade. Runs composite synthesis →
-    /// subset extension → Gemini Vision donor identification on the
+    /// Stage 11: targeted font cascade. Runs composite synthesis â†’
+    /// subset extension â†’ Gemini Vision donor identification on the
     /// supplied `missing_chars`. Returns the JSON dict produced by
     /// `replicate_font_for_chars`.
     ReplicateFontForMissingChars {
@@ -152,7 +152,7 @@ pub enum PythonJob {
     /// Clone (duplicate) pages within a PDF to create capacity for more
     /// transactions. Each entry in `page_indices` is a source page to clone;
     /// clones are inserted immediately after the original. Does NOT require
-    /// PyMuPDF Pro — page-level operations use the free tier.
+    /// PyMuPDF Pro â€” page-level operations use the free tier.
     ClonePages {
         pdf_path: String,
         output_path: String,
@@ -327,7 +327,7 @@ pub enum Job {
         max_iterations: u32,
     },
 
-    // ── Document AI Version Management ──
+    // â”€â”€ Document AI Version Management â”€â”€
     /// Fetch list of available processor versions from the API.
     ListDocAiVersions,
     /// Deploy a specific processor version for inference.
@@ -557,7 +557,7 @@ impl Runtime {
             let engine_result = crate::ai::pyo3_bridge::PyEngine::init();
 
             if let Err(e) = &engine_result {
-                tracing::error!("❌ [PYTHON_ACTOR] Failed to initialize PyEngine: {}", e);
+                tracing::error!("âŒ [PYTHON_ACTOR] Failed to initialize PyEngine: {}", e);
             }
 
             while let Ok((job, reply_tx)) = python_rx.recv() {
@@ -776,7 +776,7 @@ impl Runtime {
                     }
                     Job::LoadDocument { path, three_page_mode } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Analyzing layout".to_string(), fraction: 0.1 });
-                        
+
                         // Cleanup previous segments if any
                         if let Some(mgr) = segment_manager.take() {
                             mgr.cleanup();
@@ -820,7 +820,7 @@ impl Runtime {
                                 }
                             });
                         }
-                        
+
                         // Stage 8.5: kick off the font analysis in parallel.
                         let res_tx_fonts = result_tx_clone.clone();
                         let py_tx_for_fonts = python_tx_clone.clone();
@@ -949,13 +949,13 @@ impl Runtime {
                             if source_transactions.is_empty() {
                                 let _ = res_tx.send(JobResult::TransferFailed {
                                     stage: "AnalyzeSource".into(),
-                                    message: "Source statement has 0 transactions — nothing to transfer.".into(),
+                                    message: "Source statement has 0 transactions â€” nothing to transfer.".into(),
                                 });
                                 return;
                             }
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Source analyzed ✓".to_string(),
+                                label: "Source analyzed âœ“".to_string(),
                                 fraction: 0.10,
                             });
 
@@ -979,17 +979,17 @@ impl Runtime {
                             if target_transactions.is_empty() {
                                 let _ = res_tx.send(JobResult::TransferFailed {
                                     stage: "AnalyzeTarget".into(),
-                                    message: "Target statement has 0 transactions — no layout to map into.".into(),
+                                    message: "Target statement has 0 transactions â€” no layout to map into.".into(),
                                 });
                                 return;
                             }
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Target analyzed ✓".to_string(),
+                                label: "Target analyzed âœ“".to_string(),
                                 fraction: 0.20,
                             });
 
-                            
+
                             let max_retries = 5usize;
                             let mut attempt = 0;
                             let mut best_visual_score = 1.0f64;
@@ -1003,7 +1003,7 @@ impl Runtime {
                             loop {
                                 attempt += 1;
                                 tracing::info!("[TRANSFER] --- Starting Attempt {} ---", attempt);
-                                
+
                                 // ======= STAGE 3: AI Format Mapping ========
                                 send_progress(&res_tx, TransferStage::AiFormatMapping);
                                 tracing::info!("[TRANSFER] Stage 3: AI format mapping via Gemini");
@@ -1030,7 +1030,7 @@ impl Runtime {
                                 );
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: "Format mapping complete ✓".to_string(),
+                                    label: "Format mapping complete âœ“".to_string(),
                                     fraction: 0.30,
                                 });
 
@@ -1073,13 +1073,13 @@ impl Runtime {
                                 tracing::info!("[TRANSFER] Balances computed for {} transactions", mapped.len());
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: "Balances computed ✓".to_string(),
+                                    label: "Balances computed âœ“".to_string(),
                                     fraction: 0.35,
                                 });
 
                                 // ======= STAGE 5: PDF Surgery ========
                                 send_progress(&res_tx, TransferStage::PdfSurgery);
-                                tracing::info!("[TRANSFER] Stage 5: PDF surgery — applying changes");
+                                tracing::info!("[TRANSFER] Stage 5: PDF surgery â€” applying changes");
 
                                 if let Err(e) = std::fs::copy(&target_pdf, &output_pdf) {
                                     let _ = res_tx.send(JobResult::TransferFailed {
@@ -1109,7 +1109,7 @@ impl Runtime {
                                             tracing::info!("[TRANSFER] (Native) Cloned {} pages", actual_pages_added);
                                         }
                                     }
-                                    
+
                                     if actual_pages_added == 0 {
                                         tracing::warn!("[TRANSFER] Native ClonePages failed or returned 0. Falling back to Python.");
                                         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -1272,7 +1272,7 @@ impl Runtime {
                                 let mut fallback_fonts_used = Vec::new();
                                 if total_edits > 0 {
                                     tracing::info!("[TRANSFER] Applying batch of {} text edits", total_edits);
-                                    
+
                                     let mut output_pages = 0;
                                     if let Ok(doc) = lopdf::Document::load(&output_pdf) {
                                         output_pages = doc.get_pages().len();
@@ -1359,7 +1359,7 @@ impl Runtime {
                                         let p_out = output_pdf.with_extension("temp.pdf");
                                         let f_path = font_override_path.clone();
                                         let edits_json_clone = edits_json.clone();
-                                        
+
                                         let native_res = tokio::task::spawn_blocking(move || {
                                             let fp = f_path.map(std::path::PathBuf::from);
                                             eng.apply_many_edits(&p_in, &p_out, &edits_json_clone, fp.as_deref())
@@ -1411,10 +1411,10 @@ impl Runtime {
                                 }
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("PDF changes applied ✓ ({edits_applied}/{total_edits})"),
+                                    label: format!("PDF changes applied âœ“ ({edits_applied}/{total_edits})"),
                                     fraction: 0.55,
                                 });
-                                
+
                                 // Handle PyMuPDF standard-14 fallback detection
                                 if !fallback_fonts_used.is_empty() && font_override_path.is_none() && attempt < max_retries {
                                     tracing::warn!("[TRANSFER] PyMuPDF used fallback fonts on pages {:?}. Synthesizing font...", fallback_fonts_used);
@@ -1486,7 +1486,7 @@ impl Runtime {
                                 };
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Visual check ✓ (score: {visual_score:.4})"),
+                                    label: format!("Visual check âœ“ (score: {visual_score:.4})"),
                                     fraction: 0.75,
                                 });
 
@@ -1511,7 +1511,7 @@ impl Runtime {
                                 if (vision_anomaly || !visual_verified) && attempt < max_retries {
                                     tracing::warn!("[TRANSFER] Visual check failed (anomaly or strict threshold). Attempting font synthesis for retry.");
                                     let _ = res_tx.send(JobResult::Progress {
-                                        label: format!("(Attempt {attempt}) Adapting font metrics to Gemini Vision anomaly…"),
+                                        label: format!("(Attempt {attempt}) Adapting font metrics to Gemini Vision anomalyâ€¦"),
                                         fraction: 0.75,
                                     });
                                     let (rtx, rrx) = tokio::sync::oneshot::channel();
@@ -1573,7 +1573,7 @@ impl Runtime {
                                 }
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Math (engine) {} ", if math_verified { "✓" } else { "⚠" }),
+                                    label: format!("Math (engine) {} ", if math_verified { "âœ“" } else { "âš " }),
                                     fraction: 0.85,
                                 });
 
@@ -1593,12 +1593,12 @@ impl Runtime {
                                 };
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Math (Gemini) {} ", if gemini_math_ok { "✓" } else { "⚠" }),
+                                    label: format!("Math (Gemini) {} ", if gemini_math_ok { "âœ“" } else { "âš " }),
                                     fraction: 0.95,
                                 });
-                                
+
                                 let all_math_ok = math_verified && gemini_math_ok;
-                                
+
                                 if !all_math_ok && attempt < max_retries {
                                     tracing::warn!("[TRANSFER] Math check failed. Retrying entire planning loop with hint.");
                                     correction_hint = Some(math_err_msg.clone());
@@ -1623,7 +1623,7 @@ impl Runtime {
                                     retries_attempted: attempt - 1,
                                     synthesized_fonts_used,
                                 };
-                                
+
                                 // Store best result just in case we don't break loop but run out of attempts
                                 if best_result.is_none() || (all_math_ok && !best_math_verified) || (all_math_ok && visual_score < best_visual_score) {
                                     best_result = Some(result.clone());
@@ -1639,7 +1639,7 @@ impl Runtime {
                                     break;
                                 }
                             }
-                            
+
                             // Get the best result from the loop
                             let final_result = match best_result {
                                 Some(r) => r,
@@ -1651,7 +1651,7 @@ impl Runtime {
 
                             // ======= STAGE 9: Final Audit ========
                             send_progress(&res_tx, TransferStage::FinalAudit);
-                            
+
                             match write_transfer_audit(&final_result, &source_pdf, &target_pdf) {
                                 Ok(_audit_path) => {
                                     // Phase 7: Audit reports are securely saved purely in Rust via serde_json.
@@ -1661,14 +1661,14 @@ impl Runtime {
                             }
 
                             tracing::info!(
-                                "[TRANSFER] ✅ Complete in {:.1}s — math: {}, visual: {}",
+                                "[TRANSFER] âœ… Complete in {:.1}s â€” math: {}, visual: {}",
                                 final_result.total_duration_secs,
-                                if final_result.math_verified { "✓" } else { "✗" },
-                                if final_result.visual_verified { "✓" } else { "✗" },
+                                if final_result.math_verified { "âœ“" } else { "âœ—" },
+                                if final_result.visual_verified { "âœ“" } else { "âœ—" },
                             );
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Transfer complete ✓".to_string(),
+                                label: "Transfer complete âœ“".to_string(),
                                 fraction: 1.0,
                             });
 
@@ -1682,7 +1682,7 @@ impl Runtime {
                         let py_tx = python_tx_clone.clone();
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Parsing statement for date adjustment…".to_string(),
+                                label: "Parsing statement for date adjustmentâ€¦".to_string(),
                                 fraction: 0.1,
                             });
 
@@ -1710,7 +1710,7 @@ impl Runtime {
                             };
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Adjusting dates…".to_string(),
+                                label: "Adjusting datesâ€¦".to_string(),
                                 fraction: 0.4,
                             });
 
@@ -1761,7 +1761,7 @@ impl Runtime {
                             }
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Dates adjusted ✓".to_string(),
+                                label: "Dates adjusted âœ“".to_string(),
                                 fraction: 1.0,
                             });
 
@@ -1802,7 +1802,7 @@ impl Runtime {
                             let total_pairs = pairs.len();
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: format!("Running {total_pairs} transfer test pairs…"),
+                                label: format!("Running {total_pairs} transfer test pairsâ€¦"),
                                 fraction: 0.0,
                             });
 
@@ -1840,7 +1840,7 @@ impl Runtime {
 
                                 let _ = res_tx.send(JobResult::Progress {
                                     label: format!(
-                                        "Testing pair {}/{}: {} → {}",
+                                        "Testing pair {}/{}: {} â†’ {}",
                                         pair_idx + 1, total_pairs,
                                         source.file_stem().unwrap_or_default().to_string_lossy(),
                                         target.file_stem().unwrap_or_default().to_string_lossy(),
@@ -2003,7 +2003,7 @@ impl Runtime {
                         });
                     }
 
-                    // ── Document AI Version Management Handlers ──
+                    // â”€â”€ Document AI Version Management Handlers â”€â”€
                     Job::ListDocAiVersions => {
                         let res_tx = result_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
@@ -2140,7 +2140,7 @@ impl Runtime {
                     Job::RenderPage { path, page, dpi, tag } => {
                         let res_tx = result_tx_clone.clone();
                         let eng = engine_for_tokio.clone();
-                        
+
                         let (actual_path, actual_page) = if let Some(map) = &segment_map {
                             map.resolve(page).map(|(idx, p)| (map.segments[idx].path.clone(), p)).unwrap_or((path, page))
                         } else {
@@ -2153,8 +2153,8 @@ impl Runtime {
                             }));
                             match result {
                                 Ok(Ok(rendered)) => {
-                                    let _ = res_tx.send(JobResult::PageRendered { 
-                                        png_bytes: rendered.png_bytes, page, dpi, tag, width_pts: rendered.width_pts, height_pts: rendered.height_pts 
+                                    let _ = res_tx.send(JobResult::PageRendered {
+                                        png_bytes: rendered.png_bytes, page, dpi, tag, width_pts: rendered.width_pts, height_pts: rendered.height_pts
                                     });
                                 }
                                 Ok(Err(e)) => {
@@ -2184,7 +2184,7 @@ impl Runtime {
                         let py_tx = python_tx_clone.clone();
                         let res_tx = result_tx_clone.clone();
                         let cfg_clone = config_for_tokio.clone();
-                        
+
                         let map_opt = segment_map.clone();
                         let mgr_opt = segment_manager.as_ref().map(|m| m.temp_path().to_path_buf());
 
@@ -2194,7 +2194,7 @@ impl Runtime {
                             if deep_font_replication {
                                 let _ = res_tx.send(JobResult::Progress { label: "Deep Replicating Font...".to_string(), fraction: 0.2 });
                                 let (tx, rx) = oneshot::channel();
-                                
+
                                 // In three-page mode, we use the segment path for font replication analysis
                                 let analysis_path = if let Some(ref map) = map_opt {
                                     map.resolve(page).map(|(idx, _)| map.segments[idx].path.clone()).unwrap_or(input.clone())
@@ -2222,15 +2222,15 @@ impl Runtime {
                             let output_for_blocking = output.clone();
                             let new_text_for_blocking = new_text.clone();
                             let old_text_for_blocking = old_text.clone();
-                            
+
                             let outcome = tokio::task::spawn_blocking(move || {
                                 if let (Some(map), Some(temp_dir)) = (map_opt, mgr_opt) {
                                     let (seg_idx, local_page) = map.resolve(page)
                                         .ok_or_else(|| crate::pdf::EngineError::ApplyFailed(format!("Global page {page} not found in segment map")))?;
-                                    
+
                                     let seg_path = &map.segments[seg_idx].path;
                                     let temp_seg_out = temp_dir.join(format!("seg_{}_edited_{}.pdf", seg_idx, Uuid::new_v4()));
-                                    
+
                                     // 1. Apply to segment
                                     eng.apply_change(
                                         seg_path,
@@ -2241,16 +2241,16 @@ impl Runtime {
                                         &old_text_for_blocking,
                                         font_path.as_deref(),
                                     )?;
-                                    
+
                                     // 2. Overwrite segment file
                                     std::fs::rename(&temp_seg_out, seg_path)
                                         .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to update segment file: {e}")))?;
-                                    
+
                                     // 3. Merge all segments to final output
                                     let ordered_paths = map.ordered_merge_paths();
                                     crate::engine::pdf_split_merge::merge_pdfs(&ordered_paths, &output_for_blocking)
                                         .map_err(|e| crate::pdf::EngineError::ApplyFailed(format!("Failed to merge segments: {e}")))?;
-                                    
+
                                     Ok(ReplaceOutcome { success: true, font_used: "Helvetica".into(), overflow: false, obj_id: None })
                                 } else {
                                     eng.apply_change(
@@ -2401,7 +2401,7 @@ impl Runtime {
                                     return;
                                 }
                             };
-                            
+
                             let bank_stmt = match doc_ai.parse_entire_statement(&path, None).await {
                                 Ok(stmt) => stmt,
                                 Err(e) => {
@@ -2409,9 +2409,9 @@ impl Runtime {
                                     return;
                                 }
                             };
-                            
+
                             let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
-                            
+
                             let merger = crate::extractors::HybridMerger::new(vec![
                                 template_provider as Arc<dyn crate::extractors::GeometryProvider>,
                             ]);
@@ -2422,7 +2422,7 @@ impl Runtime {
                                     geometries.extend(geo);
                                 }
                             }
-                            
+
                             let report = merger.merge(bank_stmt.transactions, geometries);
                             let _ = res_tx.send(JobResult::TransactionsExtracted(report.transactions));
                         });
@@ -2432,32 +2432,32 @@ impl Runtime {
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
                         let semaphore = api_semaphore.clone();
-                        
+
                         tokio::spawn(async move {
                             let _permit = semaphore.acquire().await.unwrap();
                             let _ = res_tx.send(JobResult::Progress { label: "Smart Balance Analysis".to_string(), fraction: 0.1 });
-                            
+
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
                             let gemini = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg).ok().map(Arc::new);
 
                             // If both AI services are available, use the full smart engine
                             if let (Some(doc_ai), Some(gemini)) = (doc_ai, gemini) {
                                 let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
-                                
+
                                 let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
                                     template_provider as Arc<dyn crate::extractors::GeometryProvider>,
                                 ]));
 
                                 let mut smart_engine = crate::engine::statement::SmartDocumentEngine::new(eng.clone(), doc_ai, gemini, merger);
-                                
+
                                 let _ = res_tx.send(JobResult::Progress { label: "Loading Document".to_string(), fraction: 0.3 });
-                                
+
                                 let (dummy_tx, _) = std::sync::mpsc::channel();
                                 if let Err(e) = smart_engine.load_full_document(&dummy_tx, &path).await {
                                     let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Failed to load document: {e}") });
                                     return;
                                 }
-                                
+
                                 let _ = res_tx.send(JobResult::Progress { label: "Analyzing layout and semantic meaning".to_string(), fraction: 0.6 });
 
                                 match smart_engine.balance_entire_statement(&path).await {
@@ -2474,7 +2474,7 @@ impl Runtime {
                                     }
                                 }
                             } else {
-                                // ── Offline fallback: local balance analysis ─────────
+                                // â”€â”€ Offline fallback: local balance analysis â”€â”€â”€â”€â”€â”€â”€â”€â”€
                                 tracing::info!("[balance] AI services not configured; using offline balance analysis");
                                 let _ = res_tx.send(JobResult::Progress { label: "Using offline balance analysis (no AI)...".to_string(), fraction: 0.3 });
 
@@ -2532,7 +2532,7 @@ impl Runtime {
                         tokio::spawn(async move {
                             let _permit = semaphore.acquire().await.unwrap();
                             // Determine page count: cascaded balance changes
-                            // routinely land MANY pages from the edited row —
+                            // routinely land MANY pages from the edited row â€”
                             // often >3 pages away. A direct full-document apply
                             // would trip the PyMuPDF Pro 3-page guard, so for
                             // long statements we route through 3-Page-Mode:
@@ -2783,25 +2783,25 @@ impl Runtime {
                                 Arc::new(crate::app::config::AppConfig::default())
                             }
                         };
-                        
+
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::Progress { label: "Validating AI Credentials...".into(), fraction: 0.1 });
-                            
+
                             let gemini_res = match crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await {
                                 Ok(client) => client.ping().await.map_err(|e| e.to_string()),
                                 Err(e) => Err(e.to_string()),
                             };
-                            
+
                             let docai_res = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                 Ok(client) => client.ping().await.map_err(|e| e.to_string()),
                                 Err(e) => Err(e.to_string()),
                             };
-                            
+
                             let _ = res_tx.send(JobResult::ValidationStatus {
                                 gemini_ok: gemini_res,
                                 docai_ok: docai_res,
                             });
-                            
+
                             let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
                         });
                     }
@@ -2814,13 +2814,13 @@ impl Runtime {
 
                         tokio::spawn(async move {
                             let _permit = semaphore.acquire().await.unwrap();
-                            let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statement…".to_string(), fraction: 0.1 });
+                            let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statementâ€¦".to_string(), fraction: 0.1 });
 
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
                             let gemini = crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await.ok().map(Arc::new);
 
                             if let (Some(doc_ai), Some(gemini)) = (doc_ai, gemini) {
-                                // ── Online: full smart engine ──────────────────────
+                                // â”€â”€ Online: full smart engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                                 let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
                                 let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
                                     template_provider as Arc<dyn crate::extractors::GeometryProvider>,
@@ -2849,7 +2849,7 @@ impl Runtime {
                                                 new_text: c.new_text,
                                                 field: crate::engine::workflow::EditField::RunningBalance,
                                             }).collect();
-                                            
+
                                             let _ = job_tx_ref.send(Job::WorkflowConfirmAndRender {
                                                 input: input.clone(),
                                                 output: output.clone(),
@@ -2862,7 +2862,7 @@ impl Runtime {
                                                 visual_threshold: 0.02,
                                             });
                                         } else if changes.is_empty() {
-                                            let _ = res_tx.send(JobResult::Progress { label: "Already balanced — nothing to apply".to_string(), fraction: 1.0 });
+                                            let _ = res_tx.send(JobResult::Progress { label: "Already balanced â€” nothing to apply".to_string(), fraction: 1.0 });
                                         }
                                     }
                                     Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
@@ -2873,7 +2873,7 @@ impl Runtime {
                                     }
                                 }
                             } else {
-                                // ── Offline fallback: local balance + optional auto-apply ──
+                                // â”€â”€ Offline fallback: local balance + optional auto-apply â”€â”€
                                 tracing::info!("[balance_and_apply_all] AI not configured; using offline balance");
                                 let _ = res_tx.send(JobResult::Progress { label: "Using offline balance analysis (no AI)...".to_string(), fraction: 0.3 });
 
@@ -2940,7 +2940,7 @@ impl Runtime {
                                         visual_threshold: 0.02,
                                     });
                                 } else if changes.is_empty() {
-                                    let _ = res_tx.send(JobResult::Progress { label: "Already balanced — nothing to apply (offline)".to_string(), fraction: 1.0 });
+                                    let _ = res_tx.send(JobResult::Progress { label: "Already balanced â€” nothing to apply (offline)".to_string(), fraction: 1.0 });
                                 }
                             }
                         });
@@ -3062,11 +3062,11 @@ impl Runtime {
                                 stage: crate::engine::workflow::WorkflowStage::Parsing,
                             });
 
-                            // ─── Tier 1: Determine parsing strategy ───────────────────
+                            // â”€â”€â”€ Tier 1: Determine parsing strategy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                             use crate::app::config::DocumentParserMode;
 
                             let stmt = match parser_mode {
-                                // ── Document AI (online) ────────────────────────────
+                                // â”€â”€ Document AI (online) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                                 DocumentParserMode::DocumentAi => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
 
@@ -3104,7 +3104,7 @@ impl Runtime {
                                             match doc_ai.parse_smart_batch(&input, Some(&final_version), page_count).await {
                                                 Ok(s) => {
                                                     tracing::info!("[workflow] Parser version {} yielded {} transactions.", final_version, s.transactions.len());
-                                                    
+
                                                     // Phase 5: Fidelity Check (Strict Math Verification)
                                                     let mut retail_sum = s.opening_balance;
                                                     let mut formal_sum = s.opening_balance;
@@ -3118,7 +3118,7 @@ impl Runtime {
                                                     let retail_diff = (retail_sum - expected).abs();
                                                     let formal_diff = (formal_sum - expected).abs();
                                                     let one_cent = rust_decimal_macros::dec!(0.01);
-                                                    
+
                                                     if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
                                                         let msg = format!("AI Fidelity Math Check Failed. Expected Closing: {expected}, computed: {retail_sum} (retail) or {formal_sum} (formal).");
                                                         let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
@@ -3155,7 +3155,7 @@ impl Runtime {
                                             }
                                         }
                                         Err(e) => {
-                                            // Document AI not configured — auto-fallback to offline
+                                            // Document AI not configured â€” auto-fallback to offline
                                             tracing::warn!("[workflow] Document AI not configured: {e}; auto-falling back to offline parser");
                                             let _ = res_tx.send(JobResult::Progress { label: "Document AI not configured, using offline parser...".into(), fraction: 0.3 });
 
@@ -3182,7 +3182,7 @@ impl Runtime {
                                     }
                                 }
 
-                                // ── LlamaParse (online) ──────────────
+                                // â”€â”€ LlamaParse (online) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                                 DocumentParserMode::LlamaParse => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
 
@@ -3211,7 +3211,7 @@ impl Runtime {
                                     }
                                 }
 
-                                // ── Mindee Financial Document (online) ──────────────
+                                // â”€â”€ Mindee Financial Document (online) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                                 DocumentParserMode::MindeeFinDoc => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with Mindee (Financial Doc)...".into(), fraction: 0.2 });
 
@@ -3274,7 +3274,7 @@ impl Runtime {
                                             }
                                         }
                                         Err(e) => {
-                                            // Mindee not configured — auto-fallback to offline
+                                            // Mindee not configured â€” auto-fallback to offline
                                             tracing::warn!("[workflow] Mindee not configured: {e}; auto-falling back to offline parser");
                                             let _ = res_tx.send(JobResult::Progress { label: "Mindee not configured, using offline parser...".into(), fraction: 0.3 });
 
@@ -3301,7 +3301,7 @@ impl Runtime {
                                     }
                                 }
 
-                                // ── PyMuPDF built-in (offline) ──────────────────────
+                                // â”€â”€ PyMuPDF built-in (offline) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                                 DocumentParserMode::PyMuPdfBuiltin => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with PyMuPDF (offline)...".into(), fraction: 0.3 });
                                     let eng = engine_for_tokio.clone();
@@ -3325,7 +3325,7 @@ impl Runtime {
                                     }
                                 }
 
-                                // ── Local OCR (ocrs, offline, feature-gated) ────────
+                                // â”€â”€ Local OCR (ocrs, offline, feature-gated) â”€â”€â”€â”€â”€â”€â”€â”€
                                 DocumentParserMode::LocalOcrs => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with Local OCR (ocrs)...".into(), fraction: 0.3 });
 
@@ -3348,7 +3348,7 @@ impl Runtime {
                                                 crate::engine::offline_parser::parse_statement_from_geometry(&geometries, total_pages)
                                             }
                                             Ok(_) | Err(_) => {
-                                                // OCR produced nothing or failed — fallback to text layer
+                                                // OCR produced nothing or failed â€” fallback to text layer
                                                 tracing::warn!("[workflow] LocalOCR produced no results; falling back to PyMuPDF text extraction");
                                                 crate::engine::offline_parser::parse_statement_offline(&path, eng)
                                             }
@@ -3371,7 +3371,7 @@ impl Runtime {
                                 }
                             };
 
-                            // ─── AI Completeness Validation ───────────────────────────
+                            // â”€â”€â”€ AI Completeness Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                             // If AI provider is ManualOnly, skip Gemini validation entirely
                             use crate::app::config::AiProviderMode;
 
@@ -3485,7 +3485,7 @@ impl Runtime {
                         let audit_log_clone = audit_log.clone();
                         let map_opt = segment_map.clone();
                         let mgr_opt = segment_manager.as_ref().map(|m| m.temp_path().to_path_buf());
-                        
+
                         struct RollbackGuard {
                             output: std::path::PathBuf,
                             backup: std::path::PathBuf,
@@ -3578,12 +3578,12 @@ impl Runtime {
                                 }
 
                                 // Row-drift guard (pre-flight)
-                                // 
+                                //
                                 // Three-tier resilience:
-                                //   Tier 1: >=50% overlap → accept as-is (ideal)
-                                //   Tier 2: <50% overlap but spans exist → snap bbox
+                                //   Tier 1: >=50% overlap â†’ accept as-is (ideal)
+                                //   Tier 2: <50% overlap but spans exist â†’ snap bbox
                                 //           to the closest span by Y-midpoint and warn
-                                //   Tier 3: no spans at all → warn and proceed (PDF may
+                                //   Tier 3: no spans at all â†’ warn and proceed (PDF may
                                 //           be image-only; the edit will still apply via
                                 //           redaction)
                                 //
@@ -3596,7 +3596,7 @@ impl Runtime {
                                     let input_for_guard = input.clone();
                                     let edits_for_guard = edits.clone();
                                     let map_for_guard = map_opt.clone();
-                                    
+
                                     let drift_result = tokio::task::spawn_blocking(move || -> Vec<(usize, f32, Option<[f32; 4]>)> {
                                         let mut warnings = Vec::new();
                                         for (idx, e) in edits_for_guard.iter().enumerate() {
@@ -3611,7 +3611,7 @@ impl Runtime {
                                                 .unwrap_or_default();
 
                                             if blocks.is_empty() {
-                                                // Tier 3: no spans at all — image-only page
+                                                // Tier 3: no spans at all â€” image-only page
                                                 tracing::warn!(
                                                     "[ROW_DRIFT] Edit {} on page {}: no text spans found (image-only page?). Proceeding without guard.",
                                                     idx, e.page,
@@ -3629,7 +3629,7 @@ impl Runtime {
                                                 continue;
                                             }
 
-                                            // Tier 2: poor overlap — find nearest span by Y-midpoint
+                                            // Tier 2: poor overlap â€” find nearest span by Y-midpoint
                                             let edit_y_mid = (e.bbox[1] + e.bbox[3]) / 2.0;
                                             let nearest = blocks.iter()
                                                 .filter(|b| b.page == check_page)
@@ -3759,7 +3759,7 @@ impl Runtime {
                                 let cached_output = std::path::PathBuf::from("audit")
                                     .join("apply_cache")
                                     .join(format!("{edit_hash}.pdf"));
-                                
+
                                 let mut apply_result: Result<PythonJobResult, tokio::sync::oneshot::error::RecvError>;
 
                                 if cfg.engine_mode == crate::app::config::PdfEngineMode::TypstReconstruct {
@@ -3785,7 +3785,7 @@ impl Runtime {
                                             }
                                         }
                                     }
-                                    
+
                                     // 2. Recompute running balances using the same logic as preview
                                     if let Ok(recomputed) = crate::engine::balance::process_and_reconcile(working_transactions.clone(), opening_balance, expected_closing).map(|(r, _)| r) {
                                         working_transactions = recomputed;
@@ -3804,7 +3804,7 @@ impl Runtime {
                                         Err(e) => apply_result = Ok(PythonJobResult::Error(format!("Typst failed: {e}"))),
                                     }
                                 } else if let Some(ref map) = map_opt {
-                                    // 3-page mode: segmented batch apply. 
+                                    // 3-page mode: segmented batch apply.
                                     // Caching is bypassed in this mode for simplicity.
                                     let mut final_paths = Vec::new();
                                     let mut ok = true;
@@ -3837,11 +3837,11 @@ impl Runtime {
                                         let segment_edits = grouped.get(&i).cloned().unwrap_or_default();
                                         if !segment_edits.is_empty() {
                                             let temp_seg_out = mgr_opt.as_ref().unwrap().join(format!("seg_{}_batch_{}_{}.pdf", i, workflow_stamp, Uuid::new_v4()));
-                                            
+
                                             use crate::engine::number_format::format_like;
                                             use rust_decimal::Decimal;
                                             use std::str::FromStr;
-                                            
+
                                             let edits_json = serde_json::to_string(&segment_edits.iter().map(|e| {
                                                 let formatted = if e.old_text.chars().any(|c| c == '$' || c == ',' || c == '.') {
                                                     let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
@@ -4216,7 +4216,7 @@ impl Runtime {
                                     //
                                     // Short-circuit: if the perceptual diff is
                                     // essentially zero, skip the vision check
-                                    // entirely — there's nothing to flag.
+                                    // entirely â€” there's nothing to flag.
                                     if report.visual_diff_score < 0.001 {
                                         tracing::info!(
                                             "[workflow] Perceptual diff {:.6} is near-zero, skipping Gemini vision check",
@@ -4303,7 +4303,7 @@ impl Runtime {
                                 // Bail early to prevent OOM on large multi-page docs.
                                 if attempt >= 2 && last_score > 0.30 {
                                     tracing::warn!(
-                                        "[workflow] Visual diff {:.4} after {} attempts — structural issue detected. \
+                                        "[workflow] Visual diff {:.4} after {} attempts â€” structural issue detected. \
                                          Accepting early to prevent memory exhaustion. Manual review required.",
                                         last_score, attempt
                                     );
@@ -4326,7 +4326,7 @@ impl Runtime {
                                     } else {
                                         tracing::warn!(
                                             "[workflow] Accepting render after {} attempts with HIGH visual diff score {:.4}. \
-                                             The output may have visual artifacts — manual review strongly recommended.",
+                                             The output may have visual artifacts â€” manual review strongly recommended.",
                                             attempt, last_score
                                         );
                                     }
@@ -4343,7 +4343,7 @@ impl Runtime {
                             // of the final check so the user sees movement
                             // during the (often slow) DocAI re-parse.
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Final math check: re-parsing rendered output with Document AI…".into(),
+                                label: "Final math check: re-parsing rendered output with Document AIâ€¦".into(),
                                 fraction: 0.95,
                             });
 
@@ -4361,19 +4361,19 @@ impl Runtime {
                                                 Ok(p) => {
                                                     final_imbalance = p.final_imbalance;
                                                     let is_valid = p.balanced;
-                                                    
+
                                                     // Double-verify with Gemini (advisory only)
                                                     if is_valid {
                                                         if let Ok(gemini) = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
                                                             let tx_json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
                                                             let _ = res_tx.send(JobResult::Progress {
-                                                                label: "Double-verifying math with Gemini…".into(),
+                                                                label: "Double-verifying math with Geminiâ€¦".into(),
                                                                 fraction: 0.98,
                                                             });
                                                             let opening_f64 = crate::engine::model::dec_to_f64(opening);
                                                             if let Ok(is_sound) = gemini.verify_statement_mathematics(&tx_json, opening_f64).await {
                                                                 if !is_sound {
-                                                                    // Advisory only — log but do NOT override engine result.
+                                                                    // Advisory only â€” log but do NOT override engine result.
                                                                     // The engine balance check is deterministic; Gemini
                                                                     // re-parse can produce different transaction counts.
                                                                     tracing::warn!("[workflow] Gemini flagged mathematics as unsound, but engine approved it. Treating as advisory.");
@@ -4433,7 +4433,7 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
 
                             // Stage 4 / Item #13: refine the matched bank template
-                            // from the actual edited bboxes. Background task — we
+                            // from the actual edited bboxes. Background task â€” we
                             // don't block completion on it, just fire and log.
                             let edits_for_learn = edits.clone();
                             let input_for_learn = input.clone();

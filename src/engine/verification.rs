@@ -178,15 +178,15 @@ fn gradient_magnitude(g: &GrayImage) -> GrayImage {
 fn mean_ssim(a: &GrayImage, b: &GrayImage, exclude: &[(u32, u32, u32, u32)]) -> f64 {
     // We want to compute SSIM but completely ignore the regions in `exclude`.
     // The `image-compare` crate computes a global SSIM map.
-    // If we mask out the exclude rects by replacing them with the exact same 
+    // If we mask out the exclude rects by replacing them with the exact same
     // baseline color in BOTH images, they will perfectly match and contribute
     // a 1.0 to the SSIM score for those regions, diluting the score (but correctly
     // neutralizing differences inside the intended edit region).
-    // For a more accurate "outside only" score without dilution, we should 
+    // For a more accurate "outside only" score without dilution, we should
     // compute SSIM and filter the per-pixel score map if the crate allows it.
     // But as a robust baseline that works out-of-the-box, masking works perfectly
     // to ensure intended edits don't cause failures.
-    
+
     let mut masked_a = a.clone();
     let mut masked_b = b.clone();
     for &(x0, y0, x1, y1) in exclude {
@@ -200,7 +200,11 @@ fn mean_ssim(a: &GrayImage, b: &GrayImage, exclude: &[(u32, u32, u32, u32)]) -> 
         }
     }
 
-    match image_compare::gray_similarity_structure(&image_compare::Algorithm::MSSIMSimple, &masked_a, &masked_b) {
+    match image_compare::gray_similarity_structure(
+        &image_compare::Algorithm::MSSIMSimple,
+        &masked_a,
+        &masked_b,
+    ) {
         Ok(result) => result.score,
         Err(_) => 1.0,
     }
@@ -550,19 +554,22 @@ pub async fn verify_edit_pages_with_padding(
         let mut applitools_passed = true;
         if let Ok(applitools_key) = std::env::var("APPLITOOLS_API_KEY") {
             if !applitools_key.is_empty() {
-                let ignore_regions: Vec<_> = exclude_rects.iter().map(|&(x0, y0, x1, y1)| {
-                    serde_json::json!({
-                        "left": x0,
-                        "top": y0,
-                        "width": x1.saturating_sub(x0),
-                        "height": y1.saturating_sub(y0)
+                let ignore_regions: Vec<_> = exclude_rects
+                    .iter()
+                    .map(|&(x0, y0, x1, y1)| {
+                        serde_json::json!({
+                            "left": x0,
+                            "top": y0,
+                            "width": x1.saturating_sub(x0),
+                            "height": y1.saturating_sub(y0)
+                        })
                     })
-                }).collect();
-                
+                    .collect();
+
                 let ignore_json = serde_json::to_string(&ignore_regions).unwrap_or_default();
                 let app_name = "Bank Statement Modifier";
                 let test_name = format!("Visual Diff Page {}", i + 1);
-                
+
                 let out = std::process::Command::new("node")
                     .arg("src/ai/applitools_bridge.js")
                     .arg(&applitools_key)
@@ -572,14 +579,17 @@ pub async fn verify_edit_pages_with_padding(
                     .arg(&edit_png_path)
                     .arg(&ignore_json)
                     .output();
-                    
+
                 if let Ok(out) = out {
                     let stdout = String::from_utf8_lossy(&out.stdout);
                     for line in stdout.lines() {
                         if let Some(json_str) = line.strip_prefix("APPLITOOLS_RESULT:") {
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
                                 if let Some(passed) = v.get("passed").and_then(|p| p.as_bool()) {
-                                    tracing::info!("[verification] Applitools verification passed: {}", passed);
+                                    tracing::info!(
+                                        "[verification] Applitools verification passed: {}",
+                                        passed
+                                    );
                                     applitools_passed = passed;
                                 }
                             }
@@ -662,8 +672,9 @@ pub async fn verify_edit_pages_with_padding(
     // diverges structurally far beyond a faithful edit) so it strengthens the
     // gate against gross corruption/blank-page renders without flipping the
     // many legitimately-passing edits the tile gate already accepts.
-    let only_intended_changes =
-        max_tile_score < VISUAL_DIFF_THRESHOLD && min_ssim >= SSIM_FAILURE_FLOOR && all_applitools_passed;
+    let only_intended_changes = max_tile_score < VISUAL_DIFF_THRESHOLD
+        && min_ssim >= SSIM_FAILURE_FLOOR
+        && all_applitools_passed;
     // Report number favours the most sensitive signal we computed.
     let max_visual_score = max_tile_score.max(legacy_pixel_score);
 

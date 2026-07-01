@@ -64,21 +64,13 @@ fn all_150_setting_combinations_roundtrip_json() {
                         verification_renderer: *verifier,
                     };
                     let json = serde_json::to_string(&combo).unwrap_or_else(|e| {
-                        panic!(
-                            "Failed to serialize combo #{count}: {:?} — {e}",
-                            combo
-                        )
+                        panic!("Failed to serialize combo #{count}: {:?} — {e}", combo)
                     });
                     let back: SettingCombination =
                         serde_json::from_str(&json).unwrap_or_else(|e| {
-                            panic!(
-                                "Failed to deserialize combo #{count}: {json} — {e}",
-                            )
+                            panic!("Failed to deserialize combo #{count}: {json} — {e}",)
                         });
-                    assert_eq!(
-                        combo, back,
-                        "Roundtrip mismatch for combo #{count}: {json}"
-                    );
+                    assert_eq!(combo, back, "Roundtrip mismatch for combo #{count}: {json}");
                     count += 1;
                 }
             }
@@ -98,7 +90,10 @@ fn all_enum_variants_have_labels() {
     }
     for p in PARSERS {
         let label = p.label();
-        assert!(!label.is_empty(), "DocumentParserMode label empty for {p:?}");
+        assert!(
+            !label.is_empty(),
+            "DocumentParserMode label empty for {p:?}"
+        );
     }
     for a in AI_PROVIDERS {
         let label = a.label();
@@ -114,7 +109,10 @@ fn all_enum_variants_have_labels() {
 #[test]
 fn default_settings_are_expected() {
     assert_eq!(PdfEngineMode::default(), PdfEngineMode::Auto);
-    assert_eq!(DocumentParserMode::default(), DocumentParserMode::MindeeFinDoc);
+    assert_eq!(
+        DocumentParserMode::default(),
+        DocumentParserMode::MindeeFinDoc
+    );
     assert_eq!(AiProviderMode::default(), AiProviderMode::ManualOnly);
     assert_eq!(VerificationMode::default(), VerificationMode::LocalPdfium);
 }

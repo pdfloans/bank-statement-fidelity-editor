@@ -35,7 +35,7 @@ impl AppModals for MyApp {
 
                         self.draw_font_analysis_section(ui);
                         self.draw_workflow_section(ui);
-    
+
                         ui.collapsing("⚖ Smart Balance Engine", |ui| {
                             if ui.button("Analyze Document")
                                 .on_hover_text("Run Document AI + Gemini to find math errors and propose minimal adjustments")
@@ -74,7 +74,7 @@ impl AppModals for MyApp {
                                 }
                             }
                         });
-    
+
                         ui.collapsing("📊 Advanced Analytics & History", |ui| {
                             ui.collapsing("📈 Edit Trend", |ui| {
                                 let pts = self.balance_trend_points();
@@ -84,7 +84,7 @@ impl AppModals for MyApp {
                                     .show_axes([false, true])
                                     .show(ui, |plot_ui| plot_ui.line(line));
                             });
-    
+
                             ui.collapsing("🔄 Edit History", |ui| {
                                 ui.horizontal(|ui| {
                                     if ui.add_enabled(self.history_state.can_undo(), egui::Button::new("Undo")).clicked() {
@@ -99,7 +99,7 @@ impl AppModals for MyApp {
                                     ui.small(format!("[{}] P{} {} → {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
                                 }
                             });
-    
+
                             ui.collapsing("🔍 Verification", |ui| {
                                 if self.settings.advanced_mode {
                                     ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
@@ -133,11 +133,11 @@ impl AppModals for MyApp {
                                     ));
                                 }
                             });
-    
+
                             ui.collapsing("📤 Export Dashboard", |ui| {
                                 ui.label("Generate complete reports for the final output.");
                                 ui.add_space(8.0);
-                                
+
                                 ui.horizontal(|ui| {
                                     if ui.button("📊 Excel (.xlsx)").clicked() {
                                         self.export_to_excel();
@@ -152,13 +152,13 @@ impl AppModals for MyApp {
                                         self.toast(ToastKind::Info, "Bundling artifacts into ZIP...");
                                     }
                                 });
-                                
+
                                 ui.add_space(8.0);
                                 ui.label(egui::RichText::new("Export path:").strong());
                                 ui.text_edit_singleline(&mut self.export_path);
                             });
                         });
-    
+
                         ui.collapsing("⚙ Settings", |ui| {
                             ui.horizontal(|ui| {
                                 ui.label("Theme:");
@@ -226,11 +226,11 @@ impl AppModals for MyApp {
                                     }
                                 }
                             }
-    
+
                             ui.add_space(10.0);
                             self.draw_api_keys_editor(ui);
                         });
-    
+
                         ui.collapsing("⌨ Keybinds", |ui| {
                             ui.label("Ctrl+O : Open PDF");
                             ui.label("Ctrl+Z / Ctrl+Y : Undo / Redo");
@@ -242,7 +242,7 @@ impl AppModals for MyApp {
                                 self.toast(ToastKind::Info, "Keybinds reset to default.");
                             }
                         });
-    
+
                         ui.collapsing("🔠 Custom Fonts", |ui| {
                             ui.label("Drag and drop .ttf or .otf files here to override Document AI.");
                             let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 60.0));
@@ -253,7 +253,7 @@ impl AppModals for MyApp {
                                     ui.label(egui::RichText::new("Drop fonts here").color(self.settings.theme.palette().weak).size(16.0));
                                 });
                             });
-                            
+
                             if ctx.input(|i| !i.raw.dropped_files.is_empty()) {
                                 // Dummy logic for now until native backend is wired
                                 self.toast(ToastKind::Success, "Custom font embedded successfully.");
@@ -435,10 +435,10 @@ impl AppModals for MyApp {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
-    
+
                     ui.heading("Transfer transactions between statements");
                     ui.separator();
-    
+
                     ui.label("Source Statement PDF (transactions to take):");
                     ui.horizontal(|ui| {
                         ui.text_edit_singleline(&mut self.transfer_source_path);
@@ -451,7 +451,7 @@ impl AppModals for MyApp {
                             }
                         }
                     });
-    
+
                     ui.add_space(4.0);
                     ui.label("Target Statement PDF (format to use):");
                     let target_display = if self.input_path.is_empty() {
@@ -464,18 +464,18 @@ impl AppModals for MyApp {
                             .color(self.settings.theme.palette().text)
                             .monospace(),
                     );
-    
+
                     ui.add_space(8.0);
                     ui.separator();
-    
+
                     let source_ok = !self.transfer_source_path.is_empty()
                         && std::path::Path::new(&self.transfer_source_path).exists();
                     let target_ok = !self.input_path.is_empty()
                         && std::path::Path::new(&self.input_path).exists();
-    
+
                     ui.horizontal(|ui| {
                         let can_start = source_ok && target_ok;
-    
+
                         let btn = ui.add_enabled(
                             can_start,
                             egui::Button::new(
@@ -492,7 +492,7 @@ impl AppModals for MyApp {
                                 self.settings.theme.palette().panel
                             }),
                         );
-    
+
                         if btn.clicked() {
                             let source = std::path::PathBuf::from(&self.transfer_source_path);
                             let target = std::path::PathBuf::from(&self.input_path);
@@ -504,7 +504,7 @@ impl AppModals for MyApp {
                             } else {
                                 std::path::PathBuf::from(&self.output_path)
                             };
-    
+
                             let _ = self.job_tx.send(Job::TransferTransactions {
                                 source_pdf: source,
                                 target_pdf: target,
@@ -515,12 +515,12 @@ impl AppModals for MyApp {
                             self.toast(ToastKind::Info, "Transaction transfer started — this may take 2–3 minutes.");
                             self.show_transfer_dialog = false;
                         }
-    
+
                         if ui.button("Cancel").clicked() {
                             self.show_transfer_dialog = false;
                         }
                     });
-    
+
                     if !source_ok && !self.transfer_source_path.is_empty() {
                         ui.colored_label(
                             self.settings.theme.palette().warn,
@@ -546,17 +546,17 @@ impl AppModals for MyApp {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
-    
+
                     ui.heading("Shift or remap all transaction dates");
                     ui.separator();
-    
+
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut self.date_adjust_mode_shift, true, "Shift by days");
                         ui.radio_value(&mut self.date_adjust_mode_shift, false, "Remap period");
                     });
-    
+
                     ui.add_space(4.0);
-    
+
                     if self.date_adjust_mode_shift {
                         ui.horizontal(|ui| {
                             ui.label("Days to shift:");
@@ -577,20 +577,20 @@ impl AppModals for MyApp {
                             ui.text_edit_singleline(&mut self.date_adjust_to);
                         });
                     }
-    
+
                     ui.add_space(8.0);
                     ui.separator();
-    
+
                     let has_input = !self.input_path.is_empty();
-    
+
                     ui.horizontal(|ui| {
                         let btn = ui.add_enabled(has_input, egui::Button::new("▶ Apply Date Adjustment")
                             .fill(if has_input { self.settings.theme.palette().accent } else { self.settings.theme.palette().panel }));
-    
+
                         if btn.clicked() {
                             let input = std::path::PathBuf::from(&self.input_path);
                             let output = Self::safe_output_path(&input, "dates");
-    
+
                             let mode = if self.date_adjust_mode_shift {
                                 let days: i64 = self.date_adjust_shift_days.parse().unwrap_or(0);
                                 crate::engine::date_adjust::DateAdjustMode::ShiftDays(days)
@@ -606,19 +606,19 @@ impl AppModals for MyApp {
                                     to_start: to,
                                 }
                             };
-    
+
                             let _ = self.job_tx.send(Job::AdjustDatePeriods { input, output, mode });
                             self.in_flight += 1;
                             self.status = "Adjusting dates…".into();
                             self.toast(ToastKind::Info, "Date adjustment started.");
                             self.show_date_adjust_dialog = false;
                         }
-    
+
                         if ui.button("Cancel").clicked() {
                             self.show_date_adjust_dialog = false;
                         }
                     });
-    
+
                     if !has_input {
                         ui.colored_label(self.settings.theme.palette().warn, "⚠ Load a PDF first");
                     }
@@ -631,17 +631,17 @@ impl AppModals for MyApp {
             if let Some(confirmation) = self.pending_ai_confirmations.first().cloned() {
                 let mut responded = false;
                 let mut selected = 0usize;
-    
+
                 egui::Window::new("🤖 AI Needs Your Input")
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                     .show(ctx, |ui| {
                         ui.spacing_mut().item_spacing.y = 8.0;
-    
+
                         ui.heading(&confirmation.question);
                         ui.separator();
-    
+
                         ui.label(
                             egui::RichText::new(format!("Context: {}", confirmation.context))
                                 .small()
@@ -656,9 +656,9 @@ impl AppModals for MyApp {
                                     self.settings.theme.palette().weak
                                 }),
                         );
-    
+
                         ui.add_space(8.0);
-    
+
                         for (i, option) in confirmation.options.iter().enumerate() {
                             let is_default = confirmation.default_answer == Some(i);
                             let label = if is_default {
@@ -672,7 +672,7 @@ impl AppModals for MyApp {
                             }
                         }
                     });
-    
+
                 if responded {
                     let response = crate::engine::ai_confirm::AiConfirmationResponse {
                         id: confirmation.id,
@@ -695,11 +695,11 @@ impl AppModals for MyApp {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
-    
+
                     ui.heading("Cross-Statement Transfer Tests");
                     ui.label("Select PDFs to test all N×(N−1) transfer directions:");
                     ui.separator();
-    
+
                     // List current paths
                     let mut to_remove: Option<usize> = None;
                     for (i, path) in self.transfer_test_paths.iter().enumerate() {
@@ -718,7 +718,7 @@ impl AppModals for MyApp {
                     if let Some(idx) = to_remove {
                         self.transfer_test_paths.remove(idx);
                     }
-    
+
                     if ui.button("➕ Add PDF…").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("PDF", &["pdf"])
@@ -727,19 +727,19 @@ impl AppModals for MyApp {
                             self.transfer_test_paths.push(path.to_string_lossy().to_string());
                         }
                     }
-    
+
                     let n = self.transfer_test_paths.len();
                     let pairs = if n >= 2 { n * (n - 1) } else { 0 };
                     ui.label(format!("{} statements → {} test pairs", n, pairs));
-    
+
                     ui.add_space(8.0);
                     ui.separator();
-    
+
                     ui.horizontal(|ui| {
                         let can_run = n >= 2;
                         let btn = ui.add_enabled(can_run, egui::Button::new("▶ Run All Tests")
                             .fill(if can_run { self.settings.theme.palette().accent } else { self.settings.theme.palette().panel }));
-    
+
                         if btn.clicked() {
                             let statements: Vec<std::path::PathBuf> = self.transfer_test_paths
                                 .iter()
@@ -753,25 +753,25 @@ impl AppModals for MyApp {
                             self.status = format!("Running {} transfer tests…", pairs);
                             self.toast(ToastKind::Info, &format!("Running {} transfer test pairs…", pairs));
                         }
-    
+
                         if ui.button("Close").clicked() {
                             self.show_transfer_test_dialog = false;
                         }
                     });
-    
+
                     // Show previous results if any
                     if let Some(report) = &self.transfer_test_report {
                         ui.add_space(8.0);
                         ui.separator();
                         ui.heading("Last Results");
-    
+
                         let color = if report.all_passed() {
                             egui::Color32::from_rgb(80, 200, 120)
                         } else {
                             self.settings.theme.palette().warn
                         };
                         ui.colored_label(color, report.summary());
-    
+
                         egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                             for r in &report.results {
                                 let icon = if r.converged && r.final_math_ok { "✅" } else { "❌" };
@@ -801,7 +801,7 @@ impl AppModals for MyApp {
             ui.collapsing("🔑 API keys & credentials", |ui| {
                 ui.small("Stored in .env (gitignored). Applied live — no restart needed.");
                 ui.add_space(4.0);
-    
+
                 egui::Grid::new("api_keys_grid")
                     .num_columns(2)
                     .spacing([8.0, 6.0])
@@ -814,28 +814,28 @@ impl AppModals for MyApp {
                         )
                         .on_hover_text("AI Studio key (AIza…). Used for completeness + vision checks.");
                         ui.end_row();
-    
+
                         ui.label("Gemini auth mode:");
                         ui.horizontal(|ui| {
                             ui.selectable_value(&mut self.edit_gemini_use_vertex, false, "API key");
                             ui.selectable_value(&mut self.edit_gemini_use_vertex, true, "Vertex AI");
                         });
                         ui.end_row();
-    
+
                         ui.label("Doc AI project ID:");
                         ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
                         ui.end_row();
-    
+
                         ui.label("Doc AI location:");
                         ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
                             .on_hover_text("e.g. 'us' or 'eu' — must match the processor region.");
                         ui.end_row();
-    
+
                         ui.label("Doc AI processor ID:");
                         ui.add(egui::TextEdit::singleline(&mut self.edit_docai_processor_id).desired_width(220.0))
                             .on_hover_text("The Bank Statement parser or Custom Extractor processor ID.");
                         ui.end_row();
-    
+
                         ui.label("Service account JSON:");
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
@@ -850,7 +850,7 @@ impl AppModals for MyApp {
                             }
                         });
                         ui.end_row();
-    
+
                         ui.label("Doc AI API key (opt):");
                         ui.add(
                             egui::TextEdit::singleline(&mut self.edit_docai_api_key)
@@ -859,7 +859,7 @@ impl AppModals for MyApp {
                         )
                         .on_hover_text("Optional Beta API key; takes precedence over OAuth/SA.");
                         ui.end_row();
-    
+
                         ui.label("PyMuPDF Pro key:");
                         ui.add(
                             egui::TextEdit::singleline(&mut self.edit_pymupdf_pro_key)
@@ -869,7 +869,7 @@ impl AppModals for MyApp {
                         .on_hover_text("24-char 'hFKt…' trial key enables per-segment Pro editing.");
                         ui.end_row();
                     });
-    
+
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if ui
@@ -915,7 +915,7 @@ impl AppModals for MyApp {
                         let _ = self.job_tx.send(Job::ValidateCredentials);
                     }
                 });
-    
+
                 // Live credential status reported by the runtime after the last
                 // Save & apply (Job::ReloadConfig → JobResult::ConfigReloaded).
                 if let Some((doc_ai, gemini, pro)) = self.config_status {
@@ -930,7 +930,7 @@ impl AppModals for MyApp {
                         ui.small(format!("Pro editing {}", mark(pro)));
                     });
                 }
-                
+
                 // Render the results of the active `Test Connections` job
                 if let Some((gemini_res, docai_res)) = &self.credential_validation_status {
                     ui.add_space(4.0);
