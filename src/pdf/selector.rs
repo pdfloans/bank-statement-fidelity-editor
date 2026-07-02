@@ -93,13 +93,15 @@ impl PdfEngineSelector {
             crate::app::config::PdfEngineMode::Auto
             | crate::app::config::PdfEngineMode::TypstReconstruct
             | crate::app::config::PdfEngineMode::DualConcurrent => {
+                // SOTA Robust Plan: Try PyMuPDF (primary) first for maximum fidelity editing.
+                // If the python bridge fails or throws an exception, seamlessly fallback to Native.
                 match operation(&*self.primary) {
                     Ok(result) => Ok(result),
                     Err(EngineError::Unsupported) => {
                         tracing::warn!(
                             engine.fallback_triggered = true,
                             primary_error = "Unsupported",
-                            "Primary engine unsupported, falling back"
+                            "PyMuPDF engine unsupported, falling back to Native engine"
                         );
                         operation(&*self.fallback)
                     }
@@ -107,9 +109,16 @@ impl PdfEngineSelector {
                         tracing::warn!(
                             engine.fallback_triggered = true,
                             primary_error = %e,
-                            "Primary engine failed, falling back"
+                            "PyMuPDF engine failed, falling back to Native engine"
                         );
-                        operation(&*self.fallback)
+                        let fallback_res = operation(&*self.fallback);
+                        match fallback_res {
+                            Ok(res) => Ok(res),
+                            Err(EngineError::ApplyFailed(ref msg)) if msg.contains("encrypt") || msg.contains("raster") || msg.contains("image") => {
+                                Err(EngineError::EncryptedOrRasterized(msg.clone()))
+                            }
+                            Err(err) => Err(err),
+                        }
                     }
                 }
             }

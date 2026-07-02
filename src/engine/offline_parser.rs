@@ -38,7 +38,15 @@ pub fn parse_statement_offline(
     let mut all_rows: Vec<RawRow> = Vec::new();
 
     for page in 0..total_pages {
-        let blocks = engine.get_text_blocks(pdf_path, page).unwrap_or_default();
+        let mut blocks = engine.get_text_blocks(pdf_path, page).unwrap_or_default();
+
+        #[cfg(feature = "ocr")]
+        {
+            if blocks.is_empty() {
+                tracing::info!("[offline_parser] No text found on page {}, falling back to OCR", page);
+                blocks = extract_text_via_ocr(pdf_path, page, engine.clone());
+            }
+        }
 
         // Cluster blocks into rows by y-coordinate proximity (±5pt)
         let mut current_y: Option<f32> = None;
@@ -445,4 +453,19 @@ mod tests {
         let acct = extract_account_number(&rows);
         assert_eq!(acct, Some("123456789".to_string()));
     }
+}
+
+#[cfg(feature = "ocr")]
+fn extract_text_via_ocr(pdf_path: &Path, page: usize, engine: Arc<dyn PdfEngine>) -> Vec<crate::pdf::TextBlock> {
+    tracing::info!("[offline_parser] Attempting to render page {} for OCR fallback...", page);
+    let _rendered = match engine.render_page(pdf_path, page, 300.0) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("[offline_parser] Failed to render page for OCR: {}", e);
+            return vec![];
+        }
+    };
+    
+    tracing::warn!("[offline_parser] OCR models not bundled in this environment. Scanned PDF fallback aborted.");
+    vec![]
 }

@@ -7,7 +7,7 @@ authors = ["Grok xAI"]
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["otel"]
+default = ["otel", "ocr"]
 dev = []
 # Recommendation #8: OTLP/OpenTelemetry export is opt-in. Enabled by default
 # for parity with previous behaviour, but can be disabled (e.g. for the
@@ -71,13 +71,12 @@ dark-light = "2.0.0"
 
 # ── Pure Rust Stack (Phase 0) ──
 # PDF Core
-oxidize-pdf = "0.1"
 # pdf-writer already present above
 
 # Typography & Shaping
 skrifa = "0.26"
 write-fonts = "0.35"
-rustybuzz = "0.20"
+
 ttf-parser = "0.25"
 
 # Data & Math
@@ -104,6 +103,7 @@ rten-tensor = { version = "0.24", optional = true }
 typst = "0.14.0"
 subsetter = "0.2.6"
 image-compare = "0.5.0"
+rustybuzz = "0.20.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

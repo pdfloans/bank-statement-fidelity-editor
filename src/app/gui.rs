@@ -213,8 +213,6 @@ pub struct AppSettings {
     pub show_welcome: bool,
     #[serde(default)]
     pub webhook_url: String,
-    #[serde(default)]
-    pub llamaparse_api_key: String,
     /// Master toggle for "3 Page Mode" â€” the DEFAULT operating mode.
     /// When true, opened PDFs are transparently split into <=3-page
     /// segments for Pro editing and re-merged on save. Defaults to TRUE,
@@ -256,7 +254,6 @@ impl Default for AppSettings {
             deep_font_replication: false,
             show_welcome: true,
             webhook_url: String::new(),
-            llamaparse_api_key: String::new(),
             three_page_mode: true,
             advanced_mode: false,
             remote_engine_url: String::new(),
@@ -1077,7 +1074,7 @@ impl eframe::App for MyApp {
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.status = "âŒ Runtime worker disconnected".into();
+                    self.status = "â Œ Runtime worker disconnected".into();
                     self.in_flight = 0; // Bulletproof fix: reset on disconnect
                     break;
                 }
@@ -1414,7 +1411,7 @@ impl MyApp {
             }
             JobResult::Error { job_label, message } => {
                 self.progress = None;
-                self.status = format!("âŒ [{job_label}] {message}");
+                self.status = format!("â Œ [{job_label}] {message}");
                 self.toast(ToastKind::Error, format!("[{job_label}] {message}"));
 
                 // Autofix interception
@@ -1725,8 +1722,14 @@ impl MyApp {
             }
             JobResult::DocAiVersionError(msg) => {
                 self.docai_versions_loading = false;
-                self.docai_training_status = Some(format!("âŒ {msg}"));
+                self.docai_training_status = Some(format!("â Œ {msg}"));
                 self.toast(ToastKind::Error, &msg);
+            }
+            JobResult::NuclearFallbackRequired(msg) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                self.status = format!("Nuclear Fallback Required: {}", msg);
+                let toast_msg = self.status.clone();
+                self.toast(ToastKind::Error, &toast_msg);
             }
         }
     }
@@ -1759,7 +1762,7 @@ impl MyApp {
                         }
                         ui.close_menu();
                     }
-                    if ui.button("â¯ Resume last session").clicked() {
+                    if ui.button("â ¯ Resume last session").clicked() {
                         let auto = std::path::PathBuf::from("audit").join("history.json");
                         if auto.exists() {
                             let _ = self.job_tx.send(Job::LoadHistory {
@@ -1859,10 +1862,10 @@ impl MyApp {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("âš™ï¸ Settings & Tools").clicked() {
+                    if ui.button("âš™ï¸  Settings & Tools").clicked() {
                         self.show_settings_modal = true;
                     }
-                    if self.settings.advanced_mode && ui.button("ðŸŒ Remote Engine").clicked() {
+                    if self.settings.advanced_mode && ui.button("ðŸŒ  Remote Engine").clicked() {
                         // Stub for remote engine connect
                         if self.settings.remote_engine_url.is_empty() {
                             self.settings.remote_engine_url =
@@ -2009,7 +2012,7 @@ impl MyApp {
 
     fn draw_settings_modal(&mut self, ctx: &egui::Context) {
         let mut open = self.show_settings_modal;
-        egui::Window::new("âš™ï¸ Settings & Tools")
+        egui::Window::new("âš™ï¸  Settings & Tools")
             .open(&mut open)
             .default_size(egui::vec2(380.0, 500.0))
             .vscroll(true)
@@ -2081,7 +2084,7 @@ impl MyApp {
                             }
                         });
 
-                        ui.collapsing("ðŸ” Verification", |ui| {
+                        ui.collapsing("ðŸ”  Verification", |ui| {
                             if self.settings.advanced_mode {
                                 ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
                             }
@@ -2109,7 +2112,7 @@ impl MyApp {
                             if let Some(report) = &self.last_verification {
                                 ui.label(format!(
                                     "Math {} / Visual {:.4}",
-                                    if report.math_valid { "âœ…" } else { "âŒ" },
+                                    if report.math_valid { "âœ…" } else { "â Œ" },
                                     report.visual_diff_score
                                 ));
                             }
@@ -2188,9 +2191,6 @@ impl MyApp {
                         ui.label("Webhook (optional):");
                         ui.text_edit_singleline(&mut self.settings.webhook_url)
                             .on_hover_text("POST a JSON payload to this URL on each successful edit");
-                        ui.label("LlamaParse API key:");
-                        ui.add(egui::TextEdit::singleline(&mut self.settings.llamaparse_api_key).password(true))
-                            .on_hover_text("Used only if Gemini fails");
                         if ui.button("Save settings").on_hover_text("Persist these settings on disk").clicked() {
                             // On persistence failure, the in-memory `self.settings`
                             // is left untouched by confy::store, so we retain the
@@ -2640,7 +2640,7 @@ impl MyApp {
                                 let icon = if r.converged && r.final_math_ok {
                                     "âœ…"
                                 } else {
-                                    "âŒ"
+                                    "â Œ"
                                 };
                                 let src =
                                     r.source.file_stem().unwrap_or_default().to_string_lossy();

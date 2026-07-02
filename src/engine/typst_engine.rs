@@ -11,6 +11,7 @@ pub enum TypstEngineError {
     Subsetting(String),
 }
 
+#[derive(Default)]
 pub struct TypstEngine;
 
 impl TypstEngine {
@@ -32,14 +33,35 @@ impl TypstEngine {
         let typ_path = temp_dir.join("statement.typ");
         std::fs::write(&typ_path, &typ_markup)?;
 
-        // Font subsetting simulation (placeholder for the subsetter pipeline)
-        // In a full implementation, we extract TTF from the source PDF, determine all characters
-        // used in `typ_markup`, and use the `subsetter` crate to generate minimal .ttf files
-        // to embed in the Typst compilation.
+        // Font subsetting using pure Rust `subsetter`
         tracing::info!(
             "[typst_engine] Subsetting fonts for reconstructed document ({} transactions)",
             statement.transactions.len()
         );
+
+        let font_path = std::path::PathBuf::from("assets/bank_font.ttf");
+        if font_path.exists() {
+            let font_data = std::fs::read(&font_path)?;
+            if let Ok(face) = ttf_parser::Face::parse(&font_data, 0) {
+                let mut glyphs = vec![];
+                for ch in typ_markup.chars() {
+                    if let Some(glyph_id) = face.glyph_index(ch) {
+                        glyphs.push(glyph_id.0 as u16);
+                    }
+                }
+                let mapper = subsetter::GlyphRemapper::new_from_glyphs_sorted(&glyphs);
+
+                if let Ok(subset) = subsetter::subset(&font_data, 0, &mapper) {
+                    let subset_path = temp_dir.join("bank_font_subset.ttf");
+                    std::fs::write(&subset_path, subset)?;
+                    tracing::info!("[typst_engine] Font successfully subsetted and saved to {:?}", subset_path);
+                } else {
+                    tracing::warn!("[typst_engine] Subsetter failed, relying on default font embedding");
+                }
+            }
+        } else {
+            tracing::warn!("[typst_engine] Source font not found at {:?}", font_path);
+        }
 
         // Note: Full programmatic Typst compilation requires implementing the `World` trait
         // which provides fonts, files, and standard library primitives.

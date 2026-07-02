@@ -3,6 +3,7 @@ pub mod balance;
 pub mod date_adjust;
 pub mod font_analysis;
 pub mod font_replication;
+pub mod font_shaping;
 pub mod history;
 pub mod layout;
 pub mod model;
@@ -12,7 +13,7 @@ pub mod pdf_split_merge;
 pub mod resource_check;
 pub mod segments;
 pub mod statement;
-pub mod text_editor;
+
 pub mod transfer;
 pub mod transfer_test_harness;
 pub mod typst_engine;

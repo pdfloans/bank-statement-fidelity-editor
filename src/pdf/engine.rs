@@ -18,6 +18,8 @@ pub enum EngineError {
     LayoutFailed(String),
     #[error("Font subset does not cover required characters: {0}")]
     FontCoverageMissing(String),
+    #[error("PDF is an encrypted/image scan, editing in place failed: {0}")]
+    EncryptedOrRasterized(String),
     /// The bbox supplied to `apply_change` doesn't sufficiently overlap any
     /// real text span on the page. This guards against editing the wrong row
     /// when the document has multiple cells with the same value (e.g. a

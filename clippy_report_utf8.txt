@@ -1,0 +1,8 @@
+﻿cargo :     Checking dual-core-pdf-pipeline v0.5.0 (C:\Users\home\Desktop\combined bank statement and metadata 
+cloner\bank statement modifier)
+At line:1 char:1
++ cargo clippy --all-targets --all-features -- -D warnings > clippy_rep ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Checking du...ement modifier):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

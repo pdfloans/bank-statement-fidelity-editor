@@ -207,10 +207,6 @@ impl AppModals for MyApp {
                             ui.label("Webhook (optional):");
                             ui.text_edit_singleline(&mut self.settings.webhook_url)
                                 .on_hover_text("POST a JSON payload to this URL on each successful edit");
-                            ui.label("LlamaParse API key:");
-                            ui.add(egui::TextEdit::singleline(&mut self.settings.llamaparse_api_key).password(true))
-                                .on_hover_text("Required for LlamaParse extraction mode. Get it from cloud.llamaindex.ai");
-                                .on_hover_text("Used only if Gemini fails");
                             if ui.button("Save settings").on_hover_text("Persist these settings on disk").clicked() {
                                 // On persistence failure, the in-memory `self.settings`
                                 // is left untouched by confy::store, so we retain the
@@ -393,14 +389,6 @@ impl AppModals for MyApp {
                     ui.colored_label(
                         self.settings.theme.palette().warn,
                         "⚠ pdfRest selected but no API key configured.",
-                    );
-                }
-                if self.settings.document_parser == DocumentParserMode::LlamaParse && self.settings.llamaparse_api_key.is_empty() {
-                    ui.label(
-                        egui::RichText::new(
-                        "⚠ LlamaParse selected but no API key set in Settings → LlamaParse API key.",
-                        )
-                        .color(egui::Color32::YELLOW),
                     );
                 }
                 if self.settings.document_parser == DocumentParserMode::MindeeFinDoc && self.config.mindee_api_key.is_none() {

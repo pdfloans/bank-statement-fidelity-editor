@@ -230,6 +230,9 @@ fn test_all_au_statements() {
                 input: pdf.clone(),
                 output: output.clone(),
                 edits: vec![edit],
+                original_transactions: vec![],
+                opening_balance: rust_decimal::Decimal::ZERO,
+                expected_closing: None,
                 deep_font_replication: false,
                 max_visual_attempts: 5, // Increased from 3
                 visual_threshold: 0.05, // Relaxed from 0.02 for robustness

@@ -409,6 +409,7 @@ pub enum JobResult {
         job_label: String,
         message: String,
     },
+    NuclearFallbackRequired(String),
     Progress {
         label: String,
         fraction: f32,
@@ -2330,6 +2331,9 @@ impl Runtime {
                                     let _ = res_tx.send(JobResult::HistoryUpdated { history: h_final });
                                     let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
                                 }
+                                Err(crate::pdf::EngineError::EncryptedOrRasterized(msg)) => {
+                                    let _ = res_tx.send(JobResult::NuclearFallbackRequired(msg));
+                                }
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::Error { job_label: "apply_change".into(), message: e.to_string() });
                                 }
@@ -3178,35 +3182,7 @@ impl Runtime {
                                                     return;
                                                 }
                                             }
-                                        }
-                                    }
-                                }
 
-                                // â”€â”€ LlamaParse (online) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                                DocumentParserMode::LlamaParse => {
-                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
-
-                                    match crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
-                                        Ok(client) => {
-                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse: uploading document...".into(), fraction: 0.3 });
-
-                                            match client.parse_statement(&input).await {
-                                                Ok(s) => {
-                                                    tracing::info!("[workflow] LlamaParse yielded {} transactions.", s.transactions.len());
-                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse: {} transactions extracted", s.transactions.len()), fraction: 0.6 });
-                                                    s
-                                                }
-                                                Err(e) => {
-                                                    tracing::error!("[workflow] LlamaParse extraction failed: {e}");
-                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse extraction failed: {e}"), fraction: 0.0 });
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("[workflow] LlamaParse client init failed: {e}");
-                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse init failed (check API key)".into(), fraction: 0.0 });
-                                            return;
                                         }
                                     }
                                 }
@@ -4065,6 +4041,53 @@ impl Runtime {
                                         last_failure = Some(crate::engine::workflow::WorkflowFailure::Other(
                                             "apply_many_edits returned unexpected result".into(),
                                         ));
+                                    }
+                                }
+
+                                if !all_ok {
+                                    tracing::warn!("[workflow] All native/PyMuPDF edit engines failed! Falling back to TypstReconstruct as ultimate fail-safe.");
+                                    let mut working_transactions = original_transactions.clone();
+                                    for e in &edits {
+                                        if let Some(row) = working_transactions.iter_mut().find(|t| t.page == e.page && t.line_on_page == e.line_on_page) {
+                                            match e.field {
+                                                crate::engine::workflow::EditField::Date => row.date = e.new_text.clone(),
+                                                crate::engine::workflow::EditField::Description => row.raw_text = e.new_text.clone(),
+                                                crate::engine::workflow::EditField::Debit => {
+                                                    let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                                                    if let Ok(v) = std::str::FromStr::from_str(&cleaned) { row.debit = Some(v); row.credit = None; } else { row.debit = None; }
+                                                }
+                                                crate::engine::workflow::EditField::Credit => {
+                                                    let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                                                    if let Ok(v) = std::str::FromStr::from_str(&cleaned) { row.credit = Some(v); row.debit = None; } else { row.credit = None; }
+                                                }
+                                                crate::engine::workflow::EditField::RunningBalance => {
+                                                    let cleaned: String = e.new_text.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                                                    if let Ok(v) = std::str::FromStr::from_str(&cleaned) { row.running_balance = Some(v); }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if let Ok(recomputed) = crate::engine::balance::process_and_reconcile(working_transactions.clone(), opening_balance, expected_closing).map(|(r, _)| r) {
+                                        working_transactions = recomputed;
+                                    }
+                                    
+                                    let reconstructed_statement = crate::ai::document_ai::BankStatement {
+                                        transactions: working_transactions,
+                                        opening_balance,
+                                        closing_balance: expected_closing.unwrap_or(rust_decimal::Decimal::ZERO),
+                                        account_number: None,
+                                        total_pages: 1,
+                                    };
+                                    let typst_engine = crate::engine::typst_engine::TypstEngine::new();
+                                    match typst_engine.reconstruct_pdf(&reconstructed_statement, &output).await {
+                                        Ok(_) => {
+                                            tracing::info!("[workflow] TypstReconstruct ultimate fail-safe succeeded!");
+                                            all_ok = true; 
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("[workflow] TypstReconstruct also failed: {}", e);
+                                        }
                                     }
                                 }
 

@@ -62,9 +62,6 @@ pub enum AppError {
     #[error("AI error: {0}")]
     AI(#[from] AIError),
 
-    /// Lipi AI errors
-    #[error("Lipi AI error: {0}")]
-    LipiAI(#[from] LipiAIError),
 
     /// Document AI errors
     #[error("Document AI error: {0}")]
@@ -301,22 +298,6 @@ pub enum AIError {
     RateLimited,
 }
 
-/// Lipi AI errors
-#[derive(Error, Debug)]
-pub enum LipiAIError {
-    #[error("Missing API key: {0}")]
-    MissingApiKey(String),
-
-    #[error("Network error: {0}")]
-    Network(String),
-
-    #[error("API error: {0}")]
-    ApiError(String),
-
-    #[error("Serialization error: {0}")]
-    Serialization(String),
-}
-
 /// Document AI errors
 #[derive(Error, Debug)]
 pub enum DocumentAIError {
@@ -438,9 +419,6 @@ pub type TextEditResult<T> = std::result::Result<T, TextEditError>;
 
 /// Result type for AI operations
 pub type AIResult<T> = std::result::Result<T, AIError>;
-
-/// Result type for Lipi AI operations
-pub type LipiAIResult<T> = std::result::Result<T, LipiAIError>;
 
 /// Result type for Document AI operations
 pub type DocumentAIResult<T> = std::result::Result<T, DocumentAIError>;
