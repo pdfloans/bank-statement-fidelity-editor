@@ -10,7 +10,7 @@
     #v(0.5cm)
     #line(length: 100%, stroke: 1pt + luma(150))
   ],
-  footer: [
+  footer: context [
     #set text(8pt, fill: luma(100), font: "Helvetica")
     #align(center)[Page #counter(page).display("1 of 1", both: true)]
   ]

@@ -223,6 +223,20 @@ impl PyEngine {
         Self::safe_python_with_gil(|py| self.call_json(py, "analyze_document_layout", (pdf_path,)))
     }
 
+    pub fn extract_font(
+        &self,
+        pdf_path: &str,
+        output_path: &str,
+    ) -> Result<String, String> {
+        Self::safe_python_with_gil(|py| {
+            self.call_json(
+                py,
+                "extract_font",
+                (pdf_path, output_path),
+            )
+        })
+    }
+
     pub fn complete_font_with_adaption(
         &self,
         pdf_path: &str,

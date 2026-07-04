@@ -25,13 +25,38 @@ impl TypstEngine {
         statement: &BankStatement,
         output_path: &Path,
     ) -> Result<(), TypstEngineError> {
-        let typ_markup = self.generate_markup(statement);
-
         let temp_dir = std::env::temp_dir().join("typst_reconstruct");
         std::fs::create_dir_all(&temp_dir)?;
 
-        let typ_path = temp_dir.join("statement.typ");
-        std::fs::write(&typ_path, &typ_markup)?;
+        // Write the JSON data
+        let json_data = serde_json::json!({
+            "account_number": statement.account_number.as_deref().unwrap_or("XXXX-XXXX"),
+            "opening_balance": statement.opening_balance.to_string(),
+            "closing_balance": statement.closing_balance.to_string(),
+            "period": "Statement Period",
+            "transactions": statement.transactions.iter().map(|tx| {
+                serde_json::json!({
+                    "date": tx.date,
+                    "description": tx.raw_text,
+                    "debit": tx.debit.map(|d| d.to_string()),
+                    "credit": tx.credit.map(|c| c.to_string()),
+                    "balance": tx.running_balance.map(|b| b.to_string()),
+                })
+            }).collect::<Vec<_>>()
+        });
+
+        let json_path = temp_dir.join("data.json");
+        std::fs::write(&json_path, serde_json::to_string(&json_data).unwrap())?;
+
+        // Copy the template
+        let typ_path = temp_dir.join("generic_bank_statement.typ");
+        if Path::new("assets/generic_bank_statement.typ").exists() {
+            std::fs::copy("assets/generic_bank_statement.typ", &typ_path)?;
+        } else {
+            // Fallback inline if not found
+            let typ_markup = self.generate_markup(statement);
+            std::fs::write(&typ_path, &typ_markup)?;
+        }
 
         // Font subsetting using pure Rust `subsetter`
         tracing::info!(
@@ -44,7 +69,8 @@ impl TypstEngine {
             let font_data = std::fs::read(&font_path)?;
             if let Ok(face) = ttf_parser::Face::parse(&font_data, 0) {
                 let mut glyphs = vec![];
-                for ch in typ_markup.chars() {
+                let all_text = serde_json::to_string(&json_data).unwrap_or_default();
+                for ch in all_text.chars() {
                     if let Some(glyph_id) = face.glyph_index(ch) {
                         glyphs.push(glyph_id.0 as u16);
                     }
@@ -69,15 +95,17 @@ impl TypstEngine {
         // We added `typst` to Cargo.toml so we can theoretically compile it in-process, but
         // bootstrapping the default fonts and `World` is complex.
 
-        let out = std::process::Command::new("typst")
-            .arg("compile")
+        let out = std::process::Command::new("python")
+            .arg("-c")
+            .arg("import typst, sys; typst.compile(sys.argv[1], output=sys.argv[2], root=sys.argv[3])")
             .arg(&typ_path)
             .arg(output_path)
+            .arg(&temp_dir)
             .output();
 
         match out {
             Ok(output) if output.status.success() => {
-                tracing::info!("[typst_engine] Successfully compiled PDF via Typst");
+                tracing::info!("[typst_engine] Successfully compiled PDF via Python Typst");
                 Ok(())
             }
             Ok(output) => {
@@ -85,9 +113,9 @@ impl TypstEngine {
                 Err(TypstEngineError::Typst(err.to_string()))
             }
             Err(e) => {
-                // Typst CLI not found, fallback to just writing the file
+                // Python / Typst not found, fallback to just writing the file
                 tracing::warn!(
-                    "[typst_engine] Typst CLI not found, saving .typ file only: {}",
+                    "[typst_engine] Python/Typst compilation failed, saving .typ file only: {}",
                     e
                 );
                 std::fs::copy(&typ_path, output_path)?;

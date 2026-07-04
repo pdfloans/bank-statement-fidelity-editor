@@ -3242,6 +3242,43 @@ def dry_run_edit_preview(
         doc.close()
 
 
+def extract_font_with_fonttools(pdf_path: str, output_path: str):
+    import pymupdf
+    import os
+    try:
+        from fontTools.ttLib import TTFont
+        from io import BytesIO
+    except ImportError:
+        return {"success": False, "error": "fonttools not installed"}
+    
+    doc = pymupdf.open(pdf_path)
+    font_buffer = None
+    # find first embedded font
+    for page in doc:
+        for f in page.get_fonts():
+            xref = f[0]
+            try:
+                name, ext, _, buffer = doc.extract_font(xref)
+                if buffer:
+                    font_buffer = buffer
+                    break
+            except:
+                pass
+        if font_buffer:
+            break
+    doc.close()
+    
+    if not font_buffer:
+        return {"success": False, "error": "No embedded font found"}
+        
+    try:
+        # Load with fonttools to ensure it's a valid TTF/OTF and normalize it for rustybuzz
+        tt = TTFont(BytesIO(font_buffer))
+        tt.save(output_path)
+        return {"success": True, "font_path": output_path}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         # Self-check for analyze_background slicing logic
@@ -3284,6 +3321,12 @@ if __name__ == "__main__":
         pdf_path = sys.argv[2]
         font_name = sys.argv[3]
         result = complete_font_with_adaption_fallback(pdf_path, font_name)
+        print(json.dumps(result))
+
+    elif command == "extract_font":
+        pdf_path = sys.argv[2]
+        output_path = sys.argv[3]
+        result = extract_font_with_fonttools(pdf_path, output_path)
         print(json.dumps(result))
 
     elif command == "deep_font_replication":
@@ -3386,3 +3429,65 @@ def remove_pages(pdf_path: str, output_path: str, page_indices: list):
     new_count = doc.page_count
     doc.close()
     return {"success": True, "removed": removed, "new_page_count": new_count}
+
+
+def extract_font(pdf_path: str, output_path: str, font_name: str = ""):
+    """Extract a font from a PDF and save it as a valid TTF/OTF using fonttools."""
+    import io
+    from fontTools.ttLib import TTFont
+    
+    _ensure_pro_unlocked(pdf_path)
+    doc = pymupdf.open(pdf_path)
+    target_xref = None
+    
+    for page in doc:
+        try:
+            fonts = page.get_fonts(full=True)
+        except Exception:
+            continue
+        for f in fonts:
+            basefont = (f[3] or "").lower()
+            alias = (f[4] or "").lower()
+            needle = (font_name or "").lower()
+            if not needle or (needle in basefont or needle == alias or basefont.endswith("+" + needle)):
+                target_xref = f[0]
+                break
+        if target_xref:
+            break
+            
+    if not target_xref:
+        doc.close()
+        return {"success": False, "error": f"Font '{font_name}' not found in document"}
+        
+    try:
+        font_info = doc.extract_font(target_xref)
+    except Exception as e:
+        doc.close()
+        return {"success": False, "error": f"Failed to extract font {font_name}: {e}"}
+        
+    content = None
+    if isinstance(font_info, dict):
+        content = font_info.get("content")
+    elif isinstance(font_info, (tuple, list)) and len(font_info) >= 4:
+        for item in reversed(font_info):
+            if isinstance(item, (bytes, bytearray)) and len(item) > 0:
+                content = bytes(item)
+                break
+                
+    doc.close()
+    
+    if not content:
+        return {"success": False, "error": f"Could not get buffer for font '{font_name}'"}
+        
+    try:
+        font = TTFont(io.BytesIO(content))
+        font.save(output_path)
+        return {"success": True, "output_path": output_path, "xref": target_xref}
+    except Exception as e:
+        # Fallback to raw save if fontTools fails to parse/save
+        try:
+            with open(output_path, "wb") as f:
+                f.write(content)
+            return {"success": True, "output_path": output_path, "xref": target_xref, "warning": f"fontTools failed ({e}), saved raw buffer"}
+        except Exception as e2:
+            return {"success": False, "error": str(e2)}

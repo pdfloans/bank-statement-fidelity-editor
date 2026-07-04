@@ -5,6 +5,7 @@
 //! string in design units. This allows the system to perfectly scale the text
 //! injection to fit the original bank statement's bounding box without layout overflow.
 
+use crate::ai::pyo3_bridge::PyEngine;
 use rustybuzz::{Face, UnicodeBuffer};
 use std::fs;
 use std::path::Path;
@@ -42,6 +43,42 @@ pub fn calculate_exact_width(
     let width_pt = (total_advance as f32 / upm) * font_size_pt;
 
     Ok(width_pt)
+}
+
+/// A unified pipeline that extracts the embedded font from the PDF using Python `fonttools`,
+/// saves it to a temporary file, and then uses `rustybuzz` to calculate the exact text width.
+pub fn extract_and_measure_width(
+    pyengine: &PyEngine,
+    pdf_path: &Path,
+    text: &str,
+    font_size_pt: f32,
+) -> Result<f32, String> {
+    let temp_dir = std::env::temp_dir().join("font_shaping");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    
+    let temp_font_path = temp_dir.join(format!("extracted_{}.ttf", uuid::Uuid::new_v4()));
+    
+    let pdf_path_str = pdf_path.to_string_lossy().to_string();
+    let font_path_str = temp_font_path.to_string_lossy().to_string();
+
+    tracing::info!("[font_shaping] Extracting font from {} via fonttools...", pdf_path_str);
+    let result_json = pyengine.extract_font(&pdf_path_str, &font_path_str)?;
+    
+    let parsed: serde_json::Value = serde_json::from_str(&result_json)
+        .map_err(|e| format!("Failed to parse extract_font JSON: {}", e))?;
+        
+    if !parsed.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Err(format!("Font extraction failed: {:?}", parsed.get("error")));
+    }
+    
+    tracing::info!("[font_shaping] Successfully extracted font to {}, measuring...", font_path_str);
+    
+    let width = calculate_exact_width(&temp_font_path, text, font_size_pt)?;
+    
+    // Clean up temporary font file
+    let _ = std::fs::remove_file(&temp_font_path);
+    
+    Ok(width)
 }
 
 #[cfg(test)]
