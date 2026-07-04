@@ -1,6 +1,7 @@
 pub mod docai_cache;
 pub mod document_ai;
 pub mod gemini_client;
+pub mod llamaparse;
 
 pub mod mindee;
 pub mod pdfrest;

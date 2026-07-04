@@ -213,6 +213,8 @@ pub struct AppSettings {
     pub show_welcome: bool,
     #[serde(default)]
     pub webhook_url: String,
+    #[serde(default)]
+    pub llamaparse_api_key: String,
     /// Master toggle for "3 Page Mode" â€” the DEFAULT operating mode.
     /// When true, opened PDFs are transparently split into <=3-page
     /// segments for Pro editing and re-merged on save. Defaults to TRUE,
@@ -254,6 +256,7 @@ impl Default for AppSettings {
             deep_font_replication: false,
             show_welcome: true,
             webhook_url: String::new(),
+            llamaparse_api_key: String::new(),
             three_page_mode: true,
             advanced_mode: false,
             remote_engine_url: String::new(),

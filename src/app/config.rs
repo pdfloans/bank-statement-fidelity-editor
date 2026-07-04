@@ -207,6 +207,8 @@ pub enum DocumentParserMode {
     /// accuracy, ease of setup, and cost.
     #[default]
     MindeeFinDoc,
+    /// LlamaParse (API-based document parser using LLMs for extraction).
+    LlamaParse,
     /// PyMuPDF built-in text extraction (no external dependencies, good for
     /// well-structured PDFs with selectable text).
     PyMuPdfBuiltin,
@@ -223,6 +225,7 @@ impl DocumentParserMode {
         match self {
             Self::DocumentAi => "Google Document AI",
             Self::MindeeFinDoc => "Mindee (Financial Doc)",
+            Self::LlamaParse => "LlamaParse",
             Self::PyMuPdfBuiltin => "PyMuPDF (Built-in)",
             Self::LocalOcrs => "Local OCR (ocrs)",
         }
@@ -253,7 +256,7 @@ impl VerificationMode {
 pub struct AppConfig {
     pub gemini_api_key: Option<String>,
     pub pdfrest_api_key: Option<String>,
-
+    pub lipi_api_key: Option<String>,
     pub document_ai: Option<DocumentAiConfig>,
     /// Mindee API key for the Financial Document model.
     pub mindee_api_key: Option<String>,
@@ -273,6 +276,7 @@ pub struct AppConfig {
     pub connection_mode: ConnectionMode,
     /// Which PDF engine backend to use
     pub engine_mode: PdfEngineMode,
+    pub llamaparse_api_key: Option<String>,
     pub applitools_api_key: Option<String>,
 }
 
@@ -281,7 +285,7 @@ impl Default for AppConfig {
         Self {
             gemini_api_key: None,
             pdfrest_api_key: None,
-
+            lipi_api_key: None,
             document_ai: None,
             mindee_api_key: None,
             pymupdf_pro_key: None,
@@ -294,6 +298,7 @@ impl Default for AppConfig {
             is_dev_mode: cfg!(debug_assertions),
             connection_mode: ConnectionMode::Local,
             engine_mode: PdfEngineMode::Auto,
+            llamaparse_api_key: None,
             applitools_api_key: None,
         }
     }
@@ -316,8 +321,9 @@ impl AppConfig {
         // Optional API keys
         let gemini_api_key = clean_key(env::var("GEMINI_API_KEY"));
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
-
+        let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
+        let llamaparse_api_key = clean_key(env::var("LLAMAPARSE_API_KEY"));
         let applitools_api_key = clean_key(env::var("APPLITOOLS_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
 
@@ -413,8 +419,10 @@ impl AppConfig {
         Ok(Self {
             gemini_api_key,
             pdfrest_api_key,
+            lipi_api_key,
             document_ai: doc_ai,
             mindee_api_key,
+            llamaparse_api_key,
             applitools_api_key,
             pymupdf_pro_key,
             passphrase,
@@ -507,6 +515,7 @@ impl AppConfig {
     pub fn has_ai_for_extraction(&self) -> bool {
         self.document_ai.is_some()
             || self.mindee_api_key.is_some()
+            || self.llamaparse_api_key.is_some()
     }
 }
 

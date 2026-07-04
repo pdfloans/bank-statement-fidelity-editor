@@ -33,6 +33,7 @@ const ENGINES: &[PdfEngineMode] = &[
 
 const PARSERS: &[DocumentParserMode] = &[
     DocumentParserMode::MindeeFinDoc,
+    DocumentParserMode::LlamaParse,
     DocumentParserMode::PyMuPdfBuiltin,
     DocumentParserMode::LocalOcrs,
     DocumentParserMode::DocumentAi,
@@ -50,7 +51,7 @@ const VERIFIERS: &[VerificationMode] = &[
 ];
 
 #[test]
-fn all_120_setting_combinations_roundtrip_json() {
+fn all_150_setting_combinations_roundtrip_json() {
     let mut count = 0usize;
     for engine in ENGINES {
         for parser in PARSERS {
@@ -75,7 +76,7 @@ fn all_120_setting_combinations_roundtrip_json() {
             }
         }
     }
-    assert_eq!(count, 120, "Expected 120 combinations, got {count}");
+    assert_eq!(count, 150, "Expected 150 combinations, got {count}");
 }
 
 /// Verify every enum variant has a non-empty human-readable label.

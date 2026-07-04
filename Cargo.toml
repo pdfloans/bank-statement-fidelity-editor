@@ -71,6 +71,7 @@ dark-light = "2.0.0"
 
 # ── Pure Rust Stack (Phase 0) ──
 # PDF Core
+oxidize-pdf = "0.1"
 # pdf-writer already present above
 
 # Typography & Shaping

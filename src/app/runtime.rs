@@ -3188,6 +3188,35 @@ impl Runtime {
                                 }
 
                                 // â”€â”€ Mindee Financial Document (online) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                                // ── LlamaParse (online) ──────────────
+                                DocumentParserMode::LlamaParse => {
+                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
+
+                                    match crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
+                                        Ok(client) => {
+                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse: uploading document...".into(), fraction: 0.3 });
+
+                                            match client.parse_statement(&input).await {
+                                                Ok(s) => {
+                                                    tracing::info!("[workflow] LlamaParse yielded {} transactions.", s.transactions.len());
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse: {} transactions extracted", s.transactions.len()), fraction: 0.6 });
+                                                    s
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("[workflow] LlamaParse extraction failed: {e}");
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse extraction failed: {e}"), fraction: 0.0 });
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("[workflow] LlamaParse client init failed: {e}");
+                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse init failed (check API key)".into(), fraction: 0.0 });
+                                            return;
+                                        }
+                                    }
+                                }
+
                                 DocumentParserMode::MindeeFinDoc => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with Mindee (Financial Doc)...".into(), fraction: 0.2 });
 
