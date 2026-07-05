@@ -36,6 +36,8 @@ Default to acting and reporting afterward rather than pausing to ask.
     cargo --version
     python --version
     pip --version
+    node --version
+    npm --version
     git status
     git diff
     git log
@@ -69,11 +71,27 @@ Never print, copy, rewrite, or commit secrets. May report whether a variable is
 set (e.g. "GEMINI_API_KEY is set") but never its value. May read `.env.example`
 but not `.env` unless explicitly instructed.
 
-## Dual-engine invariant
+## Multi-engine invariant
 
-This app must keep BOTH the Rust native engine and the Python PyMuPDF engine
-available for the entire lifecycle via `PdfEngineSelector` (Auto / NativeOnly /
-PyMuPdfOnly). Do not remove either engine.
+This app must keep ALL PDF engines available for the entire lifecycle via
+`PdfEngineSelector` (Auto / DualConcurrent / NativeOnly / PyMuPdfOnly /
+TypstReconstruct). Do not remove any engine. Every pipeline stage must have at
+least one offline fallback.
+
+## Multi-backend architecture
+
+Every cloud integration must have an offline fallback:
+- Cloud parsers (Mindee, LlamaParse, DocAI) → offline_parser
+- AI balance/validation (Gemini) → local balance engine
+- Cloud rendering (pdfRest) → local Pdfium
+- Visual AI (Applitools) → SSIM-only metrics
+- PyMuPDF edit → Pdfium → Typst Reconstruct (ultimate)
+
+New backends must:
+1. Register in `ApiAvailability` (`src/app/config.rs`)
+2. Add to the relevant mode enum
+3. Surface in Backend Preferences UI (`src/app/modals.rs`)
+4. Add key to `.env.example`
 
 ## Validation
 
