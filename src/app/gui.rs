@@ -215,7 +215,7 @@ pub struct AppSettings {
     pub webhook_url: String,
     #[serde(default)]
     pub llamaparse_api_key: String,
-    /// Master toggle for "3 Page Mode" â€” the DEFAULT operating mode.
+    /// Master toggle for "3 Page Mode" — the DEFAULT operating mode.
     /// When true, opened PDFs are transparently split into <=3-page
     /// segments for Pro editing and re-merged on save. Defaults to TRUE,
     /// and a missing/absent stored value is also treated as true.
@@ -234,6 +234,16 @@ pub struct AppSettings {
     /// Backend preference: which renderer for verification diffs.
     #[serde(default)]
     pub verification_renderer: crate::app::config::VerificationMode,
+    /// Visual diff threshold (0.0–1.0). Lower = stricter fidelity gate.
+    /// Default 0.02. The visual validation loop uses this as the
+    /// tile-max score ceiling; any page-level tile above this value
+    /// trips the "only intended changes" gate.
+    #[serde(default = "default_visual_threshold")]
+    pub visual_diff_threshold: f64,
+    /// Maximum visual validation retry attempts before accepting
+    /// the result even if the threshold is not met. Default 5.
+    #[serde(default = "default_max_visual_attempts")]
+    pub max_visual_attempts: u32,
 }
 
 /// serde default for `three_page_mode`. NOTE: a bare `#[serde(default)]`
@@ -242,6 +252,12 @@ pub struct AppSettings {
 /// stored value is present.
 fn default_true() -> bool {
     true
+}
+fn default_visual_threshold() -> f64 {
+    0.02
+}
+fn default_max_visual_attempts() -> u32 {
+    5
 }
 
 impl Default for AppSettings {
@@ -263,6 +279,8 @@ impl Default for AppSettings {
             ai_provider: crate::app::config::AiProviderMode::default(),
             document_parser: crate::app::config::DocumentParserMode::default(),
             verification_renderer: crate::app::config::VerificationMode::default(),
+            visual_diff_threshold: default_visual_threshold(),
+            max_visual_attempts: default_max_visual_attempts(),
         }
     }
 }
@@ -456,6 +474,9 @@ pub struct MyApp {
     /// `Job::ReloadConfig` (document_ai_configured, gemini_configured,
     /// pro_editing_available). `None` until the first reload this session.
     config_status: Option<(bool, bool, bool)>,
+    /// Boot-time (and reload-time) API availability snapshot. Drives the
+    /// UI auto-exclusion of unavailable backends with explanatory messages.
+    api_availability: crate::app::config::ApiAvailability,
     /// Result of the last `Job::ValidateCredentials` run. (Gemini, DocAI).
     credential_validation_status: Option<(Result<(), String>, Result<(), String>)>,
     /// True once the buffers have been seeded from the environment.
@@ -493,7 +514,7 @@ impl MyApp {
             .cloned()
             .unwrap_or_else(|| "examples/sample.pdf".to_string());
 
-        Self {
+        let app = Self {
             input_path: input_path.clone(),
             output_path: "output/edited.pdf".to_string(),
             current_pdf_path: PathBuf::new(),
@@ -557,6 +578,7 @@ impl MyApp {
             workflow_last_save: None,
             workflow_input_hash: None,
             workflow_cell_buffers: std::collections::HashMap::new(),
+            api_availability: config.detect_availability(),
             config: config.clone(),
             settings,
             // Seed API-key editor buffers from the current environment so the
@@ -594,7 +616,10 @@ impl MyApp {
             docai_versions_loading: false,
             docai_training_status: None,
             docai_active_operation: None,
-        }
+        };
+        // Log which API backends were detected at boot for diagnostics.
+        app.api_availability.log_summary();
+        app
     }
 
     // -- helpers --------------------------------------------------------------
@@ -980,8 +1005,8 @@ impl eframe::App for MyApp {
                         }
                     }),
                     deep_font_replication: self.settings.deep_font_replication,
-                    max_visual_attempts: 5,
-                    visual_threshold: 0.02,
+                    max_visual_attempts: self.settings.max_visual_attempts,
+                    visual_threshold: self.settings.visual_diff_threshold,
                 });
                 self.in_flight += 1;
                 self.toast(ToastKind::Info, "Confirm + Render triggered (Ctrl+3)");
@@ -1358,6 +1383,13 @@ impl MyApp {
                 ));
                 let summary = parts.join(" Â· ");
                 self.status = format!("Credentials reloaded: {summary}");
+                // Refresh API availability from the newly-reloaded config
+                // so the UI immediately reflects which backends are usable.
+                let fresh_avail = crate::app::config::AppConfig::from_env()
+                    .map(|c| c.detect_availability())
+                    .unwrap_or_default();
+                fresh_avail.log_summary();
+                self.api_availability = fresh_avail;
                 self.toast(
                     if document_ai_configured && gemini_configured {
                         ToastKind::Success
@@ -3669,8 +3701,8 @@ impl MyApp {
                 }
             }),
             deep_font_replication: deep,
-            max_visual_attempts: 5,
-            visual_threshold: 0.02,
+            max_visual_attempts: self.settings.max_visual_attempts,
+            visual_threshold: self.settings.visual_diff_threshold,
         });
         self.in_flight += 1;
     }
@@ -4079,8 +4111,11 @@ impl MyApp {
                                                         }
                                                     }),
                                                     deep_font_replication: self.settings.deep_font_replication,
-                                                    max_visual_attempts: 3,
-                                                    visual_threshold: 0.05,
+                                                    // Inline single-edit: use relaxed thresholds
+                                                    // (fewer retries, wider tolerance) derived
+                                                    // from the user's configured base settings.
+                                                    max_visual_attempts: self.settings.max_visual_attempts.min(3),
+                                                    visual_threshold: self.settings.visual_diff_threshold.max(0.05),
                                                 });
                                                 self.in_flight += 1;
                                             }

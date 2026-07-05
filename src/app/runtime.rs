@@ -2968,7 +2968,7 @@ impl Runtime {
                             }
                         }).await.unwrap_or(());
                     }
-                    Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest: _, pdfrest_key: _ } => {
+                    Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest, pdfrest_key } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
                         let (reply_tx, reply_rx) = oneshot::channel();
 
@@ -3026,6 +3026,46 @@ impl Runtime {
                                             if let Some(last) = orig_raw_rows.last() {
                                                 expected_final_balance = last.running_balance.map(crate::engine::model::f64_to_dec);
                                             }
+                                        }
+                                    }
+
+                                    // ── Optional pdfRest cloud rendering (supplementary verification layer) ──
+                                    // When enabled, renders both PDFs via pdfRest's Adobe-tier engine and
+                                    // saves the images alongside the local renders. On failure, logs a
+                                    // warning and continues with local-only verification (graceful degradation).
+                                    if use_pdfrest {
+                                        if let Some(ref key) = pdfrest_key {
+                                            let _ = result_tx_clone.send(JobResult::Progress {
+                                                label: "Rendering via pdfRest (Adobe-tier)...".to_string(),
+                                                fraction: 0.4,
+                                            });
+                                            let client = crate::ai::pdfrest::PdfRestClient::new(key.clone());
+                                            let pdfrest_dir = output_dir.join("pdfrest_renders");
+
+                                            // Render original
+                                            match client.render_pdf_to_images(&original, &pdfrest_dir.join("original"), 300).await {
+                                                Ok(orig_imgs) => {
+                                                    tracing::info!("[verify] pdfRest rendered {} original page(s)", orig_imgs.len());
+                                                    // Render edited
+                                                    match client.render_pdf_to_images(&edited, &pdfrest_dir.join("edited"), 300).await {
+                                                        Ok(edit_imgs) => {
+                                                            tracing::info!("[verify] pdfRest rendered {} edited page(s)", edit_imgs.len());
+                                                            let _ = result_tx_clone.send(JobResult::Progress {
+                                                                label: format!("pdfRest cloud renders saved ({} pages)", edit_imgs.len()),
+                                                                fraction: 0.5,
+                                                            });
+                                                        }
+                                                        Err(e) => {
+                                                            tracing::warn!("[verify] pdfRest edited render failed: {e}; continuing with local Pdfium only");
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!("[verify] pdfRest original render failed: {e}; continuing with local Pdfium only");
+                                                }
+                                            }
+                                        } else {
+                                            tracing::info!("[verify] pdfRest toggled on but no API key configured; using local Pdfium only");
                                         }
                                     }
 
@@ -3203,16 +3243,56 @@ impl Runtime {
                                                     s
                                                 }
                                                 Err(e) => {
-                                                    tracing::error!("[workflow] LlamaParse extraction failed: {e}");
-                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse extraction failed: {e}"), fraction: 0.0 });
-                                                    return;
+                                                    // Auto-fallback to offline parsing (same as DocAI/Mindee)
+                                                    tracing::warn!("[workflow] LlamaParse extraction failed: {e}; falling back to offline parser");
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("LlamaParse failed ({e}), falling back to offline parser..."), fraction: 0.3 });
+
+                                                    let eng = engine_for_tokio.clone();
+                                                    let path = input.clone();
+                                                    match tokio::task::spawn_blocking(move || {
+                                                        crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                                    }).await {
+                                                        Ok(Ok(s)) => s,
+                                                        Ok(Err(e2)) => {
+                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                format!("LlamaParse failed: {e}. Offline fallback also failed: {e2}")
+                                                            )));
+                                                            return;
+                                                        }
+                                                        Err(e2) => {
+                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                format!("LlamaParse failed: {e}. Offline fallback panicked: {e2}")
+                                                            )));
+                                                            return;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            tracing::error!("[workflow] LlamaParse client init failed: {e}");
-                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse init failed (check API key)".into(), fraction: 0.0 });
-                                            return;
+                                            // LlamaParse not configured — auto-fallback to offline
+                                            tracing::warn!("[workflow] LlamaParse not configured: {e}; auto-falling back to offline parser");
+                                            let _ = res_tx.send(JobResult::Progress { label: "LlamaParse not configured, using offline parser...".into(), fraction: 0.3 });
+
+                                            let eng = engine_for_tokio.clone();
+                                            let path = input.clone();
+                                            match tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                            }).await {
+                                                Ok(Ok(s)) => s,
+                                                Ok(Err(e2)) => {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                        format!("LlamaParse not configured ({e}) and offline parser failed: {e2}")
+                                                    )));
+                                                    return;
+                                                }
+                                                Err(e2) => {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                        format!("Offline parser panicked: {e2}")
+                                                    )));
+                                                    return;
+                                                }
+                                            }
                                         }
                                     }
                                 }

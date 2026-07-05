@@ -638,8 +638,9 @@ impl AppPanels for MyApp {
                                                             }
                                                         }),
                                                         deep_font_replication: self.settings.deep_font_replication,
-                                                        max_visual_attempts: 3,
-                                                        visual_threshold: 0.05,
+                                                        // Inline single-edit: relaxed thresholds
+                                                        max_visual_attempts: self.settings.max_visual_attempts.min(3),
+                                                        visual_threshold: self.settings.visual_diff_threshold.max(0.05),
                                                     });
                                                     self.in_flight += 1;
                                                 }
@@ -904,8 +905,8 @@ impl AppPanels for MyApp {
                             }
                         }),
                         deep_font_replication: self.settings.deep_font_replication,
-                        max_visual_attempts: 5,
-                        visual_threshold: 0.02,
+                        max_visual_attempts: self.settings.max_visual_attempts,
+                        visual_threshold: self.settings.visual_diff_threshold,
                     });
                     self.in_flight += 1;
                 }

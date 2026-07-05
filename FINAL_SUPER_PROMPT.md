@@ -1,38 +1,37 @@
-# FINAL SUPER PROMPT — Bank Statement Fidelity Editor v0.5.0
+# FINAL SUPER PROMPT — Bank Statement Fidelity Editor v0.5.1
 
 **Copy everything below and use it with Claude 4 Opus / Sonnet or Cursor / Zed + Claude Code.**
 
 ---
 
-You are an expert Rust + egui + PDF engineer in May 2026.
+You are an expert Rust + egui + PDF engineer in July 2026.
 
-I have a highly advanced bank statement PDF editing application. The current version (v0.3.1) already includes:
+I have a highly advanced bank statement PDF editing application. The current version (v0.5.1) includes:
 
-- Document-level Smart Balance Engine (Document AI + Gemini)
-- Visual 300 DPI preview + high-accuracy click-to-select
-- Multi-page support with full document awareness
-- Undo/Redo + Change History
-- Font Completion with Lipi.ai + Smart Adaption Fallback
-- Professional Audit Report foundation
+- **Multi-Backend Pipeline Architecture:** Configurable primary backends with automatic fallback chains at every stage (parsing, editing, verification, AI validation).
+- **Boot-Time API Availability Detection:** On startup, all API keys are probed and availability is displayed in the Backend Preferences UI (✅ / ⛔).
+- **Document Parsers:** Mindee Financial Doc (default), LlamaParse, Google Document AI, PyMuPDF Built-in, Local OCR — all with auto-fallback to offline parser.
+- **PDF Edit Engines:** PyMuPDF (primary, via PyO3), Pdfium (native fallback), Typst Reconstruct (ultimate fail-safe).
+- **Smart Balance Engine:** Document AI + Gemini AI proposals → local deterministic balance fallback.
+- **Multi-Layer Verification:** SSIM + Tile-max + Perceptual Hash (always) → pdfRest Cloud (optional) → Applitools Eyes Visual AI (optional) → Gemini Vision (optional).
+- **Visual 300 DPI preview** + high-accuracy click-to-select
+- **Multi-page support** with full document awareness
+- **Undo/Redo** + Change History + Audit Report auto-merge
+- **Font Analysis, Replication, and Completion** with deep font subsetting
+- **Transfer Transactions** between PDFs with font replication
+- **Date Period Adjustment** (shift forward/backward)
+- **Batch Processing Dashboard** for concurrent multi-PDF operations
+- **CLI + GUI parity** — same Runtime job loop drives both interfaces
+- **Backend Preferences UI** with per-stage backend selection, availability indicators, and visual threshold sliders
 
 **Your Task:**
-Take the current codebase (provided as flattened files) and make it **production-ready, beautiful, and extremely intelligent**.
-
-**Core Requirements for v0.5.0:**
-
-1. **Make all real API calls fully working** (Google Document AI, Gemini, Lipi.ai) with proper authentication and error handling.
-2. **Improve the GUI significantly** — make it feel like a professional desktop tool (better spacing, modern design, loading spinners, progress indicators, beautiful proposed changes UI).
-3. **Enhance the Smart Balance Engine** — make Gemini's proposals even smarter and more minimal.
-4. **Add final polish**:
-   - Better error messages everywhere
-   - Progress bars for long operations
-   - Keyboard shortcuts for everything important
-   - Side-by-side before/after viewer
-   - Export corrected statement + audit report as one PDF
+Take the current codebase (provided as flattened files) and make further improvements.
 
 **Important Guidelines:**
 - Keep the code clean and well-organized.
-- Maintain the current architecture (statement_engine as the brain).
+- Maintain the current five-layer architecture (`app/`, `engine/`, `pdf/`, `extractors/`, `ai/`, `security/`).
+- Every new cloud integration MUST have an offline fallback.
+- New API keys must register in `ApiAvailability` and show in Backend Preferences UI.
 - Use PyMuPDF Pro as the primary high-fidelity engine.
 - Make the app feel fast, professional, and trustworthy.
 - After making changes, explain what you improved and why.

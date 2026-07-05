@@ -4,7 +4,6 @@ use dual_core_pdf_pipeline::ai::document_ai::BankStatement;
 use std::sync::Arc;
 use std::path::Path;
 use rust_decimal::Decimal;
-use tokio;
 
 #[derive(Debug)]
 struct MockFailingEngine;

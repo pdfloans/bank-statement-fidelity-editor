@@ -72,7 +72,7 @@ impl TypstEngine {
                 let all_text = serde_json::to_string(&json_data).unwrap_or_default();
                 for ch in all_text.chars() {
                     if let Some(glyph_id) = face.glyph_index(ch) {
-                        glyphs.push(glyph_id.0 as u16);
+                        glyphs.push(glyph_id.0);
                     }
                 }
                 let mapper = subsetter::GlyphRemapper::new_from_glyphs_sorted(&glyphs);
@@ -113,13 +113,17 @@ impl TypstEngine {
                 Err(TypstEngineError::Typst(err.to_string()))
             }
             Err(e) => {
-                // Python / Typst not found, fallback to just writing the file
-                tracing::warn!(
-                    "[typst_engine] Python/Typst compilation failed, saving .typ file only: {}",
+                // Python / Typst not available — return an actionable error
+                // instead of silently copying the .typ source as a fake PDF.
+                tracing::error!(
+                    "[typst_engine] Python/Typst compilation unavailable: {}",
                     e
                 );
-                std::fs::copy(&typ_path, output_path)?;
-                Ok(())
+                Err(TypstEngineError::Typst(format!(
+                    "Typst/Python compilation unavailable ({e}). \
+                     Install Python + the `typst` package, or switch to a \
+                     different PDF Engine mode in Settings → Backend Preferences."
+                )))
             }
         }
     }

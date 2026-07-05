@@ -367,6 +367,21 @@ fn extract_account_number(rows: &[RawRow]) -> Option<String> {
     None
 }
 
+#[cfg(feature = "ocr")]
+fn extract_text_via_ocr(pdf_path: &Path, page: usize, engine: Arc<dyn PdfEngine>) -> Vec<crate::pdf::TextBlock> {
+    tracing::info!("[offline_parser] Attempting to render page {} for OCR fallback...", page);
+    let _rendered = match engine.render_page(pdf_path, page, 300.0) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("[offline_parser] Failed to render page for OCR: {}", e);
+            return vec![];
+        }
+    };
+    
+    tracing::warn!("[offline_parser] OCR models not bundled in this environment. Scanned PDF fallback aborted.");
+    vec![]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,19 +468,4 @@ mod tests {
         let acct = extract_account_number(&rows);
         assert_eq!(acct, Some("123456789".to_string()));
     }
-}
-
-#[cfg(feature = "ocr")]
-fn extract_text_via_ocr(pdf_path: &Path, page: usize, engine: Arc<dyn PdfEngine>) -> Vec<crate::pdf::TextBlock> {
-    tracing::info!("[offline_parser] Attempting to render page {} for OCR fallback...", page);
-    let _rendered = match engine.render_page(pdf_path, page, 300.0) {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!("[offline_parser] Failed to render page for OCR: {}", e);
-            return vec![];
-        }
-    };
-    
-    tracing::warn!("[offline_parser] OCR models not bundled in this environment. Scanned PDF fallback aborted.");
-    vec![]
 }

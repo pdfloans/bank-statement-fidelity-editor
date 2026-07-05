@@ -1,10 +1,14 @@
-# AGENTS.md
+# Agent Management Guide
+
+Comprehensive reference for AI agents working on the Bank Statement Fidelity Editor v0.5.1.
 
 ## Project type
 
 Rust desktop/CLI project using Cargo.
 
-The project may include GUI, CLI, Python bridge, PDF processing, AI-service integrations, tests, scripts, and CI configuration.
+The project includes GUI (egui), CLI, Python bridge (PyO3), Node.js bridge (Applitools),
+PDF processing (PyMuPDF + Pdfium + Typst), multi-backend AI integrations
+(Gemini, Document AI, Mindee, LlamaParse, pdfRest, Applitools), tests, scripts, and CI configuration.
 
 ## Autonomy level
 
@@ -67,7 +71,8 @@ The agent may automatically modify:
 - examples under `examples/`
 - scripts under `scripts/`
 - Python support code under `python/`
-- documentation files such as `README.md`, `QUICKSTART.md`, `CONTRIBUTING.md`, and `CHANGELOG.md`
+- Node.js support code (`src/ai/applitools_bridge.js`)
+- documentation files such as `README.md`, `QUICKSTART.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
 - CI files under `.github/workflows/`
 - Docker and deployment configuration files, when the task is clearly about build/deployment repair
 - `.env.example`
@@ -107,6 +112,8 @@ rustc --version
 cargo --version
 python --version
 pip --version
+node --version
+npm --version
 git status
 git diff
 ```
@@ -160,6 +167,7 @@ Allowed:
 ```text
 GEMINI_API_KEY is set
 PDFREST_API_KEY is missing
+MINDEE_API_KEY is set (46 chars)
 ```
 
 Forbidden:
@@ -173,6 +181,30 @@ The agent may read `.env.example`.
 The agent must not read or modify `.env` unless explicitly instructed.
 
 If a required variable is missing, update `.env.example` or documentation instead of inventing a value.
+
+## API backends and fallback architecture
+
+The project uses a multi-backend architecture where every pipeline stage has automatic fallback:
+
+| Stage | Primary | Fallback Chain |
+|---|---|---|
+| Document Parsing | Mindee → LlamaParse → Document AI | → offline_parser (PyMuPDF built-in) |
+| AI Validation | Gemini (API Key or Vertex) | → graceful skip (score=0.7) |
+| Balance Analysis | Gemini AI | → local balance::process_and_reconcile() |
+| PDF Editing | PyMuPDF (via PyO3) | → Pdfium → Typst Reconstruct |
+| Verification Render | pdfRest Cloud | → Local Pdfium |
+| Visual AI Testing | Applitools Eyes | → SSIM + Tile-max + Perceptual Hash |
+| AI Vision Check | Gemini Vision | → graceful skip |
+
+Boot-time availability detection is in `src/app/config.rs` (`ApiAvailability`).
+Backend preferences UI is in `src/app/modals.rs` (`draw_backend_preferences`).
+
+New integrations must:
+1. Add the API key to `AppConfig` and `ApiAvailability`
+2. Register in the relevant mode enum
+3. Add UI in `draw_backend_preferences`
+4. Implement an offline/graceful fallback
+5. Add to `.env.example`
 
 ## Standard validation commands
 
@@ -228,6 +260,7 @@ When given a console error, the agent should:
    - external API failure
    - filesystem permission problem
    - Python bridge problem
+   - Node.js bridge problem
    - PDF engine problem
 3. Inspect only the files relevant to that category.
 4. Make the smallest durable fix.
@@ -296,4 +329,3 @@ At the end of each autonomous fix session, summarize:
 - commands run
 - validation result
 - remaining manual steps, if any
-```

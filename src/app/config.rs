@@ -517,6 +517,113 @@ impl AppConfig {
             || self.mindee_api_key.is_some()
             || self.llamaparse_api_key.is_some()
     }
+
+    /// Detect which API backends have valid keys configured.
+    ///
+    /// Called at boot and after every `ReloadConfig` so the UI can grey-out
+    /// unavailable options (with a message) and the runtime can skip them
+    /// in fallback chains. This is a cheap, local-only check — it does NOT
+    /// make network calls to verify the key is actually accepted by the
+    /// remote service.
+    pub fn detect_availability(&self) -> ApiAvailability {
+        ApiAvailability {
+            gemini_api_key: self.gemini_api_key.is_some(),
+            gemini_vertex: self
+                .document_ai
+                .as_ref()
+                .map(|d| !d.service_account_path.is_empty() || !d.adc_path.is_empty())
+                .unwrap_or(false),
+            document_ai: self
+                .document_ai
+                .as_ref()
+                .map(|d| d.has_auth())
+                .unwrap_or(false),
+            mindee: self.mindee_api_key.is_some(),
+            llamaparse: self.llamaparse_api_key.is_some(),
+            pdfrest: self.pdfrest_api_key.is_some(),
+            pymupdf_pro: self.pro_editing_available(),
+            applitools: self.applitools_api_key.is_some(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Boot-time API availability detection
+// ---------------------------------------------------------------------------
+
+/// Which API backends have valid keys configured. Computed at boot and
+/// refreshed on every `ReloadConfig`. The UI uses this to grey-out
+/// unavailable options with explanatory messages, and the runtime uses it
+/// to skip unavailable backends in automatic fallback chains.
+///
+/// A `true` value means the key *exists and is non-empty* — it does NOT
+/// guarantee the remote service will accept it (e.g. an expired or revoked
+/// key still reads as `true` here). Actual acceptance is verified lazily
+/// when the backend is first invoked.
+#[derive(Debug, Clone, Default)]
+pub struct ApiAvailability {
+    /// `GEMINI_API_KEY` is set (AI Studio mode).
+    pub gemini_api_key: bool,
+    /// A service-account or ADC path is configured for Vertex AI.
+    pub gemini_vertex: bool,
+    /// Google Document AI processor + auth are fully configured.
+    pub document_ai: bool,
+    /// `MINDEE_API_KEY` is set.
+    pub mindee: bool,
+    /// `LLAMAPARSE_API_KEY` is set.
+    pub llamaparse: bool,
+    /// `PDFREST_API_KEY` is set.
+    pub pdfrest: bool,
+    /// `PYMUPDF_PRO_KEY` is set and well-formed.
+    pub pymupdf_pro: bool,
+    /// `APPLITOOLS_API_KEY` is set.
+    pub applitools: bool,
+}
+
+impl ApiAvailability {
+    /// Human-readable reason why a specific backend is unavailable.
+    /// Returns `None` when the backend IS available.
+    pub fn unavailable_reason(&self, backend: &str) -> Option<&'static str> {
+        match backend {
+            "gemini_api_key" if !self.gemini_api_key => {
+                Some("GEMINI_API_KEY not configured. Set it in Settings → API Keys or .env.")
+            }
+            "gemini_vertex" if !self.gemini_vertex => {
+                Some("Vertex AI requires a service account or ADC credentials. Configure in Settings → API Keys.")
+            }
+            "document_ai" if !self.document_ai => {
+                Some("Document AI requires project ID, processor ID, and auth credentials. Configure in Settings → API Keys.")
+            }
+            "mindee" if !self.mindee => {
+                Some("MINDEE_API_KEY not configured. Get one at https://platform.mindee.com/ and set in .env.")
+            }
+            "llamaparse" if !self.llamaparse => {
+                Some("LLAMAPARSE_API_KEY not configured. Set it in Settings → API Keys or .env.")
+            }
+            "pdfrest" if !self.pdfrest => {
+                Some("PDFREST_API_KEY not configured. Set it in .env to enable cloud rendering.")
+            }
+            "pymupdf_pro" if !self.pymupdf_pro => {
+                Some("PYMUPDF_PRO_KEY is missing or malformed. Per-segment editing is unavailable.")
+            }
+            _ => None,
+        }
+    }
+
+    /// Log a summary of detected availability at boot time.
+    pub fn log_summary(&self) {
+        tracing::info!(
+            gemini_api = self.gemini_api_key,
+            gemini_vertex = self.gemini_vertex,
+            document_ai = self.document_ai,
+            mindee = self.mindee,
+            llamaparse = self.llamaparse,
+            pdfrest = self.pdfrest,
+            pymupdf_pro = self.pymupdf_pro,
+            applitools = self.applitools,
+            "[boot] API availability detected"
+        );
+    }
 }
 
 /// Locate the Application Default Credentials file written by

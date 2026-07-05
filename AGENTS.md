@@ -2,8 +2,9 @@
 
 ## Project type
 
-Rust desktop/CLI project using Cargo.
-May include GUI, CLI, Python bridge, PDF processing, AI integrations, tests, scripts, and CI.
+Rust desktop/CLI project using Cargo (v0.5.1).
+Includes GUI (egui), CLI, Python bridge (PyO3), Node.js bridge (Applitools), PDF processing,
+multi-backend AI integrations (Gemini, Document AI, Mindee, LlamaParse), tests, scripts, and CI.
 
 ## Autonomy level
 
@@ -50,7 +51,8 @@ Then retry the original command.
 - examples under examples/
 - scripts under scripts/
 - Python support code under python/
-- docs: README.md, QUICKSTART.md, CONTRIBUTING.md, CHANGELOG.md
+- Node.js support code (src/ai/applitools_bridge.js)
+- docs: README.md, QUICKSTART.md, CONTRIBUTING.md, CHANGELOG.md, AgentManagement.md, AgentDevelopmentGuide.md
 - CI files under .github/workflows/
 - Docker/deployment config when the task is about build/deploy repair
 - .env.example
@@ -84,6 +86,8 @@ Allowed (non-destructive):
     cargo --version
     python --version
     pip --version
+    node --version
+    npm --version
     git status
     git diff
 
@@ -123,6 +127,7 @@ Allowed:
 
     GEMINI_API_KEY is set
     PDFREST_API_KEY is missing
+    MINDEE_API_KEY is set (46 chars)
 
 Forbidden:
 
@@ -130,6 +135,24 @@ Forbidden:
 
 May read .env.example. Must not read or modify .env unless explicitly instructed.
 If a variable is missing, update .env.example or docs instead of inventing a value.
+
+## API keys and backends
+
+The project uses the following API keys (all optional except DUAL_CORE_PASSPHRASE):
+
+| Key | Backend | Fallback |
+|---|---|---|
+| DUAL_CORE_PASSPHRASE | Encryption (required) | None |
+| GEMINI_API_KEY | AI balance, vision, validation | Manual-only mode |
+| MINDEE_API_KEY | Default parser | offline_parser |
+| LLAMAPARSE_API_KEY | LLM parser | offline_parser |
+| DOCUMENT_AI_* | Google ML parser | offline_parser |
+| PDFREST_API_KEY | Cloud verification render | Local Pdfium |
+| APPLITOOLS_API_KEY | Visual AI testing | SSIM-only |
+| PYMUPDF_PRO_KEY | Enhanced font handling | PyMuPDF free tier |
+
+Boot-time availability detection lives in `src/app/config.rs` (`ApiAvailability`).
+Backend preferences UI lives in `src/app/modals.rs` (`draw_backend_preferences`).
 
 ## Standard validation commands
 
@@ -155,7 +178,7 @@ If full validation is too slow, run targeted checks and report what was skipped.
 2. Identify the failure category:
    toolchain/setup, dependency, compile, test, runtime panic,
    missing configuration, external API, filesystem permissions,
-   Python bridge, or PDF engine.
+   Python bridge, Node.js bridge, or PDF engine.
 3. Inspect only relevant files.
 4. Make the smallest durable fix.
 5. Re-run the failing command.
@@ -182,6 +205,17 @@ and fail-safe behavior for documents/outputs.
 
 Avoid silent failures, swallowed errors, unchecked unwraps in production paths,
 and temporary duct-tape fixes.
+
+## Fallback chain rules
+
+Every pipeline stage must have at least one offline fallback:
+- Cloud parsers → offline_parser
+- AI balance → local balance engine
+- Cloud rendering → local Pdfium
+- Visual AI → SSIM-only metrics
+- PyMuPDF edit → Pdfium → Typst reconstruct (ultimate)
+
+New integrations must follow this pattern and register in ApiAvailability.
 
 ## Reporting format
 
