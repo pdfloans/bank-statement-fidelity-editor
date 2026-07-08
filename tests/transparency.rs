@@ -27,6 +27,9 @@ fn drain_until<F: Fn(&JobResult) -> bool>(
 fn test_three_page_mode_transparency() {
     let pdf = PathBuf::from("examples/sample.pdf");
     if !pdf.exists() {
+        eprintln!(
+            "[skip] examples/sample.pdf not found; test_three_page_mode_transparency self-skipped"
+        );
         return;
     }
 
@@ -89,6 +92,9 @@ fn test_three_page_mode_transparency() {
 fn test_standard_mode_transparency() {
     let pdf = PathBuf::from("examples/sample.pdf");
     if !pdf.exists() {
+        eprintln!(
+            "[skip] examples/sample.pdf not found; test_standard_mode_transparency self-skipped"
+        );
         return;
     }
 
@@ -151,6 +157,9 @@ fn test_standard_mode_transparency() {
 fn test_batch_edit_transparency() {
     let pdf = PathBuf::from("examples/sample.pdf");
     if !pdf.exists() {
+        eprintln!(
+            "[skip] examples/sample.pdf not found; test_batch_edit_transparency self-skipped"
+        );
         return;
     }
 

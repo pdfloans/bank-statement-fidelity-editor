@@ -24,17 +24,17 @@ Prefer durable project-level fixes over local temporary workarounds.
 
 ## Preferred Rust toolchain
 
-Use Rust 1.88.0 unless a task explicitly requires another version.
+Use Rust 1.89.0 unless a task explicitly requires another version.
 
 If rust-toolchain.toml contains channel = "dev", replace it with:
 
     [toolchain]
-    channel = "1.88.0"
+    channel = "1.89.0"
     components = ["rustfmt", "clippy"]
 
 If the toolchain is missing, run:
 
-    rustup install 1.88.0
+    rustup install 1.89.0
     rustup override unset
 
 Then retry the original command.
@@ -80,7 +80,7 @@ Allowed (non-destructive):
     cargo test
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt
-    rustup install 1.88.0
+    rustup install 1.89.0
     rustup override unset
     rustc --version
     cargo --version
@@ -191,10 +191,10 @@ Cause: project or local rustup override targets a toolchain named "dev".
 Fix:
 
 1. Open rust-toolchain.toml.
-2. Replace channel = "dev" with channel = "1.88.0".
+2. Replace channel = "dev" with channel = "1.89.0".
 3. Run:
 
-   rustup install 1.88.0
+   rustup install 1.89.0
    rustup override unset
    cargo check
 

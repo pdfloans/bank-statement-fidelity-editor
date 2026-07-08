@@ -114,7 +114,11 @@ impl PdfEngineSelector {
                         let fallback_res = operation(&*self.fallback);
                         match fallback_res {
                             Ok(res) => Ok(res),
-                            Err(EngineError::ApplyFailed(ref msg)) if msg.contains("encrypt") || msg.contains("raster") || msg.contains("image") => {
+                            Err(EngineError::ApplyFailed(ref msg))
+                                if msg.contains("encrypt")
+                                    || msg.contains("raster")
+                                    || msg.contains("image") =>
+                            {
                                 Err(EngineError::EncryptedOrRasterized(msg.clone()))
                             }
                             Err(err) => Err(err),

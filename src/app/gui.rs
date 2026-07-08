@@ -2710,161 +2710,206 @@ impl MyApp {
     /// the runtime config (`Job::ReloadConfig`) so they take effect with no
     /// restart.
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing("ðŸ”‘ API keys & credentials", |ui| {
-            ui.small("Stored in .env (gitignored). Applied live â€” no restart needed.");
-            ui.add_space(4.0);
+            ui.collapsing("🔑 API keys & credentials", |ui| {
+                ui.small("Stored in .env (gitignored). Applied live — no restart needed.");
+                ui.add_space(4.0);
 
-            egui::Grid::new("api_keys_grid")
-                .num_columns(2)
-                .spacing([8.0, 6.0])
-                .show(ui, |ui| {
-                    ui.label("Gemini API key:");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.edit_gemini_api_key)
-                            .password(true)
-                            .desired_width(220.0),
-                    )
-                    .on_hover_text("AI Studio key (AIzaâ€¦). Used for completeness + vision checks.");
-                    ui.end_row();
+                egui::Grid::new("api_keys_grid")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label("Gemini API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_gemini_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        )
+                        .on_hover_text("AI Studio key (AIza…). Used for completeness + vision checks.");
+                        ui.end_row();
 
-                    ui.label("Gemini auth mode:");
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.edit_gemini_use_vertex, false, "API key");
-                        ui.selectable_value(&mut self.edit_gemini_use_vertex, true, "Vertex AI");
-                    });
-                    ui.end_row();
+                        ui.label("Gemini auth mode:");
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(&mut self.edit_gemini_use_vertex, false, "API key");
+                            ui.selectable_value(&mut self.edit_gemini_use_vertex, true, "Vertex AI");
+                        });
+                        ui.end_row();
 
-                    ui.label("Doc AI project ID:");
-                    ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
-                    ui.end_row();
+                        ui.label("Doc AI project ID:");
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
+                        ui.end_row();
 
-                    ui.label("Doc AI location:");
-                    ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
-                        .on_hover_text("e.g. 'us' or 'eu' â€” must match the processor region.");
-                    ui.end_row();
+                        ui.label("Doc AI location:");
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
+                            .on_hover_text("e.g. 'us' or 'eu' — must match the processor region.");
+                        ui.end_row();
 
-                    ui.label("Doc AI processor ID:");
-                    ui.add(egui::TextEdit::singleline(&mut self.edit_docai_processor_id).desired_width(220.0))
-                        .on_hover_text("The Bank Statement parser or Custom Extractor processor ID.");
-                    ui.end_row();
+                        ui.label("Doc AI processor ID:");
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_processor_id).desired_width(220.0))
+                            .on_hover_text("The Bank Statement parser or Custom Extractor processor ID.");
+                        ui.end_row();
 
-                    ui.label("Service account JSON:");
-                    ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
-                            .on_hover_text("Path to the service-account key JSON (best-practice auth).");
-                        if ui.button("Browseâ€¦").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .add_filter("JSON", &["json"])
-                                .pick_file()
-                            {
-                                self.edit_docai_service_account = path.to_string_lossy().into_owned();
+                        ui.label("Service account JSON:");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
+                                .on_hover_text("Path to the service-account key JSON (best-practice auth).");
+                            if ui.button("Browse…").clicked() {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("JSON", &["json"])
+                                    .pick_file()
+                                {
+                                    self.edit_docai_service_account = path.to_string_lossy().into_owned();
+                                }
                             }
-                        }
+                        });
+                        ui.end_row();
+
+                        ui.label("Doc AI API key (opt):");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_docai_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        )
+                        .on_hover_text("Optional Beta API key; takes precedence over OAuth/SA.");
+                        ui.end_row();
+
+                        ui.label("PyMuPDF Pro key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_pymupdf_pro_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        )
+                        .on_hover_text("24-char 'hFKt…' trial key enables per-segment Pro editing.");
+                        ui.end_row();
+
+                        ui.label("Mindee API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_mindee_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("LlamaParse API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_llamaparse_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("pdfRest API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_pdfrest_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("Applitools API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_applitools_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
                     });
-                    ui.end_row();
 
-                    ui.label("Doc AI API key (opt):");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.edit_docai_api_key)
-                            .password(true)
-                            .desired_width(220.0),
-                    )
-                    .on_hover_text("Optional Beta API key; takes precedence over OAuth/SA.");
-                    ui.end_row();
-
-                    ui.label("PyMuPDF Pro key:");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.edit_pymupdf_pro_key)
-                            .password(true)
-                            .desired_width(220.0),
-                    )
-                    .on_hover_text("24-char 'hFKtâ€¦' trial key enables per-segment Pro editing.");
-                    ui.end_row();
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("💾 Save & apply keys")
+                        .on_hover_text("Write .env, update the environment, and hot-reload the engine")
+                        .clicked()
+                    {
+                        self.save_credentials();
+                    }
+                    if ui
+                        .button("↻ Reload from env")
+                        .on_hover_text("Discard edits and re-read the current environment")
+                        .clicked()
+                    {
+                        self.edit_gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+                        self.edit_docai_project_id = std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default();
+                        self.edit_docai_location = {
+                            let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
+                            if l.is_empty() { "us".to_string() } else { l }
+                        };
+                        self.edit_docai_processor_id = std::env::var("DOCUMENT_AI_PROCESSOR_ID").unwrap_or_default();
+                        self.edit_docai_service_account = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default();
+                        self.edit_docai_api_key = std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default();
+                        self.edit_pymupdf_pro_key = std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default();
+                        self.edit_gemini_use_vertex = matches!(
+                            std::env::var("GEMINI_AUTH_MODE")
+                                .unwrap_or_default()
+                                .trim()
+                                .to_ascii_lowercase()
+                                .as_str(),
+                            "vertex" | "vertex_ai" | "vertexai"
+                        );
+                        self.edit_mindee_api_key = std::env::var("MINDEE_API_KEY").unwrap_or_default();
+                        self.edit_llamaparse_api_key = std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default();
+                        self.edit_pdfrest_api_key = std::env::var("PDFREST_API_KEY").unwrap_or_default();
+                        self.edit_applitools_api_key = std::env::var("APPLITOOLS_API_KEY").unwrap_or_default();
+                        self.toast(ToastKind::Info, "Reloaded keys from environment");
+                    }
+                    if ui
+                        .button("🧪 Test Connections")
+                        .on_hover_text("Pings the Gemini and Document AI APIs to ensure your credentials are valid and authorized")
+                        .clicked()
+                    {
+                        // Eagerly save any unsaved edits to the environment first, then run validation
+                        self.save_credentials();
+                        self.credential_validation_status = None;
+                        let _ = self.job_tx.send(Job::ValidateCredentials);
+                    }
                 });
 
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if ui
-                    .button("ðŸ’¾ Save & apply keys")
-                    .on_hover_text("Write .env, update the environment, and hot-reload the engine")
-                    .clicked()
-                {
-                    self.save_credentials();
-                }
-                if ui
-                    .button("â†» Reload from env")
-                    .on_hover_text("Discard edits and re-read the current environment")
-                    .clicked()
-                {
-                    self.edit_gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
-                    self.edit_docai_project_id = std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default();
-                    self.edit_docai_location = {
-                        let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
-                        if l.is_empty() { "us".to_string() } else { l }
-                    };
-                    self.edit_docai_processor_id = std::env::var("DOCUMENT_AI_PROCESSOR_ID").unwrap_or_default();
-                    self.edit_docai_service_account = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default();
-                    self.edit_docai_api_key = std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default();
-                    self.edit_pymupdf_pro_key = std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default();
-                    self.edit_gemini_use_vertex = matches!(
-                        std::env::var("GEMINI_AUTH_MODE")
-                            .unwrap_or_default()
-                            .trim()
-                            .to_ascii_lowercase()
-                            .as_str(),
-                        "vertex" | "vertex_ai" | "vertexai"
-                    );
-                    self.toast(ToastKind::Info, "Reloaded keys from environment");
-                }
-                if ui
-                    .button("ðŸ§ª Test Connections")
-                    .on_hover_text("Pings the Gemini and Document AI APIs to ensure your credentials are valid and authorized")
-                    .clicked()
-                {
-                    // Eagerly save any unsaved edits to the environment first, then run validation
-                    self.save_credentials();
-                    self.credential_validation_status = None;
-                    let _ = self.job_tx.send(Job::ValidateCredentials);
-                }
-            });
-
-            // Live credential status reported by the runtime after the last
-            // Save & apply (Job::ReloadConfig â†’ JobResult::ConfigReloaded).
-            if let Some((doc_ai, gemini, pro)) = self.config_status {
+                // Live credential status reported by the runtime after the last
+                // Save & apply (Job::ReloadConfig → JobResult::ConfigReloaded).
                 ui.add_space(4.0);
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
-                    let mark = |ok: bool| if ok { "âœ“" } else { "âœ—" };
-                    ui.small(format!("Document AI {}", mark(doc_ai)));
+                    let mark = |ok: bool| if ok { "✓" } else { "✗" };
+                    ui.small(format!("Doc AI {}", mark(self.api_availability.document_ai_configured)));
                     ui.separator();
-                    ui.small(format!("Gemini {}", mark(gemini)));
+                    ui.small(format!("Gemini {}", mark(self.api_availability.gemini_configured)));
                     ui.separator();
-                    ui.small(format!("Pro editing {}", mark(pro)));
+                    ui.small(format!("Pro {}", mark(self.api_availability.pro_editing_available)));
+                    ui.separator();
+                    ui.small(format!("Mindee {}", mark(self.api_availability.mindee_configured)));
+                    ui.separator();
+                    ui.small(format!("LlamaParse {}", mark(self.api_availability.llamaparse_configured)));
+                    ui.separator();
+                    ui.small(format!("pdfRest {}", mark(self.api_availability.pdfrest_configured)));
+                    ui.separator();
+                    ui.small(format!("Applitools {}", mark(self.api_availability.applitools_configured)));
+                    ui.separator();
+                    ui.small(format!("Offline {}", mark(self.api_availability.offline_parser_available)));
                 });
-            }
 
-            // Render the results of the active `Test Connections` job
-            if let Some((gemini_res, docai_res)) = &self.credential_validation_status {
-                ui.add_space(4.0);
-                ui.separator();
-                ui.label("Validation Results:");
-                match docai_res {
-                    Ok(_) => ui.label(egui::RichText::new("âœ“ Document AI: OK").color(egui::Color32::LIGHT_GREEN)),
-                    Err(e) => ui.label(egui::RichText::new(format!("âœ— Document AI: {e}")).color(egui::Color32::LIGHT_RED)),
-                };
-                match gemini_res {
-                    Ok(_) => ui.label(egui::RichText::new("âœ“ Gemini: OK").color(egui::Color32::LIGHT_GREEN)),
-                    Err(e) => ui.label(egui::RichText::new(format!("âœ— Gemini: {e}")).color(egui::Color32::LIGHT_RED)),
-                };
-            }
-            if self.edit_gemini_use_vertex {
-                ui.small(
-                    "Vertex mode reuses the Document AI service-account JSON (or ADC) and the project/location above. No separate key needed.",
-                );
-            }
-        });
-    }
+                // Render the results of the active `Test Connections` job
+                if let Some((gemini_res, docai_res)) = &self.credential_validation_status {
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.label("Validation Results:");
+                    match docai_res {
+                        Ok(_) => ui.label(egui::RichText::new("✓ Document AI: OK").color(egui::Color32::LIGHT_GREEN)),
+                        Err(e) => ui.label(egui::RichText::new(format!("✗ Document AI: {}", e)).color(egui::Color32::LIGHT_RED)),
+                    };
+                    match gemini_res {
+                        Ok(_) => ui.label(egui::RichText::new("✓ Gemini: OK").color(egui::Color32::LIGHT_GREEN)),
+                        Err(e) => ui.label(egui::RichText::new(format!("✗ Gemini: {}", e)).color(egui::Color32::LIGHT_RED)),
+                    };
+                }
+                if self.edit_gemini_use_vertex {
+                    ui.small(
+                        "Vertex mode reuses the Document AI service-account JSON (or ADC) and the project/location above. No separate key needed.",
+                    );
+                }
+            });
+        }
 
+    
     /// Stage 5 / Item #6 + #8: inline editable table of parsed transactions.
     /// Each numeric cell becomes a `TextEdit`; on change we upsert the
     /// matching `UserEdit` in `self.workflow_edits`. The "â†¶" button on each

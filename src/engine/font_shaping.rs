@@ -55,29 +55,39 @@ pub fn extract_and_measure_width(
 ) -> Result<f32, String> {
     let temp_dir = std::env::temp_dir().join("font_shaping");
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-    
+
     let temp_font_path = temp_dir.join(format!("extracted_{}.ttf", uuid::Uuid::new_v4()));
-    
+
     let pdf_path_str = pdf_path.to_string_lossy().to_string();
     let font_path_str = temp_font_path.to_string_lossy().to_string();
 
-    tracing::info!("[font_shaping] Extracting font from {} via fonttools...", pdf_path_str);
+    tracing::info!(
+        "[font_shaping] Extracting font from {} via fonttools...",
+        pdf_path_str
+    );
     let result_json = pyengine.extract_font(&pdf_path_str, &font_path_str)?;
-    
+
     let parsed: serde_json::Value = serde_json::from_str(&result_json)
         .map_err(|e| format!("Failed to parse extract_font JSON: {}", e))?;
-        
-    if !parsed.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+
+    if !parsed
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         return Err(format!("Font extraction failed: {:?}", parsed.get("error")));
     }
-    
-    tracing::info!("[font_shaping] Successfully extracted font to {}, measuring...", font_path_str);
-    
+
+    tracing::info!(
+        "[font_shaping] Successfully extracted font to {}, measuring...",
+        font_path_str
+    );
+
     let width = calculate_exact_width(&temp_font_path, text, font_size_pt)?;
-    
+
     // Clean up temporary font file
     let _ = std::fs::remove_file(&temp_font_path);
-    
+
     Ok(width)
 }
 

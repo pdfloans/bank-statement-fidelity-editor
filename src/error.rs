@@ -62,7 +62,6 @@ pub enum AppError {
     #[error("AI error: {0}")]
     AI(#[from] AIError),
 
-
     /// Document AI errors
     #[error("Document AI error: {0}")]
     DocumentAI(#[from] DocumentAIError),

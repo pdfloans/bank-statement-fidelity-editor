@@ -953,6 +953,38 @@ impl AppModals for MyApp {
                         )
                         .on_hover_text("24-char 'hFKt…' trial key enables per-segment Pro editing.");
                         ui.end_row();
+
+                        ui.label("Mindee API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_mindee_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("LlamaParse API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_llamaparse_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("pdfRest API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_pdfrest_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("Applitools API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_applitools_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
                     });
 
                 ui.add_space(6.0);
@@ -987,6 +1019,10 @@ impl AppModals for MyApp {
                                 .as_str(),
                             "vertex" | "vertex_ai" | "vertexai"
                         );
+                        self.edit_mindee_api_key = std::env::var("MINDEE_API_KEY").unwrap_or_default();
+                        self.edit_llamaparse_api_key = std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default();
+                        self.edit_pdfrest_api_key = std::env::var("PDFREST_API_KEY").unwrap_or_default();
+                        self.edit_applitools_api_key = std::env::var("APPLITOOLS_API_KEY").unwrap_or_default();
                         self.toast(ToastKind::Info, "Reloaded keys from environment");
                     }
                     if ui
@@ -1003,18 +1039,26 @@ impl AppModals for MyApp {
 
                 // Live credential status reported by the runtime after the last
                 // Save & apply (Job::ReloadConfig → JobResult::ConfigReloaded).
-                if let Some((doc_ai, gemini, pro)) = self.config_status {
-                    ui.add_space(4.0);
+                ui.add_space(4.0);
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    let mark = |ok: bool| if ok { "✓" } else { "✗" };
+                    ui.small(format!("Doc AI {}", mark(self.api_availability.document_ai_configured)));
                     ui.separator();
-                    ui.horizontal_wrapped(|ui| {
-                        let mark = |ok: bool| if ok { "✓" } else { "✗" };
-                        ui.small(format!("Document AI {}", mark(doc_ai)));
-                        ui.separator();
-                        ui.small(format!("Gemini {}", mark(gemini)));
-                        ui.separator();
-                        ui.small(format!("Pro editing {}", mark(pro)));
-                    });
-                }
+                    ui.small(format!("Gemini {}", mark(self.api_availability.gemini_configured)));
+                    ui.separator();
+                    ui.small(format!("Pro {}", mark(self.api_availability.pro_editing_available)));
+                    ui.separator();
+                    ui.small(format!("Mindee {}", mark(self.api_availability.mindee_configured)));
+                    ui.separator();
+                    ui.small(format!("LlamaParse {}", mark(self.api_availability.llamaparse_configured)));
+                    ui.separator();
+                    ui.small(format!("pdfRest {}", mark(self.api_availability.pdfrest_configured)));
+                    ui.separator();
+                    ui.small(format!("Applitools {}", mark(self.api_availability.applitools_configured)));
+                    ui.separator();
+                    ui.small(format!("Offline {}", mark(self.api_availability.offline_parser_available)));
+                });
 
                 // Render the results of the active `Test Connections` job
                 if let Some((gemini_res, docai_res)) = &self.credential_validation_status {

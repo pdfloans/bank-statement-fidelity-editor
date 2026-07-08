@@ -48,7 +48,12 @@ fn font_cascade_extends_subset_via_donor() {
     // when we set early.
     let cache_dir = dir.path().join("font_cache");
     std::fs::create_dir_all(&cache_dir).unwrap();
-    std::env::set_var("FONT_CACHE_DIR", cache_dir.to_string_lossy().to_string());
+    // SAFETY: We set this env var *before* Runtime::start() spawns the
+    // threads that read it. No concurrent reader exists at this point.
+    // The Python bridge reads FONT_CACHE_DIR lazily after the actor starts.
+    unsafe {
+        std::env::set_var("FONT_CACHE_DIR", cache_dir.to_string_lossy().to_string());
+    }
 
     let audit = AuditLog::open(dir.path()).unwrap();
     let cfg = Arc::new(AppConfig {
@@ -203,5 +208,9 @@ fn font_cascade_extends_subset_via_donor() {
         "tiers_used should include subset_extension: {tiers_used:?}"
     );
 
-    std::env::remove_var("FONT_CACHE_DIR");
+    // SAFETY: All spawned threads that read FONT_CACHE_DIR have been
+    // dropped or joined by this point; no concurrent reader exists.
+    unsafe {
+        std::env::remove_var("FONT_CACHE_DIR");
+    }
 }

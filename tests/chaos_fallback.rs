@@ -1,9 +1,12 @@
-use dual_core_pdf_pipeline::app::config::{AppConfig, PdfEngineMode};
-use dual_core_pdf_pipeline::pdf::{PdfEngineSelector, EngineError, PdfEngine, ReplaceOutcome, EngineCapabilities, DocumentLayout, TextBlock, RenderedPage};
 use dual_core_pdf_pipeline::ai::document_ai::BankStatement;
-use std::sync::Arc;
-use std::path::Path;
+use dual_core_pdf_pipeline::app::config::{AppConfig, PdfEngineMode};
+use dual_core_pdf_pipeline::pdf::{
+    DocumentLayout, EngineCapabilities, EngineError, PdfEngine, PdfEngineSelector, RenderedPage,
+    ReplaceOutcome, TextBlock,
+};
 use rust_decimal::Decimal;
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug)]
 struct MockFailingEngine;
@@ -18,10 +21,14 @@ impl PdfEngine for MockFailingEngine {
         }
     }
 
-    fn get_text_blocks(&self, _path: &Path, _page_num: usize) -> Result<Vec<TextBlock>, EngineError> {
+    fn get_text_blocks(
+        &self,
+        _path: &Path,
+        _page_num: usize,
+    ) -> Result<Vec<TextBlock>, EngineError> {
         Ok(vec![])
     }
-    
+
     fn apply_change(
         &self,
         _input_path: &Path,
@@ -32,14 +39,27 @@ impl PdfEngine for MockFailingEngine {
         _font_name: &str,
         _font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
-        Err(EngineError::EncryptedOrRasterized("Simulated scan detected".into()))
+        Err(EngineError::EncryptedOrRasterized(
+            "Simulated scan detected".into(),
+        ))
     }
-    
-    fn render_page(&self, _path: &Path, _page_num: usize, _dpi: f32) -> Result<RenderedPage, EngineError> {
+
+    fn render_page(
+        &self,
+        _path: &Path,
+        _page_num: usize,
+        _dpi: f32,
+    ) -> Result<RenderedPage, EngineError> {
         Err(EngineError::Unsupported)
     }
 
-    fn find_text_block_at_click(&self, _path: &Path, _page_num: usize, _x: f32, _y: f32) -> Result<Option<TextBlock>, EngineError> {
+    fn find_text_block_at_click(
+        &self,
+        _path: &Path,
+        _page_num: usize,
+        _x: f32,
+        _y: f32,
+    ) -> Result<Option<TextBlock>, EngineError> {
         Ok(None)
     }
 
@@ -69,7 +89,7 @@ async fn test_chaos_fallback_selector_returns_encrypted_error() {
         "Helvetica",
         None,
     );
-    
+
     assert!(matches!(result, Err(EngineError::EncryptedOrRasterized(_))));
 }
 
@@ -84,9 +104,13 @@ async fn test_chaos_fallback_triggers_typst_reconstruct() {
     };
     let typst_engine = dual_core_pdf_pipeline::engine::typst_engine::TypstEngine::new();
     let out_path = std::env::temp_dir().join(format!("reconstruct_{}.pdf", uuid::Uuid::new_v4()));
-    
+
     let result = typst_engine.reconstruct_pdf(&statement, &out_path).await;
-    assert!(result.is_ok(), "Typst reconstruct should succeed or fallback gracefully. Err: {:?}", result.err());
-    
+    assert!(
+        result.is_ok(),
+        "Typst reconstruct should succeed or fallback gracefully. Err: {:?}",
+        result.err()
+    );
+
     let _ = std::fs::remove_file(out_path);
 }

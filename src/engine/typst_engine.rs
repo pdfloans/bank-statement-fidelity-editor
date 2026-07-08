@@ -80,9 +80,14 @@ impl TypstEngine {
                 if let Ok(subset) = subsetter::subset(&font_data, 0, &mapper) {
                     let subset_path = temp_dir.join("bank_font_subset.ttf");
                     std::fs::write(&subset_path, subset)?;
-                    tracing::info!("[typst_engine] Font successfully subsetted and saved to {:?}", subset_path);
+                    tracing::info!(
+                        "[typst_engine] Font successfully subsetted and saved to {:?}",
+                        subset_path
+                    );
                 } else {
-                    tracing::warn!("[typst_engine] Subsetter failed, relying on default font embedding");
+                    tracing::warn!(
+                        "[typst_engine] Subsetter failed, relying on default font embedding"
+                    );
                 }
             }
         } else {
@@ -115,10 +120,7 @@ impl TypstEngine {
             Err(e) => {
                 // Python / Typst not available — return an actionable error
                 // instead of silently copying the .typ source as a fake PDF.
-                tracing::error!(
-                    "[typst_engine] Python/Typst compilation unavailable: {}",
-                    e
-                );
+                tracing::error!("[typst_engine] Python/Typst compilation unavailable: {}", e);
                 Err(TypstEngineError::Typst(format!(
                     "Typst/Python compilation unavailable ({e}). \
                      Install Python + the `typst` package, or switch to a \

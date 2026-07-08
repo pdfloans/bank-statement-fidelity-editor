@@ -40,6 +40,7 @@ fn test_cli_doctor() {
 fn test_cli_analyze_fonts() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
 
@@ -55,6 +56,7 @@ fn test_cli_analyze_fonts() {
 fn test_cli_text() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
@@ -81,6 +83,7 @@ fn test_cli_text() {
 fn test_cli_balance() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
 
@@ -100,6 +103,7 @@ fn test_cli_balance() {
 fn test_cli_auto_balance() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
@@ -118,6 +122,7 @@ fn test_cli_auto_balance() {
 fn test_cli_extract() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
 
@@ -137,6 +142,7 @@ fn test_cli_extract() {
 fn test_cli_ai_fix_visual() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
 
@@ -154,6 +160,7 @@ fn test_cli_ai_fix_visual() {
 fn test_cli_adjust_dates() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
@@ -174,6 +181,7 @@ fn test_cli_adjust_dates() {
 fn test_cli_transfer_transactions() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
     let out = tempfile::NamedTempFile::new().unwrap().into_temp_path();
@@ -193,6 +201,7 @@ fn test_cli_transfer_transactions() {
 fn test_cli_run_transfer_tests() {
     let pdf = get_test_pdf();
     if !pdf.exists() {
+        eprintln!("[skip] test PDF not found; test self-skipped");
         return;
     }
 

@@ -4180,7 +4180,7 @@ impl Runtime {
                                     if let Ok(recomputed) = crate::engine::balance::process_and_reconcile(working_transactions.clone(), opening_balance, expected_closing).map(|(r, _)| r) {
                                         working_transactions = recomputed;
                                     }
-                                    
+
                                     let reconstructed_statement = crate::ai::document_ai::BankStatement {
                                         transactions: working_transactions,
                                         opening_balance,
@@ -4192,7 +4192,7 @@ impl Runtime {
                                     match typst_engine.reconstruct_pdf(&reconstructed_statement, &output).await {
                                         Ok(_) => {
                                             tracing::info!("[workflow] TypstReconstruct ultimate fail-safe succeeded!");
-                                            all_ok = true; 
+                                            all_ok = true;
                                         }
                                         Err(e) => {
                                             tracing::error!("[workflow] TypstReconstruct also failed: {}", e);

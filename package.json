@@ -13,16 +13,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pdfloans/bank-statement-fidelity-editor.git"
+    "url": "git+https://github.com/maryjpww-star/bank-statement-fidelity-editor.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/pdfloans/bank-statement-fidelity-editor/issues"
+    "url": "https://github.com/maryjpww-star/bank-statement-fidelity-editor/issues"
   },
-  "homepage": "https://github.com/pdfloans/bank-statement-fidelity-editor#readme",
+  "homepage": "https://github.com/maryjpww-star/bank-statement-fidelity-editor#readme",
   "dependencies": {
     "@applitools/eyes-images": "^4.31.49"
   }

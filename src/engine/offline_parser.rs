@@ -38,12 +38,16 @@ pub fn parse_statement_offline(
     let mut all_rows: Vec<RawRow> = Vec::new();
 
     for page in 0..total_pages {
+        #[allow(unused_mut)] // mutated only when cfg(feature = "ocr") is active
         let mut blocks = engine.get_text_blocks(pdf_path, page).unwrap_or_default();
 
         #[cfg(feature = "ocr")]
         {
             if blocks.is_empty() {
-                tracing::info!("[offline_parser] No text found on page {}, falling back to OCR", page);
+                tracing::info!(
+                    "[offline_parser] No text found on page {}, falling back to OCR",
+                    page
+                );
                 blocks = extract_text_via_ocr(pdf_path, page, engine.clone());
             }
         }
@@ -368,8 +372,15 @@ fn extract_account_number(rows: &[RawRow]) -> Option<String> {
 }
 
 #[cfg(feature = "ocr")]
-fn extract_text_via_ocr(pdf_path: &Path, page: usize, engine: Arc<dyn PdfEngine>) -> Vec<crate::pdf::TextBlock> {
-    tracing::info!("[offline_parser] Attempting to render page {} for OCR fallback...", page);
+fn extract_text_via_ocr(
+    pdf_path: &Path,
+    page: usize,
+    engine: Arc<dyn PdfEngine>,
+) -> Vec<crate::pdf::TextBlock> {
+    tracing::info!(
+        "[offline_parser] Attempting to render page {} for OCR fallback...",
+        page
+    );
     let _rendered = match engine.render_page(pdf_path, page, 300.0) {
         Ok(r) => r,
         Err(e) => {
@@ -377,7 +388,7 @@ fn extract_text_via_ocr(pdf_path: &Path, page: usize, engine: Arc<dyn PdfEngine>
             return vec![];
         }
     };
-    
+
     tracing::warn!("[offline_parser] OCR models not bundled in this environment. Scanned PDF fallback aborted.");
     vec![]
 }

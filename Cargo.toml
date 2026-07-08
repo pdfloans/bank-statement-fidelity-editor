@@ -7,16 +7,18 @@ authors = ["Grok xAI"]
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["otel", "ocr"]
+default = ["otel"]
 dev = []
 # Recommendation #8: OTLP/OpenTelemetry export is opt-in. Enabled by default
 # for parity with previous behaviour, but can be disabled (e.g. for the
 # desktop GUI) to skip exporter init cost when no collector is configured:
 #   cargo build --no-default-features --features <...>
 otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
-# Recommendation #4: pure-Rust OCR (ocrs + rten). Off by default because
-# rten >=0.24 requires rustc >=1.89 while this project pins 1.88.0. Enable on
-# a newer toolchain with `--features ocr` once models are placed in models/.
+# Recommendation #4: pure-Rust OCR (ocrs + rten). Off by default because the
+# rten/ocrs crates add significant compile time and the OCR model files in
+# models/ are not shipped with the repository. Enable explicitly when models
+# are present:
+#   cargo build --features ocr
 ocr = ["dep:ocrs", "dep:rten", "dep:rten-imageproc", "dep:rten-tensor"]
 
 [dependencies]
@@ -116,6 +118,7 @@ assert_cmd = "2.0"
 predicates = "3.1"
 wiremock = "0.6.5"
 
+
 # -----------------------------------------------------------------------------
 # Profile tweaks
 #
@@ -131,7 +134,7 @@ incremental = true
 
 [profile.test]
 debug = false
-split-debuginfo = "packed"
+split-debuginfo = "off"
 opt-level = 1
 
 [profile.release]
