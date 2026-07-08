@@ -465,6 +465,10 @@ pub struct MyApp {
     /// Optional Document AI API key (Beta), takes precedence over OAuth/SA.
     edit_docai_api_key: String,
     edit_pymupdf_pro_key: String,
+    edit_mindee_api_key: String,
+    edit_llamaparse_api_key: String,
+    edit_pdfrest_api_key: String,
+    edit_applitools_api_key: String,
     /// Gemini auth mode buffer: false = API key (default), true = Vertex AI
     /// (service-account / ADC). Persisted as `GEMINI_AUTH_MODE`.
     edit_gemini_use_vertex: bool,
@@ -598,6 +602,10 @@ impl MyApp {
                 .unwrap_or_default(),
             edit_docai_api_key: std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default(),
             edit_pymupdf_pro_key: std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default(),
+            edit_mindee_api_key: std::env::var("MINDEE_API_KEY").unwrap_or_default(),
+            edit_llamaparse_api_key: std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default(),
+            edit_pdfrest_api_key: std::env::var("PDFREST_API_KEY").unwrap_or_default(),
+            edit_applitools_api_key: std::env::var("APPLITOOLS_API_KEY").unwrap_or_default(),
             edit_gemini_use_vertex: matches!(
                 std::env::var("GEMINI_AUTH_MODE")
                     .unwrap_or_default()
@@ -662,6 +670,22 @@ impl MyApp {
             (
                 "PYMUPDF_PRO_KEY",
                 self.edit_pymupdf_pro_key.trim().to_string(),
+            ),
+            (
+                "MINDEE_API_KEY",
+                self.edit_mindee_api_key.trim().to_string(),
+            ),
+            (
+                "LLAMAPARSE_API_KEY",
+                self.edit_llamaparse_api_key.trim().to_string(),
+            ),
+            (
+                "PDFREST_API_KEY",
+                self.edit_pdfrest_api_key.trim().to_string(),
+            ),
+            (
+                "APPLITOOLS_API_KEY",
+                self.edit_applitools_api_key.trim().to_string(),
             ),
             (
                 "GEMINI_AUTH_MODE",
@@ -2870,21 +2894,21 @@ impl MyApp {
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
                     let mark = |ok: bool| if ok { "✓" } else { "✗" };
-                    ui.small(format!("Doc AI {}", mark(self.api_availability.document_ai_configured)));
+                    ui.small(format!("Doc AI {}", mark(self.api_availability.document_ai)));
                     ui.separator();
-                    ui.small(format!("Gemini {}", mark(self.api_availability.gemini_configured)));
+                    ui.small(format!("Gemini {}", mark(self.api_availability.gemini_api_key)));
                     ui.separator();
-                    ui.small(format!("Pro {}", mark(self.api_availability.pro_editing_available)));
+                    ui.small(format!("Pro {}", mark(self.api_availability.pymupdf_pro)));
                     ui.separator();
-                    ui.small(format!("Mindee {}", mark(self.api_availability.mindee_configured)));
+                    ui.small(format!("Mindee {}", mark(self.api_availability.mindee)));
                     ui.separator();
-                    ui.small(format!("LlamaParse {}", mark(self.api_availability.llamaparse_configured)));
+                    ui.small(format!("LlamaParse {}", mark(self.api_availability.llamaparse)));
                     ui.separator();
-                    ui.small(format!("pdfRest {}", mark(self.api_availability.pdfrest_configured)));
+                    ui.small(format!("pdfRest {}", mark(self.api_availability.pdfrest)));
                     ui.separator();
-                    ui.small(format!("Applitools {}", mark(self.api_availability.applitools_configured)));
+                    ui.small(format!("Applitools {}", mark(self.api_availability.applitools)));
                     ui.separator();
-                    ui.small(format!("Offline {}", mark(self.api_availability.offline_parser_available)));
+                    ui.small(format!("Offline {}", mark(true)));
                 });
 
                 // Render the results of the active `Test Connections` job
