@@ -1,16 +1,19 @@
-name: Release Windows Executable
+name: Build & Release Executables
 
 on:
-  workflow_dispatch: # Allows manual trigger from the GitHub Actions tab
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, master, fix-ci-and-railway]
     tags:
-      - 'v*' # Triggers when a new version tag is pushed (e.g., v1.0.0)
+      - 'v*'
 
 permissions:
   contents: write
 
 jobs:
+  # ------------------------------------------------------------------
+  # Windows Build
+  # ------------------------------------------------------------------
   build-windows:
     name: Build Windows Executable
     runs-on: windows-latest
@@ -28,7 +31,7 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      - name: Upload binary as GitHub Artifact
+      - name: Upload Windows Executable Artifact
         uses: actions/upload-artifact@v4
         with:
           name: dual-core-pdf-pipeline-windows-exe
@@ -40,3 +43,180 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: target/release/dual-core-pdf-pipeline.exe
+
+  # ------------------------------------------------------------------
+  # Mac (Apple Silicon) Build
+  # ------------------------------------------------------------------
+  build-mac-silicon:
+    name: Build Release (Mac Silicon)
+    runs-on: macos-14
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt, clippy
+
+      - name: Ensure Rust components (fallback)
+        run: |
+          rustup component add rustfmt || true
+          rustup target add aarch64-apple-darwin || true
+
+      - name: Install Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install pymupdf
+
+      - name: Set PYO3_PYTHON
+        run: echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
+
+      - name: Install system dependencies
+        run: |
+          brew install pkg-config || true
+          brew install openssl@3 || true
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Release Binary (with retries)
+        run: |
+          MAX_ATTEMPTS=5
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "=========================================="
+            echo "Build attempt $ATTEMPT of $MAX_ATTEMPTS"
+            echo "=========================================="
+            if cargo build --release --target aarch64-apple-darwin 2>&1; then
+              echo "Build succeeded on attempt $ATTEMPT!"
+              exit 0
+            fi
+            echo "Build failed on attempt $ATTEMPT."
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Cleaning target and retrying in 10 seconds..."
+              cargo clean 2>/dev/null || true
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          echo "All $MAX_ATTEMPTS build attempts failed."
+          exit 1
+
+      # ── Package as .app bundle ──────────────────────────────────
+      - name: Create .app bundle
+        run: |
+          APP_NAME="DualCorePdfPipeline"
+          APP_DIR="${APP_NAME}.app/Contents"
+          BINARY="target/aarch64-apple-darwin/release/dual-core-pdf-pipeline"
+
+          mkdir -p "${APP_DIR}/MacOS"
+          mkdir -p "${APP_DIR}/Resources"
+
+          # Convert icon to ICNS
+          mkdir AppIcon.iconset
+          sips -z 16 16     assets/icon.png --out AppIcon.iconset/icon_16x16.png
+          sips -z 32 32     assets/icon.png --out AppIcon.iconset/icon_16x16@2x.png
+          sips -z 32 32     assets/icon.png --out AppIcon.iconset/icon_32x32.png
+          sips -z 64 64     assets/icon.png --out AppIcon.iconset/icon_32x32@2x.png
+          sips -z 128 128   assets/icon.png --out AppIcon.iconset/icon_128x128.png
+          sips -z 256 256   assets/icon.png --out AppIcon.iconset/icon_128x128@2x.png
+          sips -z 256 256   assets/icon.png --out AppIcon.iconset/icon_256x256.png
+          sips -z 512 512   assets/icon.png --out AppIcon.iconset/icon_256x256@2x.png
+          sips -z 512 512   assets/icon.png --out AppIcon.iconset/icon_512x512.png
+          sips -z 1024 1024 assets/icon.png --out AppIcon.iconset/icon_512x512@2x.png
+          iconutil -c icns AppIcon.iconset
+          cp AppIcon.icns "${APP_DIR}/Resources/"
+
+          # Copy the compiled binary
+          cp "$BINARY" "${APP_DIR}/MacOS/${APP_NAME}"
+          chmod +x "${APP_DIR}/MacOS/${APP_NAME}"
+
+          # Create Info.plist
+          cat > "${APP_DIR}/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Dual Core PDF Pipeline</string>
+            <key>CFBundleDisplayName</key>
+            <string>Dual Core PDF Pipeline</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.maryjpww-star.dual-core-pdf-pipeline</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0.0</string>
+            <key>CFBundleExecutable</key>
+            <string>DualCorePdfPipeline</string>
+            <key>CFBundleIconFile</key>
+            <string>AppIcon</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSArchitecturePriority</key>
+            <array>
+              <string>arm64</string>
+            </array>
+          </dict>
+          </plist>
+          EOF
+
+          echo "✅ .app bundle created at ${APP_NAME}.app"
+          ls -la "${APP_NAME}.app/Contents/MacOS/"
+
+      # ── Package as .dmg disk image ──────────────────────────────
+      - name: Create .dmg installer
+        run: |
+          APP_NAME="DualCorePdfPipeline"
+          DMG_NAME="${APP_NAME}-Mac-Silicon.dmg"
+          DMG_DIR="dmg_staging"
+
+          mkdir -p "${DMG_DIR}"
+          cp -R "${APP_NAME}.app" "${DMG_DIR}/"
+
+          # Create a symbolic link to /Applications for drag-and-drop install
+          ln -s /Applications "${DMG_DIR}/Applications"
+
+          # Build the .dmg
+          hdiutil create -volname "${APP_NAME}" \
+            -srcfolder "${DMG_DIR}" \
+            -ov -format UDZO \
+            "${DMG_NAME}"
+
+          echo "✅ DMG created: ${DMG_NAME}"
+          ls -lh "${DMG_NAME}"
+
+      # ── Upload artifacts ────────────────────────────────────────
+      - name: Upload .app bundle Artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dual-core-pdf-pipeline-mac-app
+          path: DualCorePdfPipeline.app
+          if-no-files-found: error
+
+      - name: Upload .dmg installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dual-core-pdf-pipeline-mac-dmg
+          path: DualCorePdfPipeline-Mac-Silicon.dmg
+          if-no-files-found: error
+
+      - name: Upload to GitHub Release (If triggered by tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            DualCorePdfPipeline-Mac-Silicon.dmg
