@@ -26,13 +26,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.89.0
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.89.0
           components: clippy, rustfmt
 
       - name: Install system dependencies (Linux)
@@ -41,7 +42,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
 
+      - name: Install Python 3.11 (Mac/Windows)
+        if: runner.os != 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
+      - name: Install system dependencies (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          brew install pkg-config || true
+          brew install openssl@3 || true
+          pip install pymupdf
+          echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
 
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
@@ -63,8 +76,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.89.0
           components: clippy, rustfmt
 
       - name: Ensure rustfmt is installed (fallback)
@@ -97,11 +111,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-14]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.89.0
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -109,7 +125,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
 
+      - name: Install Python 3.11 (Mac/Windows)
+        if: runner.os != 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
+      - name: Install system dependencies (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          brew install pkg-config || true
+          brew install openssl@3 || true
+          pip install pymupdf
+          echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
 
       - uses: Swatinem/rust-cache@v2
 
@@ -132,7 +160,9 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.89.0
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
       - run: cargo audit
