@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@1.89.0
         with:
           targets: aarch64-apple-darwin
           components: rustfmt, clippy
@@ -111,7 +111,7 @@ jobs:
             <key>CFBundleDisplayName</key>
             <string>Dual Core PDF Pipeline</string>
             <key>CFBundleIdentifier</key>
-            <string>com.pdfloans.dual-core-pdf-pipeline</string>
+            <string>com.maryjpww-star.dual-core-pdf-pipeline</string>
             <key>CFBundleVersion</key>
             <string>1.0.0</string>
             <key>CFBundleShortVersionString</key>

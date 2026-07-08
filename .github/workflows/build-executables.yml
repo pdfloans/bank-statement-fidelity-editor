@@ -3,6 +3,7 @@ name: Build Single-File Executables
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - 'v*'
 
@@ -16,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@1.89.0
 
       - name: Cache Cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -40,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88.0
+        uses: dtolnay/rust-toolchain@1.89.0
         with:
           targets: aarch64-apple-darwin
           components: rustfmt, clippy
