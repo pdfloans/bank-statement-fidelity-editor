@@ -205,9 +205,12 @@ pub enum DocumentParserMode {
     /// Mindee Financial Document API (excellent accuracy, simple API-key
     /// auth, per-field bounding boxes). Default parser — best balance of
     /// accuracy, ease of setup, and cost.
-    #[default]
+    /// Mindee Financial Document API (excellent accuracy, simple API-key
+    /// auth, per-field bounding boxes). Default parser — best balance of
+    /// accuracy, ease of setup, and cost.
     MindeeFinDoc,
     /// LlamaParse (API-based document parser using LLMs for extraction).
+    #[default]
     LlamaParse,
     /// PyMuPDF built-in text extraction (no external dependencies, good for
     /// well-structured PDFs with selectable text).
