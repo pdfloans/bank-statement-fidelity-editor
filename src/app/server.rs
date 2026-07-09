@@ -1,4 +1,4 @@
-//! Headless HTTP server — additive entry point for container/cloud
+//! Headless HTTP server - additive entry point for container/cloud
 //! deployments (e.g. Railway, Fly, Cloud Run).
 //!
 //! This module does NOT change the GUI, the CLI job model, or the
@@ -13,11 +13,11 @@
 //! into the dependency graph.
 //!
 //! Endpoints (all `GET`):
-//!   * `/health`, `/healthz`, `/livez` — liveness. Returns 200 as soon as
+//!   * `/health`, `/healthz`, `/livez` - liveness. Returns 200 as soon as
 //!     the listener is up. This is the cheap probe a platform should hit.
-//!   * `/readyz`, `/ready`            — readiness. Pings the worker actor
-//!     (`Job::Ping` → `JobResult::Pong`); 200 when it answers, 503 if not.
-//!   * `/`                            — plain-text banner.
+//!   * `/readyz`, `/ready`            - readiness. Pings the worker actor
+//!     (`Job::Ping` -> `JobResult::Pong`); 200 when it answers, 503 if not.
+//!   * `/`                            - plain-text banner.
 //!
 //! The port is taken from the `PORT` environment variable (Railway sets
 //! this automatically), defaulting to `8080`. The bind address is always

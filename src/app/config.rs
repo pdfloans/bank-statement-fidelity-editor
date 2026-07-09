@@ -179,7 +179,7 @@ impl Default for ConnectionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AiProviderMode {
-    /// Skip AI entirely — manual-only editing with no AI balance/vision calls.
+    /// Skip AI entirely - manual-only editing with no AI balance/vision calls.
     #[default]
     ManualOnly,
     /// Google Gemini via AI Studio API key (default, easiest setup).
@@ -209,7 +209,7 @@ impl AiProviderMode {
 #[serde(rename_all = "snake_case")]
 pub enum DocumentParserMode {
     /// Mindee Financial Document API (excellent accuracy, simple API-key
-    /// auth, per-field bounding boxes). Default parser — best balance of
+    /// auth, per-field bounding boxes). Default parser - best balance of
     /// accuracy, ease of setup, and cost.
     MindeeFinDoc,
     /// LlamaParse (API-based document parser using LLMs for extraction).
@@ -485,7 +485,7 @@ impl AppConfig {
     /// Reports whether PyMuPDF Pro per-segment editing/rendering (Subsystem B)
     /// is available, based on the `PYMUPDF_PRO_KEY` this config holds.
     ///
-    /// A key is considered available when it is present and well-formed — a
+    /// A key is considered available when it is present and well-formed - a
     /// 24-character value with the `hFKt` trial-key prefix (Requirement 21.4).
     /// Because expiry cannot be verified offline, a well-formed key is treated
     /// as available and any expiry failure surfaces later at PyMuPDF unlock
@@ -495,7 +495,7 @@ impl AppConfig {
     /// # Subsystem isolation
     /// This status governs **only** per-segment editing/rendering. The
     /// `lopdf` split/merge engine (Subsystem A) does **not** consult this and
-    /// runs regardless of key state in every runtime environment — local GUI,
+    /// runs regardless of key state in every runtime environment - local GUI,
     /// local `serve`, and the Railway `pdfsitch` deployment (Requirements
     /// 11.2, 21.5). Nothing in this method or its callers should be used to
     /// gate splitting or merging.
@@ -509,7 +509,7 @@ impl AppConfig {
     /// Convenience boolean form of [`AppConfig::pro_key_status`]: `true` when
     /// per-segment editing is available.
     ///
-    /// This MUST NOT be used to gate splitting or merging — those run
+    /// This MUST NOT be used to gate splitting or merging - those run
     /// regardless of Pro-key state (Requirements 11.2, 21.5).
     pub fn pro_editing_available(&self) -> bool {
         self.pro_key_status().is_available()
@@ -539,7 +539,7 @@ impl AppConfig {
     ///
     /// Called at boot and after every `ReloadConfig` so the UI can grey-out
     /// unavailable options (with a message) and the runtime can skip them
-    /// in fallback chains. This is a cheap, local-only check — it does NOT
+    /// in fallback chains. This is a cheap, local-only check - it does NOT
     /// make network calls to verify the key is actually accepted by the
     /// remote service.
     pub fn detect_availability(&self) -> ApiAvailability {
@@ -575,7 +575,7 @@ impl AppConfig {
 /// unavailable options with explanatory messages, and the runtime uses it
 /// to skip unavailable backends in automatic fallback chains.
 ///
-/// A `true` value means the key *exists and is non-empty* — it does NOT
+/// A `true` value means the key *exists and is non-empty* - it does NOT
 /// guarantee the remote service will accept it (e.g. an expired or revoked
 /// key still reads as `true` here). Actual acceptance is verified lazily
 /// when the backend is first invoked.
@@ -607,19 +607,19 @@ impl ApiAvailability {
     pub fn unavailable_reason(&self, backend: &str) -> Option<&'static str> {
         match backend {
             "gemini_api_key" if !self.gemini_api_key => {
-                Some("GEMINI_API_KEY not configured. Set it in Settings → API Keys or .env.")
+                Some("GEMINI_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
             "gemini_vertex" if !self.gemini_vertex => {
-                Some("Vertex AI requires a service account or ADC credentials. Configure in Settings → API Keys.")
+                Some("Vertex AI requires a service account or ADC credentials. Configure in Settings -> API Keys.")
             }
             "document_ai" if !self.document_ai => {
-                Some("Document AI requires project ID, processor ID, and auth credentials. Configure in Settings → API Keys.")
+                Some("Document AI requires project ID, processor ID, and auth credentials. Configure in Settings -> API Keys.")
             }
             "mindee" if !self.mindee => {
                 Some("MINDEE_API_KEY not configured. Get one at https://platform.mindee.com/ and set in .env.")
             }
             "llamaparse" if !self.llamaparse => {
-                Some("LLAMAPARSE_API_KEY not configured. Set it in Settings → API Keys or .env.")
+                Some("LLAMAPARSE_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
             "pdfrest" if !self.pdfrest => {
                 Some("PDFREST_API_KEY not configured. Set it in .env to enable cloud rendering.")

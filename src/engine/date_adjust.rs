@@ -78,7 +78,7 @@ pub fn shift_dates(transactions: &mut [Transaction], days: i64) -> Vec<DateShift
 
 /// Remap transaction dates from one period to another.
 /// Each date's offset from `from_start` is preserved and applied relative to `to_start`.
-/// For example, if `from_start` is Jan 1 and `to_start` is Feb 1, then Jan 5 → Feb 5.
+/// For example, if `from_start` is Jan 1 and `to_start` is Feb 1, then Jan 5 -> Feb 5.
 pub fn remap_date_period(
     transactions: &mut [Transaction],
     from_start: NaiveDate,

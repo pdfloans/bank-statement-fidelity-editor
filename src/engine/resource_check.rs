@@ -1,7 +1,7 @@
 //! Post-merge resource-integrity check (Requirement 15).
 //!
 //! After the `Split_Merge_Engine` (Subsystem A, `pdf_split_merge`) produces a
-//! merged output, this module verifies — for every page of that output — that
+//! merged output, this module verifies - for every page of that output - that
 //! each resource the page references (`/Resources`, `/Font`, `/XObject`,
 //! `/ExtGState`) is actually present in the document before the output is
 //! emitted (Req 15.1).
@@ -9,7 +9,7 @@
 //! It is a pure-Rust, `lopdf`-only module. It deliberately contains no
 //! reference to the Pro editor stack or its FFI bridge: structural resource
 //! checking never needs the Pro library. (A render probe via `pdfium-render`
-//! is intentionally avoided here — see the warn-vs-fatal heuristic below —
+//! is intentionally avoided here - see the warn-vs-fatal heuristic below -
 //! keeping the check cheap and deterministic.)
 //!
 //! ## Warn-vs-fatal heuristic
@@ -19,13 +19,13 @@
 //! discarding output that would actually render fine, this module classifies
 //! a missing resource as follows:
 //!
-//! * **Warning (Req 15.2 — record + emit):** a referenced entry inside a
+//! * **Warning (Req 15.2 - record + emit):** a referenced entry inside a
 //!   `/Font`, `/XObject`, or `/ExtGState` sub-dictionary (or the sub-dictionary
 //!   itself) does not resolve. The page very likely still renders, just
 //!   degraded (a missing glyph program, image, or graphics-state). The caller
 //!   records the affected Global_Page + category and emits the output.
 //!
-//! * **Fatal (Req 15.3 — error + retain original):** the page cannot render at
+//! * **Fatal (Req 15.3 - error + retain original):** the page cannot render at
 //!   all, which we treat structurally as either of:
 //!     1. the page's `/Resources` entry is a *dangling reference* (the object
 //!        id it points at is absent), so the resource dictionary itself cannot
@@ -115,8 +115,8 @@ pub enum ResourceCheckError {
 /// * On success, returns the list of **warning** messages for resources that
 ///   were not carried over but whose pages still render (Req 15.2). An empty
 ///   vector means full resource integrity.
-/// * Returns [`ResourceCheckError::UnrenderablePage`] — carrying the offending
-///   Global_Page — when a missing resource makes a page unrenderable, so the
+/// * Returns [`ResourceCheckError::UnrenderablePage`] - carrying the offending
+///   Global_Page - when a missing resource makes a page unrenderable, so the
 ///   caller can retain the original document instead of emitting (Req 15.3).
 ///
 /// The check stops at the first fatal (unrenderable) page; warnings on pages
@@ -161,7 +161,7 @@ pub fn check_merged_resources(merged_path: &Path) -> Result<Vec<String>, Resourc
 }
 
 /// Check one merged page and return its resource issues (warnings and/or a
-/// single fatal). Pure structural inspection — no rendering.
+/// single fatal). Pure structural inspection - no rendering.
 ///
 /// At most one [`ResourceIssue::Fatal`] is produced per page; when present it
 /// is the last (and only) issue in the returned vector. The only [`Err`]
@@ -252,7 +252,7 @@ enum ResourcesResolution<'a> {
 /// Resolve a page's effective `/Resources` dictionary.
 ///
 /// Order of resolution: the leaf's own `/Resources` (inline dict or reference),
-/// then — if absent — the nearest ancestor `/Pages` node via the `/Parent`
+/// then - if absent - the nearest ancestor `/Pages` node via the `/Parent`
 /// chain (resources are an inheritable attribute per the PDF spec). A
 /// `/Resources` reference whose target object is missing is reported as
 /// [`ResourcesResolution::Dangling`] so the caller can treat it as fatal.
@@ -304,7 +304,7 @@ fn resolve_resources_on<'a>(
 }
 
 /// Whether a resource sub-category (`/Font`, `/XObject`, `/ExtGState`) contains
-/// a reference that does not resolve in the document — either the category
+/// a reference that does not resolve in the document - either the category
 /// sub-dictionary itself is a dangling reference, or one of its entries is.
 fn category_has_missing_resource(doc: &Document, resources: &Dictionary, category: &[u8]) -> bool {
     let category_dict = match resources.get(category) {

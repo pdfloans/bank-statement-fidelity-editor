@@ -13,7 +13,7 @@
 //! asset/liability balance and a debit reduces it). We made this choice
 //! historically because most retail bank statements show "Debit" as the
 //! "money in" column for the *customer's* account, and "Credit" as
-//! "money out" — these field names match what the user sees on their
+//! "money out" - these field names match what the user sees on their
 //! statement, not the accountant-side journal.
 //!
 //! When you need to think in formal accounting terms, use [`Transaction::delta_in`]
@@ -51,7 +51,7 @@ pub struct Transaction {
     pub bbox: Option<[f32; 4]>,
     /// Per-field bboxes (Date, Description, Debit, Credit, RunningBalance).
     /// When present, an edit on a specific field uses that bbox instead of
-    /// the row-level `bbox`. Stage 7.5 — without these the binary editor
+    /// the row-level `bbox`. Stage 7.5 - without these the binary editor
     /// would redact the entire row when the user only changed one cell.
     #[serde(default, skip_serializing_if = "FieldBboxes::is_empty")]
     pub field_bboxes: FieldBboxes,
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(final_balance, dec!(130));
     }
 
-    /// The classic 0.1 + 0.2 != 0.3 problem under f64 — Decimal handles this
+    /// The classic 0.1 + 0.2 != 0.3 problem under f64 - Decimal handles this
     /// exactly. This is the whole reason for Stage 7.
     #[test]
     fn decimal_avoids_f64_drift_across_hundreds_of_rows() {

@@ -148,15 +148,15 @@ pub enum TransferStage {
 impl TransferStage {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::AnalyzeSource => "Analyzing source statement…",
-            Self::AnalyzeTarget => "Analyzing target statement…",
-            Self::AiFormatMapping => "AI mapping transaction formats…",
-            Self::ComputeBalances => "Computing balances…",
-            Self::PdfSurgery => "Applying PDF changes…",
-            Self::VisualFidelityCheck => "Verifying visual fidelity…",
-            Self::MathVerificationEngine => "Verifying math (engine)…",
-            Self::MathVerificationGemini => "Verifying math (AI)…",
-            Self::FinalAudit => "Writing audit report…",
+            Self::AnalyzeSource => "Analyzing source statement...",
+            Self::AnalyzeTarget => "Analyzing target statement...",
+            Self::AiFormatMapping => "AI mapping transaction formats...",
+            Self::ComputeBalances => "Computing balances...",
+            Self::PdfSurgery => "Applying PDF changes...",
+            Self::VisualFidelityCheck => "Verifying visual fidelity...",
+            Self::MathVerificationEngine => "Verifying math (engine)...",
+            Self::MathVerificationGemini => "Verifying math (AI)...",
+            Self::FinalAudit => "Writing audit report...",
         }
     }
 

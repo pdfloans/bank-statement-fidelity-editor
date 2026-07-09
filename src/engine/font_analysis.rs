@@ -208,7 +208,7 @@ impl FontAnalysis {
         let pages = doc.get_pages();
 
         for (&page_num, &page_id) in &pages {
-            // Get the page's Resource dictionary → Font sub-dictionary
+            // Get the page's Resource dictionary -> Font sub-dictionary
             let font_dict = doc
                 .get_page_resources(page_id)
                 .ok()
@@ -310,7 +310,7 @@ impl FontAnalysis {
     }
 
     /// Number of fonts whose missing set is fully digit characters. These
-    /// are the easiest to fix — only N digit glyphs need creation.
+    /// are the easiest to fix - only N digit glyphs need creation.
     pub fn digit_only_action_count(&self) -> usize {
         self.fonts
             .iter()
@@ -323,7 +323,7 @@ impl FontAnalysis {
     }
 
     /// Fonts whose role is `letters` or `mixed` AND have at least one
-    /// missing letter — these are the hardest cases.
+    /// missing letter - these are the hardest cases.
     pub fn alpha_action_count(&self) -> usize {
         self.fonts
             .iter()
@@ -335,7 +335,7 @@ impl FontAnalysis {
     pub fn one_line_summary(&self) -> String {
         if self.summary.all_fonts_covered {
             return format!(
-                "✅ {} font(s) — every used character is already covered.",
+                "✅ {} font(s) - every used character is already covered.",
                 self.summary.total_fonts
             );
         }
@@ -353,7 +353,7 @@ impl FontAnalysis {
             ));
         }
         format!(
-            "⚠ {} of {} font(s) need attention — missing {}",
+            "⚠ {} of {} font(s) need attention - missing {}",
             self.summary.fonts_needing_action,
             self.summary.total_fonts,
             parts.join(", "),

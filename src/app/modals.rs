@@ -30,7 +30,7 @@ impl AppModals for MyApp {
                 .default_size(egui::vec2(420.0, 600.0))
                 .vscroll(true)
                 .show(ctx, |ui| {
-                        // Backend Preferences panel at the top — most important
+                        // Backend Preferences panel at the top - most important
                         self.draw_backend_preferences(ui);
 
                         self.draw_font_analysis_section(ui);
@@ -54,7 +54,7 @@ impl AppModals for MyApp {
                                 for (change, approved) in &mut self.proposed_changes {
                                     ui.checkbox(
                                         approved,
-                                        format!("P{}: {} → {}", change.page + 1, change.old_text, change.new_text),
+                                        format!("P{}: {} -> {}", change.page + 1, change.old_text, change.new_text),
                                     );
                                     ui.small(&change.reason);
                                 }
@@ -96,7 +96,7 @@ impl AppModals for MyApp {
                                 });
                                 let history = self.history_state.get_history();
                                 for (i, rec) in history.iter().enumerate() {
-                                    ui.small(format!("[{}] P{} {} → {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
+                                    ui.small(format!("[{}] P{} {} -> {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
                                 }
                             });
 
@@ -558,7 +558,7 @@ impl AppModals for MyApp {
                     ui.label("Source Statement PDF (transactions to take):");
                     ui.horizontal(|ui| {
                         ui.text_edit_singleline(&mut self.transfer_source_path);
-                        if ui.button("Browse…").clicked() {
+                        if ui.button("Browse...").clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("PDF", &["pdf"])
                                 .pick_file()
@@ -627,8 +627,8 @@ impl AppModals for MyApp {
                                 output_pdf: output,
                             });
                             self.in_flight += 1;
-                            self.status = "Starting transaction transfer…".into();
-                            self.toast(ToastKind::Info, "Transaction transfer started — this may take 2–3 minutes.");
+                            self.status = "Starting transaction transfer...".into();
+                            self.toast(ToastKind::Info, "Transaction transfer started - this may take 2–3 minutes.");
                             self.show_transfer_dialog = false;
                         }
 
@@ -646,7 +646,7 @@ impl AppModals for MyApp {
                     if !target_ok {
                         ui.colored_label(
                             self.settings.theme.palette().warn,
-                            "⚠ Load a target PDF first (File → Open)",
+                            "⚠ Load a target PDF first (File -> Open)",
                         );
                     }
                 });
@@ -725,7 +725,7 @@ impl AppModals for MyApp {
 
                             let _ = self.job_tx.send(Job::AdjustDatePeriods { input, output, mode });
                             self.in_flight += 1;
-                            self.status = "Adjusting dates…".into();
+                            self.status = "Adjusting dates...".into();
                             self.toast(ToastKind::Info, "Date adjustment started.");
                             self.show_date_adjust_dialog = false;
                         }
@@ -778,7 +778,7 @@ impl AppModals for MyApp {
                         for (i, option) in confirmation.options.iter().enumerate() {
                             let is_default = confirmation.default_answer == Some(i);
                             let label = if is_default {
-                                format!("→ {} (recommended)", option)
+                                format!("-> {} (recommended)", option)
                             } else {
                                 option.clone()
                             };
@@ -835,7 +835,7 @@ impl AppModals for MyApp {
                         self.transfer_test_paths.remove(idx);
                     }
 
-                    if ui.button("➕ Add PDF…").clicked() {
+                    if ui.button("➕ Add PDF...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("PDF", &["pdf"])
                             .pick_file()
@@ -846,7 +846,7 @@ impl AppModals for MyApp {
 
                     let n = self.transfer_test_paths.len();
                     let pairs = if n >= 2 { n * (n - 1) } else { 0 };
-                    ui.label(format!("{} statements → {} test pairs", n, pairs));
+                    ui.label(format!("{} statements -> {} test pairs", n, pairs));
 
                     ui.add_space(8.0);
                     ui.separator();
@@ -866,8 +866,8 @@ impl AppModals for MyApp {
                                 max_iterations: 3,
                             });
                             self.in_flight += 1;
-                            self.status = format!("Running {} transfer tests…", pairs);
-                            self.toast(ToastKind::Info, &format!("Running {} transfer test pairs…", pairs));
+                            self.status = format!("Running {} transfer tests...", pairs);
+                            self.toast(ToastKind::Info, &format!("Running {} transfer test pairs...", pairs));
                         }
 
                         if ui.button("Close").clicked() {
@@ -894,7 +894,7 @@ impl AppModals for MyApp {
                                 let src = r.source.file_stem().unwrap_or_default().to_string_lossy();
                                 let tgt = r.target.file_stem().unwrap_or_default().to_string_lossy();
                                 ui.label(format!(
-                                    "{} {} → {} ({}iter, {:.1}s)",
+                                    "{} {} -> {} ({}iter, {:.1}s)",
                                     icon, src, tgt, r.iterations, r.duration_secs
                                 ));
                                 if !r.corrections.is_empty() {
@@ -915,7 +915,7 @@ impl AppModals for MyApp {
 
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui) {
             ui.collapsing("🔑 API keys & credentials", |ui| {
-                ui.small("Stored in .env (gitignored). Applied live — no restart needed.");
+                ui.small("Stored in .env (gitignored). Applied live - no restart needed.");
                 ui.add_space(4.0);
 
                 egui::Grid::new("api_keys_grid")
@@ -928,7 +928,7 @@ impl AppModals for MyApp {
                                 .password(true)
                                 .desired_width(220.0),
                         )
-                        .on_hover_text("AI Studio key (AIza…). Used for completeness + vision checks.");
+                        .on_hover_text("AI Studio key (AIza...). Used for completeness + vision checks.");
                         ui.end_row();
 
                         ui.label("Gemini auth mode:");
@@ -944,7 +944,7 @@ impl AppModals for MyApp {
 
                         ui.label("Doc AI location:");
                         ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
-                            .on_hover_text("e.g. 'us' or 'eu' — must match the processor region.");
+                            .on_hover_text("e.g. 'us' or 'eu' - must match the processor region.");
                         ui.end_row();
 
                         ui.label("Doc AI processor ID:");
@@ -956,7 +956,7 @@ impl AppModals for MyApp {
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
                                 .on_hover_text("Path to the service-account key JSON (best-practice auth).");
-                            if ui.button("Browse…").clicked() {
+                            if ui.button("Browse...").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("JSON", &["json"])
                                     .pick_file()
@@ -982,7 +982,7 @@ impl AppModals for MyApp {
                                 .password(true)
                                 .desired_width(220.0),
                         )
-                        .on_hover_text("24-char 'hFKt…' trial key enables per-segment Pro editing.");
+                        .on_hover_text("24-char 'hFKt...' trial key enables per-segment Pro editing.");
                         ui.end_row();
 
                         ui.label("Mindee API key:");
@@ -1087,7 +1087,7 @@ impl AppModals for MyApp {
                 });
 
                 // Live credential status reported by the runtime after the last
-                // Save & apply (Job::ReloadConfig → JobResult::ConfigReloaded).
+                // Save & apply (Job::ReloadConfig -> JobResult::ConfigReloaded).
                 ui.add_space(4.0);
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {

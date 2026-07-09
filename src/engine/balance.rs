@@ -1,4 +1,4 @@
-//! # Balance Engine — Automatic Reconciliation & Error Handling
+//! # Balance Engine - Automatic Reconciliation & Error Handling
 //!
 //! This module guarantees that every bank statement always adds up perfectly
 //! after any user edit, while maintaining maximum transparency and safety.
@@ -31,7 +31,7 @@
 //!    A clear, reassuring message is shown in green:
 //!
 //!    > ✅ **AUTO-CORRECTED**
-//!    > Final balance was $12,847.33 → now $12,850.00
+//!    > Final balance was $12,847.33 -> now $12,850.00
 //!    > (Difference of $2.67 automatically reconciled)
 //!    > All your edits and every previous running balance remain 100% unchanged.
 //!    > The statement now adds up perfectly.
@@ -50,7 +50,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use thiserror::Error;
 
-/// Tolerance used when comparing two Decimal balances for "equal" — one cent.
+/// Tolerance used when comparing two Decimal balances for "equal" - one cent.
 /// Matches what every retail bank report rounds to.
 pub const ONE_CENT: Decimal = dec!(0.01);
 
@@ -70,17 +70,17 @@ pub enum BalanceError {
     #[error("❌ INVALID TRANSACTION on line {line}\nA line cannot have both Debit and Credit at the same time.")]
     BothDebitAndCredit { line: usize },
 
-    #[error("❌ FINAL BALANCE MISMATCH\nExpected closing balance: ${expected}\nCalculated closing balance: ${calculated}\n\nAuto-correction applied — see details below.")]
+    #[error("❌ FINAL BALANCE MISMATCH\nExpected closing balance: ${expected}\nCalculated closing balance: ${calculated}\n\nAuto-correction applied - see details below.")]
     FinalBalanceMismatch {
         expected: Decimal,
         calculated: Decimal,
         correction_applied: String,
     },
 
-    #[error("Missing opening balance — cannot calculate running balances.")]
+    #[error("Missing opening balance - cannot calculate running balances.")]
     MissingOpeningBalance,
 
-    #[error("No transactions found in the statement — cannot calculate running balances.")]
+    #[error("No transactions found in the statement - cannot calculate running balances.")]
     EmptyTransactions,
 }
 
@@ -374,7 +374,7 @@ use polars::prelude::*;
 /// cheaper than rebuilding a DataFrame.
 ///
 /// Steps:
-/// 1. Convert transactions → DataFrame
+/// 1. Convert transactions -> DataFrame
 /// 2. Compute `net_delta = coalesce(debit, 0) - coalesce(credit, 0)`
 /// 3. Compute `running_balance = opening_balance + cumsum(net_delta)`
 /// 4. Convert back to `Vec<Transaction>` (with `Decimal` via `f64_to_dec`)
@@ -448,9 +448,9 @@ mod polars_balance_tests {
     #[test]
     fn polars_recalculate_matches_iterative() -> anyhow::Result<()> {
         let txs = vec![
-            make_tx(Some(dec!(10)), None), // +10 → 110
-            make_tx(None, Some(dec!(20))), // -20 → 90
-            make_tx(Some(dec!(5)), None),  // +5  → 95
+            make_tx(Some(dec!(10)), None), // +10 -> 110
+            make_tx(None, Some(dec!(20))), // -20 -> 90
+            make_tx(Some(dec!(5)), None),  // +5  -> 95
         ];
         let opening = dec!(100);
 

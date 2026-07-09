@@ -2,16 +2,16 @@
 //!
 //! The Stage 11 donor cascade looks up local TTF files via
 //! `cache/fonts/manifest.json` to feed Tier 2 (subset extension) and
-//! Tier 3 (Gemini Vision typeface ID → donor selection). Without a
+//! Tier 3 (Gemini Vision typeface ID -> donor selection). Without a
 //! populated cache both tiers degrade silently.
 //!
 //! This module downloads a curated seed of Google Fonts and writes the
 //! manifest. The seed was chosen for breadth across the typefaces most
 //! commonly seen on retail bank statements:
 //!
-//!   - Roboto, Open Sans, Noto Sans, Source Sans Pro, Inter — modern sans
-//!   - Lato, Montserrat — common transitional sans
-//!   - Roboto Slab, Merriweather — slab/serif used by older banks
+//!   - Roboto, Open Sans, Noto Sans, Source Sans Pro, Inter - modern sans
+//!   - Lato, Montserrat - common transitional sans
+//!   - Roboto Slab, Merriweather - slab/serif used by older banks
 //!
 //! Each font is downloaded directly from the Google Fonts GitHub mirror
 //! at a pinned commit hash so this command is deterministic. When a file
@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 struct FontSeed {
     /// What we surface in the manifest, used for Gemini Vision matching.
     canonical_name: &'static str,
-    /// Direct download URL — pin to a release tag on Google Fonts' repo
+    /// Direct download URL - pin to a release tag on Google Fonts' repo
     /// so the file content is stable.
     url: &'static str,
     /// Local filename inside the cache dir.
@@ -118,7 +118,7 @@ impl BootstrapReport {
 
 /// Run the bootstrap. Creates the cache directory if necessary, downloads
 /// each entry of [`SEED`] via the blocking `reqwest::blocking::Client` (we
-/// can't pull tokio in here — this CLI subcommand runs synchronously), and
+/// can't pull tokio in here - this CLI subcommand runs synchronously), and
 /// writes `manifest.json`.
 pub fn bootstrap(cache_dir: &Path, force: bool) -> Result<BootstrapReport, String> {
     std::fs::create_dir_all(cache_dir).map_err(|e| format!("create cache dir: {e}"))?;
@@ -200,7 +200,7 @@ fn download_one(client: &reqwest::blocking::Client, url: &str, dest: &Path) -> R
         return Err(format!("HTTP {}", resp.status()));
     }
     let bytes = resp.bytes().map_err(|e| format!("read body: {e}"))?;
-    // Reject anything smaller than 4KB — any plausible TTF is many KB.
+    // Reject anything smaller than 4KB - any plausible TTF is many KB.
     if bytes.len() < 4096 {
         return Err(format!("response too small ({} bytes)", bytes.len()));
     }

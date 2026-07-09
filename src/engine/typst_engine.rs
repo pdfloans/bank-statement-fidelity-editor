@@ -118,13 +118,13 @@ impl TypstEngine {
                 Err(TypstEngineError::Typst(err.to_string()))
             }
             Err(e) => {
-                // Python / Typst not available — return an actionable error
+                // Python / Typst not available - return an actionable error
                 // instead of silently copying the .typ source as a fake PDF.
                 tracing::error!("[typst_engine] Python/Typst compilation unavailable: {}", e);
                 Err(TypstEngineError::Typst(format!(
                     "Typst/Python compilation unavailable ({e}). \
                      Install Python + the `typst` package, or switch to a \
-                     different PDF Engine mode in Settings → Backend Preferences."
+                     different PDF Engine mode in Settings -> Backend Preferences."
                 )))
             }
         }

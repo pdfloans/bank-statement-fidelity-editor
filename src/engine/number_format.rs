@@ -9,7 +9,7 @@
 //!
 //! When the user edits one of these we want the new value to render with
 //! the exact same pattern; otherwise even a "right" math edit will show up
-//! as a forensic anomaly (comma → space, e.g.).
+//! as a forensic anomaly (comma -> space, e.g.).
 //!
 //! This module mirrors the same logic that Python's
 //! `_detect_number_format` / `_format_number` use, so the value the GUI

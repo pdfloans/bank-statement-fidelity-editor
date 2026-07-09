@@ -1,4 +1,4 @@
-//! Software Root of Trust — Production-Grade Security Without Any Hardware
+//! Software Root of Trust - Production-Grade Security Without Any Hardware
 //!
 //! Requires a strong passphrase via environment variable or a local key file.
 //! This is the absolute best possible security for users who cannot obtain hardware keys.
@@ -17,7 +17,7 @@ const MIN_PASSPHRASE_LEN: usize = 16;
 const KEY_FILE: &str = ".pipeline_key";
 const SALT: &[u8] = b"dual-core-pdf-pipeline-salt-2026";
 
-/// Strong software attestation — the best possible without hardware.
+/// Strong software attestation - the best possible without hardware.
 pub fn require_software_attestation() -> Result<(), String> {
     tracing::info!("[SECURITY] ═══════════════════════════════════════════════");
     tracing::info!("[SECURITY] Software Root of Trust (Production Mode)");

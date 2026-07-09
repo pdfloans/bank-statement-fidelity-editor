@@ -2,7 +2,7 @@
 //!
 //! Auth strategy (in priority order):
 //!  1. **Primary (Beta):** API key via the `v1beta3` endpoint with `?key=...`.
-//!  2. **Fallback A (ADC):** Application Default Credentials — the file written
+//!  2. **Fallback A (ADC):** Application Default Credentials - the file written
 //!     by `gcloud auth application-default login`. We swap the cached
 //!     `refresh_token` for a fresh access token at the OAuth2 endpoint.
 //!  3. **Fallback B (legacy SA):** Service-account JWT signed locally with the
@@ -325,7 +325,7 @@ impl DocumentAiClient {
             }
         });
 
-        // 1. Primary: API key → v1.
+        // 1. Primary: API key -> v1.
         if !self.config.api_key.is_empty() {
             let url = format!("{}?key={}", self.process_url(version), self.config.api_key);
             tracing::debug!("[doc_ai] trying v1 API-key auth");
@@ -420,7 +420,7 @@ impl DocumentAiClient {
             }
         }
 
-        // 2. Fallback: OAuth — get_access_token() handles ADC then SA in priority order.
+        // 2. Fallback: OAuth - get_access_token() handles ADC then SA in priority order.
         if self.config.adc_path.is_empty() && self.config.service_account_path.is_empty() {
             return Err(DocAiError::MissingConfig(
                 "no OAuth credential available (neither ADC nor service account)",
@@ -743,7 +743,7 @@ impl DocumentAiClient {
         let pages_node = result["document"]["pages"].as_array();
         let total_pages = pages_node.map_or(0, |p| p.len());
 
-        // Build a page-index → (width_pts, height_pts) map. DocAI normalizes
+        // Build a page-index -> (width_pts, height_pts) map. DocAI normalizes
         // bbox vertices in 0..1, so we need page dimensions to convert back
         // to PyMuPDF points. We must explicitly convert inches/cm/mm into
         // 72-dpi points, since PyMuPDF works strictly in points.
@@ -895,7 +895,7 @@ impl DocumentAiClient {
                     }
 
                     // Some processors emit "transaction" directly with the
-                    // same property layout — keep this branch as a fallback.
+                    // same property layout - keep this branch as a fallback.
                     "transaction" => {
                         let field_bboxes = FieldBboxes {
                             date: property_bbox(
@@ -1482,7 +1482,7 @@ fn entity_page_and_bbox(
 }
 
 /// Same as [`entity_page_and_bbox`] but for one of the entity's nested
-/// `properties` (debit, credit, running_balance, …). Tries each kind in
+/// `properties` (debit, credit, running_balance, ...). Tries each kind in
 /// order and returns the first one whose property has a bbox.
 fn property_bbox(
     entity: &serde_json::Value,
@@ -1589,7 +1589,7 @@ mod tests {
 
     #[test]
     fn parse_response_into_bank_statement_works() {
-        // Two table_items: one with deposit, one without (just a description) — the
+        // Two table_items: one with deposit, one without (just a description) - the
         // empty one should be skipped by the parser because it has no money values.
         let json_str = r#"{
             "document": {
@@ -1834,7 +1834,7 @@ mod tests {
         assert!(merged.transactions.is_empty());
     }
 
-    /// Stage 7.5: parse → edit pipeline integrity. Confirm that bbox info
+    /// Stage 7.5: parse -> edit pipeline integrity. Confirm that bbox info
     /// from Document AI's `pageAnchor.boundingPoly.normalizedVertices`
     /// flows all the way into `Transaction.bbox` and `Transaction.field_bboxes`.
     /// Without this the binary editor redacts the wrong region (or no
@@ -1968,7 +1968,7 @@ mod tests {
     /// stays consistent with what DocAI actually returns.
     #[test]
     fn parse_falls_back_to_row_bbox_when_property_anchor_missing() {
-        // Same as above but the deposit has no own pageAnchor — falls back
+        // Same as above but the deposit has no own pageAnchor - falls back
         // to the row's bbox.
         let json_str = r#"{
             "document": {
@@ -2001,7 +2001,7 @@ mod tests {
         assert!(tx.bbox.is_some(), "row bbox should be set");
         assert!(
             tx.field_bboxes.credit.is_none(),
-            "no property anchor → field bbox should be None"
+            "no property anchor -> field bbox should be None"
         );
     }
 }

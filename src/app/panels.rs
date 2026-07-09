@@ -28,7 +28,7 @@ impl AppPanels for MyApp {
             egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
                     ui.menu_button("File", |ui| {
-                        if ui.button("📂 Open PDF…").clicked() {
+                        if ui.button("📂 Open PDF...").clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("PDF", &["pdf"])
                                 .pick_file()
@@ -55,7 +55,7 @@ impl AppPanels for MyApp {
                         }
                         if ui
                             .button("📋 Resume workflow draft")
-                            .on_hover_text("Reload audit/workflow.json — restores parse, queued edits and stage")
+                            .on_hover_text("Reload audit/workflow.json - restores parse, queued edits and stage")
                             .clicked()
                         {
                             self.resume_workflow_draft();
@@ -80,7 +80,7 @@ impl AppPanels for MyApp {
                         let recent = self.settings.recent_files.clone();
                         for f in recent {
                             let label = if f.len() > 40 {
-                                format!("…{}", &f[f.len() - 38..])
+                                format!("...{}", &f[f.len() - 38..])
                             } else {
                                 f.clone()
                             };
@@ -163,14 +163,14 @@ impl AppPanels for MyApp {
                     ui.add(
                         egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
                             .desired_width(ui.available_width())
-                            .text(format!("{} — {}%", p.label, pct)),
+                            .text(format!("{} - {}%", p.label, pct)),
                     );
                     ui.add_space(2.0);
                 } else if self.in_flight > 0 {
                     ui.horizontal(|ui| {
                         ui.add(egui::Spinner::new());
                         ui.small(format!(
-                            "Working… ({} task{} in progress)",
+                            "Working... ({} task{} in progress)",
                             self.in_flight,
                             if self.in_flight == 1 { "" } else { "s" }
                         ));
@@ -369,7 +369,7 @@ impl AppPanels for MyApp {
                         egui::Sense::drag().union(egui::Sense::click()),
                     );
 
-                    // Zoom — Ctrl+wheel
+                    // Zoom - Ctrl+wheel
                     let zoom_scroll = ui.input(|i| {
                         if i.modifiers.command {
                             i.smooth_scroll_delta.y
@@ -382,7 +382,7 @@ impl AppPanels for MyApp {
                         self.fit_to_view = false;
                     }
 
-                    // Pan — any drag (primary, middle, etc.)
+                    // Pan - any drag (primary, middle, etc.)
                     if response.dragged() {
                         self.pan_offset += response.drag_delta();
                         self.fit_to_view = false;
@@ -459,7 +459,7 @@ impl AppPanels for MyApp {
                             }
                         }
 
-                        // Click → resolve text block via Python
+                        // Click -> resolve text block via Python
                         if response.clicked() {
                             if let Some(pos) = response.interact_pointer_pos() {
                                 let relative = pos - rect.min;
@@ -511,7 +511,7 @@ impl AppPanels for MyApp {
 
                         // Stage 5 / Item #20: live diff overlay during preview.
                         // Translucent yellow over each `will_change` bbox on the
-                        // current page; tooltip shows old → new.
+                        // current page; tooltip shows old -> new.
                         if let Some(preview) = self.workflow_preview.clone() {
                             let (sx, sy) = if let Some((w, h)) = self.current_page_size_pts {
                                 (size.x / w, size.y / h)
@@ -550,18 +550,18 @@ impl AppPanels for MyApp {
                                         egui::Color32::from_rgb(220, 180, 0),
                                     ),
                                 );
-                                // Hover tooltip with the diff text — only when
+                                // Hover tooltip with the diff text - only when
                                 // the pointer is actually over this cell.
                                 if let Some(m) = mouse {
                                     if cell.contains(m) {
                                         let old_str = prow
                                             .old_running_balance
                                             .map(|v| format!("{v:.2}"))
-                                            .unwrap_or_else(|| "—".into());
+                                            .unwrap_or_else(|| "-".into());
                                         let new_str = prow
                                             .new_running_balance
                                             .map(|v| format!("{v:.2}"))
-                                            .unwrap_or_else(|| "—".into());
+                                            .unwrap_or_else(|| "-".into());
                                         egui::show_tooltip(
                                             ctx,
                                             egui::LayerId::new(
@@ -575,7 +575,7 @@ impl AppPanels for MyApp {
                                                     prow.page + 1,
                                                     prow.line_on_page + 1
                                                 ));
-                                                ui.label(format!("{} → {}", old_str, new_str));
+                                                ui.label(format!("{} -> {}", old_str, new_str));
                                             },
                                         );
                                     }
@@ -670,8 +670,8 @@ impl AppPanels for MyApp {
                                                         auto_apply: true,
                                                     });
                                                     self.in_flight += 1;
-                                                    self.status = "Auto-balancing entire statement…".into();
-                                                    self.toast(ToastKind::Info, "Auto-balancing entire statement…");
+                                                    self.status = "Auto-balancing entire statement...".into();
+                                                    self.toast(ToastKind::Info, "Auto-balancing entire statement...");
                                                 }
                                             }
                                         });
@@ -692,7 +692,7 @@ impl AppPanels for MyApp {
                                                     input,
                                                     page: self.current_page,
                                                 });
-                                                self.toast(ToastKind::Info, "Requesting AI Layout Fix…");
+                                                self.toast(ToastKind::Info, "Requesting AI Layout Fix...");
                                                 self.in_flight += 1;
                                             }
 
@@ -736,7 +736,7 @@ impl AppPanels for MyApp {
         }
 
     fn draw_workflow_section(&mut self, ui: &mut egui::Ui) {
-            ui.collapsing("🤖 Workflow (AI parse → preview → render → verify)", |ui| {
+            ui.collapsing("🤖 Workflow (AI parse -> preview -> render -> verify)", |ui| {
                 let stage = self.workflow_stage.clone();
                 let p = self.settings.theme.palette();
 
@@ -848,12 +848,12 @@ impl AppPanels for MyApp {
                             // accented Latin) doesn't panic on byte slicing.
                             let desc_short: String = if r.description.chars().count() > 24 {
                                 let head: String = r.description.chars().take(24).collect();
-                                format!("{head}…")
+                                format!("{head}...")
                             } else {
                                 r.description.clone()
                             };
                             ui.small(format!(
-                                "P{} L{} {} • bal {:?} → {:?}",
+                                "P{} L{} {} • bal {:?} -> {:?}",
                                 r.page + 1,
                                 r.line_on_page + 1,
                                 desc_short,
@@ -979,7 +979,7 @@ impl AppPanels for MyApp {
             let palette = self.settings.theme.palette();
 
             ui.label(format!(
-                "📋 Inline edit ({} rows) — Tab to next field, ↶ reverts row",
+                "📋 Inline edit ({} rows) - Tab to next field, ↶ reverts row",
                 self.workflow_transactions.len()
             ));
 
@@ -1030,7 +1030,7 @@ impl AppPanels for MyApp {
                                         ui.label(format!("{}", tx.line_on_page + 1));
                                     });
 
-                                    // Date — text field
+                                    // Date - text field
                                     row.col(|ui| {
                                         let buf = Self::cell_buffer(
                                             &mut self.workflow_cell_buffers,
@@ -1054,7 +1054,7 @@ impl AppPanels for MyApp {
                                         }
                                     });
 
-                                    // Description — text field
+                                    // Description - text field
                                     row.col(|ui| {
                                         let buf = Self::cell_buffer(
                                             &mut self.workflow_cell_buffers,
@@ -1078,7 +1078,7 @@ impl AppPanels for MyApp {
                                         }
                                     });
 
-                                    // Debit / Credit / Balance — money fields with red border on parse failure.
+                                    // Debit / Credit / Balance - money fields with red border on parse failure.
                                     Self::money_cell(
                                         &mut row,
                                         &mut self.workflow_cell_buffers,
@@ -1167,12 +1167,12 @@ impl AppPanels for MyApp {
 
             let header = if analysis.summary.all_fonts_covered {
                 format!(
-                    "🔤 Font analysis — ✅ {} font(s), all covered",
+                    "🔤 Font analysis - ✅ {} font(s), all covered",
                     analysis.summary.total_fonts
                 )
             } else {
                 format!(
-                    "🔤 Font analysis — ⚠ {}/{} font(s) need attention",
+                    "🔤 Font analysis - ⚠ {}/{} font(s) need attention",
                     analysis.summary.fonts_needing_action, analysis.summary.total_fonts
                 )
             };
@@ -1271,7 +1271,7 @@ impl AppPanels for MyApp {
                                 {
                                     let head: String =
                                         font.characters_used.chars().take(80).collect();
-                                    format!("{head}…")
+                                    format!("{head}...")
                                 } else {
                                     font.characters_used.clone()
                                 };
@@ -1349,7 +1349,7 @@ impl AppPanels for MyApp {
             painter.text(
                 center + egui::vec2(0.0, 18.0),
                 egui::Align2::CENTER_CENTER,
-                "Drop a PDF here, or use File → Open",
+                "Drop a PDF here, or use File -> Open",
                 egui::FontId::proportional(14.0),
                 p.weak,
             );
@@ -1380,7 +1380,7 @@ impl AppPanels for MyApp {
                 );
                 resp.clone().on_hover_text(hint).clicked()
             };
-            if button(ui, "📂 Open PDF…", "Browse for a bank statement PDF") {
+            if button(ui, "📂 Open PDF...", "Browse for a bank statement PDF") {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("PDF", &["pdf"])
                     .pick_file()
@@ -1407,7 +1407,7 @@ impl AppPanels for MyApp {
             if button(
                 ui,
                 "📋 Resume workflow draft",
-                "Reload audit/workflow.json — restores parse, queued edits and stage",
+                "Reload audit/workflow.json - restores parse, queued edits and stage",
             ) {
                 self.resume_workflow_draft();
             }

@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Result of a single directional transfer test (source → target).
+/// Result of a single directional transfer test (source -> target).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferTestResult {
     pub source: PathBuf,
@@ -117,7 +117,7 @@ mod tests {
     fn generate_pairs_2_statements() {
         let stmts = vec![PathBuf::from("a.pdf"), PathBuf::from("b.pdf")];
         let pairs = generate_test_pairs(&stmts);
-        assert_eq!(pairs.len(), 2); // a→b, b→a
+        assert_eq!(pairs.len(), 2); // a->b, b->a
         assert_eq!(pairs[0], (PathBuf::from("a.pdf"), PathBuf::from("b.pdf")));
         assert_eq!(pairs[1], (PathBuf::from("b.pdf"), PathBuf::from("a.pdf")));
     }

@@ -7,7 +7,7 @@ use tokio::sync::oneshot;
 ///
 /// `oneshot::Receiver::blocking_recv` panics when called from a thread that
 /// is currently driving a tokio task (which is exactly what
-/// `tokio::task::spawn_blocking` produces — the OS thread is owned by the
+/// `tokio::task::spawn_blocking` produces - the OS thread is owned by the
 /// runtime even while it's executing user code). We work around it by:
 ///   * using `block_in_place` + `Handle::block_on` if a runtime exists, OR
 ///   * falling back to `blocking_recv` when no runtime is present (CLI sync

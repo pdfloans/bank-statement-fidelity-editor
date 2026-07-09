@@ -111,7 +111,7 @@ fn pinned_render_config(target_width: i32) -> PdfRenderConfig {
         .set_target_width(target_width)
         .set_clear_color(PdfColor::WHITE)
         // Keep text/path AA on (matches how a human views the PDF) but pin
-        // it identically for both sides. Disable LCD subpixel text — it is
+        // it identically for both sides. Disable LCD subpixel text - it is
         // orientation/order dependent and would inject channel-fringe deltas.
         .use_lcd_text_rendering(false)
         .set_text_smoothing(true)
@@ -165,7 +165,7 @@ fn gradient_magnitude(g: &GrayImage) -> GrayImage {
     GrayImage::from_raw(w, h, buf).unwrap_or_else(|| GrayImage::new(w, h))
 }
 
-/// Recommendation #5 — mean Structural Similarity Index (SSIM) over two
+/// Recommendation #5 - mean Structural Similarity Index (SSIM) over two
 /// aligned grayscale images, computed on non-overlapping windows. SSIM is a
 /// perceptual metric (luminance + contrast + structure) that correlates with
 /// "do these look the same to a human?" far better than a raw pixel/hash
@@ -526,7 +526,7 @@ pub async fn verify_edit_pages_with_padding(
         }
 
         // Item #17: localized tile-max scoring on luminance + gradient. This
-        // is the gate signal — a single drifted glyph OUTSIDE the intended
+        // is the gate signal - a single drifted glyph OUTSIDE the intended
         // regions produces a high-scoring tile that a whole-page average
         // would have hidden.
         let orig_gray = to_gray(&original_img);
@@ -648,7 +648,7 @@ pub async fn verify_edit_pages_with_padding(
         // glyphs at 600 DPI. We render just the edited neighbourhood from
         // both PDFs (cheap), then score the gradient residual after best
         // alignment. High residual = the new glyphs don't match the
-        // original's weight/spacing/shape — i.e. a fidelity failure on the
+        // original's weight/spacing/shape - i.e. a fidelity failure on the
         // edit itself, which the old blanket-mask approach never checked.
         for (page, bbox) in intended_bboxes {
             if *page != i {
@@ -770,7 +770,7 @@ mod stage_g_tests {
         let orig_grad = gradient_magnitude(&orig);
         let edit_grad = gradient_magnitude(&edited);
 
-        // Whole-page average luminance diff — the OLD gate signal.
+        // Whole-page average luminance diff - the OLD gate signal.
         let mut total = 0u64;
         for (x, y, p) in orig.enumerate_pixels() {
             let q = edited.get_pixel(x, y)[0] as i32;
@@ -856,7 +856,7 @@ mod stage_g_tests {
     }
 
     // -----------------------------------------------------------------------
-    // Phase 6 — SSIM unit tests
+    // Phase 6 - SSIM unit tests
     // -----------------------------------------------------------------------
 
     /// Identical grayscale images must produce SSIM ≈ 1.0.
@@ -893,7 +893,7 @@ mod stage_g_tests {
         let b = img_with_block(w, h, Some((50, 50, 100, 100)));
         // Without exclusion the block difference drags SSIM down.
         let without = mean_ssim(&a, &b, &[]);
-        // With the block excluded, the rest is identical → SSIM ≈ 1.0.
+        // With the block excluded, the rest is identical -> SSIM ≈ 1.0.
         let with_exclusion = mean_ssim(&a, &b, &[(50, 50, 100, 100)]);
         assert!(
             with_exclusion > without,
@@ -902,7 +902,7 @@ mod stage_g_tests {
     }
 
     // -----------------------------------------------------------------------
-    // Phase 6 — Applitools graceful degradation
+    // Phase 6 - Applitools graceful degradation
     // -----------------------------------------------------------------------
 
     /// When the Applitools bridge script does not exist (or node is unavailable),
@@ -923,7 +923,7 @@ mod stage_g_tests {
 
         match out {
             Ok(output) => {
-                // Node ran but the script doesn't exist — that's fine.
+                // Node ran but the script doesn't exist - that's fine.
                 // The stdout should NOT contain a valid APPLITOOLS_RESULT.
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let has_result = stdout.lines().any(|l| l.starts_with("APPLITOOLS_RESULT:"));
@@ -933,7 +933,7 @@ mod stage_g_tests {
                 );
             }
             Err(_) => {
-                // Node itself isn't available — also fine, proves graceful degradation.
+                // Node itself isn't available - also fine, proves graceful degradation.
             }
         }
     }

@@ -82,7 +82,7 @@ pub const ENV_VARS: &[EnvVarSpec] = &[
         requirement: Requirement::Recommended,
         summary: "Document AI processor region.",
         enables: "Transaction extraction (Extract / Balance)",
-        setup_hint: "Typically 'us' or 'eu' — must match your processor.",
+        setup_hint: "Typically 'us' or 'eu' - must match your processor.",
         example: "us",
     },
     EnvVarSpec {
@@ -122,7 +122,7 @@ pub const ENV_VARS: &[EnvVarSpec] = &[
         requirement: Requirement::Optional,
         summary: "Adobe pdfRest API key.",
         enables: "Higher-tier visual verification rendering",
-        setup_hint: "Get one at https://pdfrest.com/ — falls back to local rendering when absent.",
+        setup_hint: "Get one at https://pdfrest.com/ - falls back to local rendering when absent.",
         example: "",
     },
     EnvVarSpec {
@@ -180,7 +180,7 @@ pub const PRO_TRIAL_KEY_PREFIX: &str = "hFKt";
 /// characters with the [`PRO_TRIAL_KEY_PREFIX`] prefix (per Requirement 21.4).
 ///
 /// # Offline expiry caveat
-/// There is no offline way to verify that a Pro key is unexpired — that can
+/// There is no offline way to verify that a Pro key is unexpired - that can
 /// only be confirmed by PyMuPDF at unlock time. This check therefore treats
 /// a present, well-formed key as *available* and cannot detect a key that is
 /// well-formed but expired; absence or a malformed value is treated as

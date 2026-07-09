@@ -187,7 +187,7 @@ pub mod parsers {
         alt((parse_date_slash, parse_date_month_name)).parse_next(input)
     }
 
-    /// Parse an Australian currency amount: $X,XXX.XX → Decimal.
+    /// Parse an Australian currency amount: $X,XXX.XX -> Decimal.
     ///
     /// Handles optional negative sign, optional dollar sign, comma
     /// separators, and mandatory 2 decimal places.
@@ -211,7 +211,7 @@ pub mod parsers {
                     match group_result {
                         Ok(group) => amount_str.push_str(group),
                         Err(_) => {
-                            // Put the comma back — it wasn't a separator
+                            // Put the comma back - it wasn't a separator
                             *input = checkpoint;
                             break;
                         }
@@ -407,7 +407,7 @@ mod tests {
         let raw = std::fs::read_to_string(&out)?;
         let refined: BankTemplate = serde_yaml::from_str(&raw).map_err(|e| anyhow::anyhow!(e))?;
 
-        // date column: observed envelope x0=42, x1=95 → padded ±4 → [38, 99]
+        // date column: observed envelope x0=42, x1=95 -> padded ±4 -> [38, 99]
         let date = refined
             .column_x_ranges
             .get("date")
@@ -415,7 +415,7 @@ mod tests {
         assert!((date[0] - 38.0).abs() < 0.1);
         assert!((date[1] - 99.0).abs() < 0.1);
 
-        // amount column: observed envelope x0=220, x1=280 → padded → [216, 284]
+        // amount column: observed envelope x0=220, x1=280 -> padded -> [216, 284]
         let amt = refined
             .column_x_ranges
             .get("amount")
@@ -433,7 +433,7 @@ mod tests {
     fn learn_template_clamps_negative_lo_to_zero() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let tmpl = sample_template();
-        // Observation at x0=2 → padded x0 = -2, must clamp to 0.
+        // Observation at x0=2 -> padded x0 = -2, must clamp to 0.
         let observations = vec![("date".to_string(), [2.0, 100.0, 95.0, 120.0])];
         let out =
             learn_template(dir.path(), &tmpl, &observations).map_err(|e| anyhow::anyhow!(e))?;

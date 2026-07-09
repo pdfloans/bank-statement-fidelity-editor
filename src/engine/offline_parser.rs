@@ -243,7 +243,7 @@ fn parse_rows_into_transactions(rows: &[RawRow]) -> (Vec<Transaction>, Decimal, 
         // If 1 amount, it's a debit or credit with no running balance shown
         let (debit, credit, running_balance) = match amounts.len() {
             1 => {
-                // Single amount — assume it's a debit (money in) if positive
+                // Single amount - assume it's a debit (money in) if positive
                 let amt = amounts[0];
                 if amt >= Decimal::ZERO {
                     (Some(amt), None, None)

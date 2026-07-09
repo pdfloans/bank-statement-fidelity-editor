@@ -177,7 +177,7 @@ async fn verify_pymupdf_pro(config: &AppConfig) -> VerificationResult {
     }
 }
 
-/// Verify Document AI with fallback chain: API key → ADC → Service Account
+/// Verify Document AI with fallback chain: API key -> ADC -> Service Account
 async fn verify_document_ai(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
 
@@ -248,7 +248,7 @@ async fn verify_document_ai(config: &AppConfig) -> VerificationResult {
     }
 }
 
-/// Verify Gemini with fallback chain: gemini-2.5-pro → gemini-1.5-pro → gemini-2.5-flash
+/// Verify Gemini with fallback chain: gemini-2.5-pro -> gemini-1.5-pro -> gemini-2.5-flash
 async fn verify_gemini(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
 

@@ -1,4 +1,4 @@
-//! Native PDF Engine — oxidize-pdf AST traversal + pdf-writer serialization.
+//! Native PDF Engine - oxidize-pdf AST traversal + pdf-writer serialization.
 //!
 //! Phase 2 of the architecture rewrite. This replaces all FFI-based PDF
 //! engines (MuPDF, PyMuPDF, pdfium-render) with pure Rust implementations.
@@ -118,7 +118,7 @@ impl OxidizePdfEngine {
                     }
                 }
                 "T*" if in_text => {
-                    // Move to start of next line (uses TL — leading)
+                    // Move to start of next line (uses TL - leading)
                     // Approximate as moving down by font_size
                     tlm[5] -= font_size;
                     tm = tlm;
@@ -151,7 +151,7 @@ impl OxidizePdfEngine {
                                     combined_text.push_str(&String::from_utf8_lossy(bytes));
                                 }
                                 lopdf::Object::Integer(_) | lopdf::Object::Real(_) => {
-                                    // Kerning adjustment — skip
+                                    // Kerning adjustment - skip
                                 }
                                 _ => {}
                             }
@@ -371,7 +371,7 @@ mod pdfium_resolver {
                 // Try system library by attempting a bind
                 if pdfium_render::prelude::Pdfium::bind_to_system_library().is_ok() {
                     tracing::info!("[pdfium] Bound to system Pdfium library");
-                    // Return empty path — system library is used directly
+                    // Return empty path - system library is used directly
                     return Ok(PathBuf::new());
                 }
 
@@ -382,7 +382,7 @@ mod pdfium_resolver {
     }
 }
 
-/// Recommendation #1 — faithful page rasterisation using `pdfium-render`.
+/// Recommendation #1 - faithful page rasterisation using `pdfium-render`.
 ///
 /// Uses [`pdfium_resolver`] to find or download the Pdfium library. The
 /// resolver caches the library path so resolution/download happens at most
@@ -475,7 +475,7 @@ impl PdfEngine for OxidizePdfEngine {
     fn capabilities(&self) -> EngineCapabilities {
         EngineCapabilities {
             supports_redaction: true,
-            supports_cjk: false, // Phase 3 — needs skrifa CID font mapping
+            supports_cjk: false, // Phase 3 - needs skrifa CID font mapping
             supports_embedded_fonts: true,
             estimated_fidelity: 0.85,
         }

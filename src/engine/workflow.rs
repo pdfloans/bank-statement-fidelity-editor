@@ -2,23 +2,23 @@
 //!
 //! Stages (each gated by user action in the GUI):
 //!
-//! 1. `Parse`        — Document AI extracts a [`BankStatement`]; Gemini does a
+//! 1. `Parse`        - Document AI extracts a [`BankStatement`]; Gemini does a
 //!    completeness check ("did the parser capture all the rows
 //!    visible on the page?"). The result is a
 //!    [`ParseValidation`].
-//! 2. `Edit`         — user edits any number of values. The app holds a
+//! 2. `Edit`         - user edits any number of values. The app holds a
 //!    [`Vec<UserEdit>`] until they request a preview.
-//! 3. `Preview`      — recompute every running balance from the user's edits,
+//! 3. `Preview`      - recompute every running balance from the user's edits,
 //!    produce a [`BalancePreview`] with a per-row diff and a
 //!    final imbalance number.
-//! 4. `Render`       — for each accepted edit, call into the existing
+//! 4. `Render`       - for each accepted edit, call into the existing
 //!    `apply_change` path which already does
 //!    binary-level / supplied-font / structured-failure.
-//! 5. `Validate`     — compare the rendered output to the page rendered with
+//! 5. `Validate`     - compare the rendered output to the page rendered with
 //!    target values overlaid. If the perceptual diff is
 //!    above a threshold the stage retries with
 //!    `tolerance_pixels` widened up to `max_attempts`.
-//! 6. `FinalParse`   — re-run Document AI on the rendered output and verify
+//! 6. `FinalParse`   - re-run Document AI on the rendered output and verify
 //!    all amounts, balances and the running ledger are
 //!    mathematically consistent.
 //!
@@ -64,21 +64,21 @@ pub enum WorkflowStage {
     Parsing,
     /// Parsing done, the user is editing.
     Editing(ParseValidation),
-    /// "Balance Out Preview" — recompute and present diffs.
+    /// "Balance Out Preview" - recompute and present diffs.
     Previewing(BalancePreview),
-    /// "Confirm and Render" — apply edits to the PDF.
+    /// "Confirm and Render" - apply edits to the PDF.
     Rendering { attempt: u32 },
     /// Render finished; visual validation is running.
     Validating(VisualAttempt),
     /// Final Document AI re-parse to confirm math integrity.
     FinalChecking,
-    /// Done — the bank statement is confirmed correct.
+    /// Done - the bank statement is confirmed correct.
     Complete(WorkflowOutcome),
     /// Terminal failure with a structured reason.
     Failed(WorkflowFailure),
 }
 
-/// Result of stage 1 — what DocAI got + Gemini's opinion of completeness.
+/// Result of stage 1 - what DocAI got + Gemini's opinion of completeness.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParseValidation {
     pub total_pages: usize,
@@ -107,8 +107,8 @@ impl ParseValidation {
 ///
 /// Concretely:
 ///   * `delta = template_row_count - docai_row_count`
-///   * `delta <= 1` → no penalty (rounding tolerance)
-///   * `delta > 1` → multiply score by 0.7, surface the discrepancy in notes
+///   * `delta <= 1` -> no penalty (rounding tolerance)
+///   * `delta > 1` -> multiply score by 0.7, surface the discrepancy in notes
 ///
 /// `template_row_count == 0` (no template matched) means we have no signal
 /// either way, so the score is left alone. This is Stage 2 / Item #11.
@@ -138,7 +138,7 @@ pub fn cross_validate_with_template(
     validation
 }
 
-/// Result of stage 3 — every row, with the user's edits applied, plus the
+/// Result of stage 3 - every row, with the user's edits applied, plus the
 /// running balance recomputed top-to-bottom.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BalancePreview {
@@ -206,7 +206,7 @@ pub struct VisualAttempt {
 
 impl VisualAttempt {
     pub fn passed(&self) -> bool {
-        // A diff score below 0.001 (0.1%) is essentially pixel-perfect —
+        // A diff score below 0.001 (0.1%) is essentially pixel-perfect -
         // always accept regardless of the only_intended flag. The flag can
         // be false due to sub-pixel aliasing differences that are visually
         // imperceptible.
@@ -470,7 +470,7 @@ impl WorkflowStage {
 }
 
 // ---------------------------------------------------------------------------
-// Stage 3 — pure preview computation. Lives here so we can unit-test it.
+// Stage 3 - pure preview computation. Lives here so we can unit-test it.
 // ---------------------------------------------------------------------------
 
 use crate::engine::balance::{process_and_reconcile, ONE_CENT};
@@ -594,7 +594,7 @@ pub fn edit_set_hash(input_pdf_sha256: &str, edits: &[UserEdit]) -> String {
 
 /// Detect overlapping bboxes in the queued edit set. Two edits "conflict"
 /// when they target the same page and their bboxes overlap by more than
-/// 50% of either bbox's area — typical case is two queued edits on the
+/// 50% of either bbox's area - typical case is two queued edits on the
 /// same numeric cell. Returns the conflicting pairs as
 /// `(index_a, index_b)` so the GUI can highlight them.
 ///
@@ -636,7 +636,7 @@ fn bbox_overlap_fraction(a: [f32; 4], b: [f32; 4]) -> f32 {
 ///
 /// Stage 2 / Item #7: when a user edits debit on row 1 *and* the running
 /// balance on row 5 to the value that the cascade would produce anyway,
-/// applying both edits is redundant — it just adds visual noise (extra
+/// applying both edits is redundant - it just adds visual noise (extra
 /// redactions) without changing the document. We prune those after the
 /// preview is built, returning the edits to actually apply plus a list of
 /// the ones we dropped (for auditability).
@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn cross_validate_template_three_extra_rows_drops_score_to_0_665() {
-        // 0.95 * 0.7 = 0.665 — matches the Stage 2 acceptance criterion exactly.
+        // 0.95 * 0.7 = 0.665 - matches the Stage 2 acceptance criterion exactly.
         let v = validation(0.95, 8);
         let out = cross_validate_with_template(v, 11);
         assert!(
@@ -936,7 +936,7 @@ mod tests {
             balanced: true,
             auto_correction_message: None,
         };
-        // User typed 999.99, cascade says 250.00 — keep the edit; the user
+        // User typed 999.99, cascade says 250.00 - keep the edit; the user
         // is trying to override the cascade.
         let edits = vec![make_user_edit(0, 5, "999.99", EditField::RunningBalance)];
         let (kept, dropped) = prune_redundant_edits(&edits, &preview);
@@ -974,15 +974,15 @@ mod tests {
 
     #[test]
     fn should_accept_near_perfect_only_after_attempt_3_and_below_half_threshold() {
-        // Attempt 1, score 0.001, threshold 0.02 — strict path; don't accept.
+        // Attempt 1, score 0.001, threshold 0.02 - strict path; don't accept.
         assert!(!should_accept_near_perfect(1, 0.001, 0.02));
         // Attempt 3, score 0.005 (<0.01 = half threshold). Accept.
         assert!(should_accept_near_perfect(3, 0.005, 0.02));
-        // Attempt 3 but score is right at half — must be strictly less than.
+        // Attempt 3 but score is right at half - must be strictly less than.
         assert!(!should_accept_near_perfect(3, 0.01, 0.02));
-        // Attempt 5, score 0.0001 — accept.
+        // Attempt 5, score 0.0001 - accept.
         assert!(should_accept_near_perfect(5, 0.0001, 0.02));
-        // Attempt 4 with score above threshold — never accept.
+        // Attempt 4 with score above threshold - never accept.
         assert!(!should_accept_near_perfect(4, 0.05, 0.02));
     }
 

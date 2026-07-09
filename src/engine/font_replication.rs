@@ -44,7 +44,7 @@ impl DeepFontReplicationResult {
 
 /// Phase 3: Extract raw font data (TTF/OTF bytes) from an embedded PDF font.
 ///
-/// Walks the font descriptor chain: Font → FontDescriptor → FontFile2 (TrueType)
+/// Walks the font descriptor chain: Font -> FontDescriptor -> FontFile2 (TrueType)
 /// or FontFile3 (CFF/OpenType). Returns the raw byte stream suitable for
 /// loading into `skrifa::FontRef` or `write_fonts::FontBuilder`.
 pub fn extract_font_bytes_from_pdf(pdf_path: &Path, font_name: &str) -> Result<Vec<u8>, String> {
@@ -83,7 +83,7 @@ pub fn extract_font_bytes_from_pdf(pdf_path: &Path, font_name: &str) -> Result<V
                     continue;
                 }
 
-                // Get FontDescriptor → FontFile2/FontFile3
+                // Get FontDescriptor -> FontFile2/FontFile3
                 let descriptor = font_obj
                     .get(b"FontDescriptor")
                     .ok()
@@ -122,7 +122,7 @@ pub fn extract_font_bytes_from_pdf(pdf_path: &Path, font_name: &str) -> Result<V
 
 /// Phase 3: Measure glyph advance widths using skrifa for a given font.
 ///
-/// Returns a map of character → advance width (in font design units).
+/// Returns a map of character -> advance width (in font design units).
 /// Used by the text editor to calculate pixel-perfect text placement.
 pub fn measure_advances(font_data: &[u8], text: &str) -> Result<Vec<(char, f32)>, String> {
     use skrifa::raw::TableProvider;
@@ -157,8 +157,8 @@ pub fn measure_advances(font_data: &[u8], text: &str) -> Result<Vec<(char, f32)>
 /// Strategy:
 /// 1. Parse the original font with `ttf_parser` to check cmap coverage
 /// 2. Identify which characters from `required_text` are missing
-/// 3. If all present → return original bytes unchanged
-/// 4. If missing → clone metrics from a similar glyph (e.g. use '0' as
+/// 3. If all present -> return original bytes unchanged
+/// 4. If missing -> clone metrics from a similar glyph (e.g. use '0' as
 ///    a donor for missing digits to maintain tabular width) and construct
 ///    a new font binary using `write_fonts`
 ///
@@ -182,7 +182,7 @@ pub fn synthesize_font_subset(
     }
 
     if missing.is_empty() {
-        // All characters covered — return original bytes unchanged
+        // All characters covered - return original bytes unchanged
         return Ok((original_bytes.to_vec(), missing));
     }
 

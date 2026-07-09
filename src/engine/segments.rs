@@ -110,8 +110,8 @@ impl SegmentMap {
     /// Resolve a global page to the segment file currently backing it and its
     /// local page within that segment (Requirement 7.1).
     ///
-    /// Returns the segment's current merge-input path — its `edited_path` when
-    /// an edit has been applied, otherwise the original segment `path` — paired
+    /// Returns the segment's current merge-input path - its `edited_path` when
+    /// an edit has been applied, otherwise the original segment `path` - paired
     /// with the local page. Returns `None` (without mutating state) when
     /// `global_page` has no mapping (`global_page >= total_pages`), so the
     /// render path can abort cleanly (Requirement 7.4). Pure: never mutates.
@@ -214,7 +214,7 @@ impl SegmentManager {
     /// `temp_dir`, `max_pages_per_segment`, and per-segment `index`/`edited`/
     /// `edited_path`) whose `total_pages` equals the original page count
     /// (Requirement 2.6). Splitting uses only the pure-Rust `lopdf` module
-    /// (`pdf_split_merge::split_pdf`) — no `PyEngine` / PyMuPDF is involved.
+    /// (`pdf_split_merge::split_pdf`) - no `PyEngine` / PyMuPDF is involved.
     ///
     /// On split failure (Requirement 12.1): abort preparation and build no map,
     /// best-effort remove any partial `segment_*.pdf` files written into the

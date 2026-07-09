@@ -2,7 +2,7 @@
 //!
 //! Replaces the deleted `tesseract.rs` with a 100% native Rust OCR
 //! implementation. Uses `ocrs::OcrEngine` backed by ONNX Runtime via
-//! `rten` for both text detection and recognition — zero C++ dependencies.
+//! `rten` for both text detection and recognition - zero C++ dependencies.
 //!
 //! This acts as a local fallback for scanned documents when Document AI
 //! is not available or when offline processing is needed.
@@ -72,7 +72,7 @@ impl OcrsEngine {
         self.run_ocr(&img)
     }
 
-    /// Real detection→recognition pipeline (Recommendation #4), gated behind
+    /// Real detection->recognition pipeline (Recommendation #4), gated behind
     /// the `ocr` cargo feature because `ocrs`/`rten` require rustc >= 1.89.
     #[cfg(feature = "ocr")]
     fn run_ocr(&self, img: &image::DynamicImage) -> Result<String, ExtractorError> {

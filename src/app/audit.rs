@@ -194,7 +194,7 @@ impl AuditLogParser {
     }
 
     fn parse_line(line: &str) -> Option<ChangeRecord> {
-        // audit_v1 ts=… page=… id=… old=… new=… op=… prov=… desc=… snap=… bbox=[…] in=… out=… review=…
+        // audit_v1 ts=... page=... id=... old=... new=... op=... prov=... desc=... snap=... bbox=[...] in=... out=... review=...
         let mut id = None;
         let mut timestamp = None;
         let mut page = None;

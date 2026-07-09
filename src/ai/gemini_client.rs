@@ -46,7 +46,7 @@ impl GeminiBalancePlan {
 /// page, and does the data look internally consistent?"
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiCompletenessReport {
-    /// 0..1 — Gemini's confidence that the parse is complete.
+    /// 0..1 - Gemini's confidence that the parse is complete.
     pub completeness_score: f32,
     /// Free-text explanation Gemini provided.
     pub notes: String,
@@ -72,7 +72,7 @@ impl GeminiCompletenessReport {
 /// Result of a vision-based anomaly check on a rendered page.
 ///
 /// Stage 4 / Item #10: after the workflow renders an edited PDF, we send the
-/// page back to Gemini Vision and ask "does anything look off?" — kerning
+/// page back to Gemini Vision and ask "does anything look off?" - kerning
 /// drift, baseline misalignment, font-weight mismatch, colour shift,
 /// hallucinated text. Hotspots that overlap an *intended* bbox are
 /// expected (we just edited there); hotspots elsewhere on the page mean
@@ -80,7 +80,7 @@ impl GeminiCompletenessReport {
 /// fail.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiVisionReport {
-    /// 0..1 — overall anomaly score. 0 = looks pristine, 1 = clearly broken.
+    /// 0..1 - overall anomaly score. 0 = looks pristine, 1 = clearly broken.
     pub anomaly_score: f32,
     /// Rectangles (in PDF points) where Gemini saw something off.
     pub hotspots: Vec<VisionHotspot>,
@@ -389,16 +389,16 @@ impl GeminiClient {
     /// POST to the best available **Pro** model, with a graceful fallback
     /// chain. Tries the frontier preview model first, then the GA Pro model
     /// (for projects/keys that haven't allowlisted preview models, or whose
-    /// free tier has no quota for the preview model — HTTP 429), then flash
+    /// free tier has no quota for the preview model - HTTP 429), then flash
     /// as a last resort. All reasoning and vision calls go through here so they
-    /// always prefer Pro — never the old flash-by-default behavior.
+    /// always prefer Pro - never the old flash-by-default behavior.
     async fn post_generate_pro(
         &self,
         body: &serde_json::Value,
     ) -> Result<reqwest::Response, GeminiError> {
         // A model is "unavailable for this key/project" when access is denied
         // (403), the model id isn't served (404), or the key has no quota for
-        // it (429 — common on the AI Studio free tier for preview models).
+        // it (429 - common on the AI Studio free tier for preview models).
         fn should_fall_back(status: StatusCode) -> bool {
             status == StatusCode::FORBIDDEN
                 || status == StatusCode::NOT_FOUND
@@ -1149,7 +1149,7 @@ fn mint_gcp_access_token(doc_ai: &crate::app::config::DocumentAiConfig) -> Resul
         // which panics if we're already inside one. Detect and work around.
         match tokio::runtime::Handle::try_current() {
             Ok(_handle) => {
-                // We're inside a tokio runtime — use the async client via block_in_place.
+                // We're inside a tokio runtime - use the async client via block_in_place.
                 // We return a thin wrapper that uses the async client synchronously.
                 None // signal to use async path below
             }
@@ -1180,7 +1180,7 @@ fn mint_gcp_access_token(doc_ai: &crate::app::config::DocumentAiConfig) -> Resul
             }
             resp.json().map_err(|e| format!("token json: {e}"))
         } else {
-            // Inside tokio — use block_in_place + async client
+            // Inside tokio - use block_in_place + async client
             tokio::task::block_in_place(|| {
                 let handle = tokio::runtime::Handle::current();
                 handle.block_on(async {

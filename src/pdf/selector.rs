@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 type RenderKey = (String, usize, u64, u64);
 type BlocksKey = (String, usize, u64);
 
-/// Recommendation #2/#7 — small, bounded LRU caches so re-navigating to a
+/// Recommendation #2/#7 - small, bounded LRU caches so re-navigating to a
 /// page (preview) or re-reading its text blocks (preview/edit/verify) doesn't
 /// re-rasterise or re-parse the same page every time.
 struct EngineCaches {
@@ -79,7 +79,7 @@ impl PdfEngineSelector {
         }
     }
 
-    /// Sequential primary→fallback execution. Used for write operations
+    /// Sequential primary->fallback execution. Used for write operations
     /// (`apply_change`) where running both engines against the same output
     /// concurrently would race on the destination file. `DualConcurrent`
     /// shares this safe sequential path for writes.
@@ -169,7 +169,7 @@ impl PdfEngineSelector {
 
             match primary_result {
                 Ok(value) => {
-                    // Primary won — still join the fallback thread so it
+                    // Primary won - still join the fallback thread so it
                     // is never detached, but discard its result.
                     let _ = fallback_handle.join();
                     Ok(value)
@@ -204,7 +204,7 @@ impl PdfEngine for PdfEngineSelector {
     }
 
     fn render_page(&self, path: &Path, page: usize, dpi: f32) -> Result<RenderedPage, EngineError> {
-        // Recommendation #2 — serve repeated previews of the same page from
+        // Recommendation #2 - serve repeated previews of the same page from
         // the LRU cache; `dpi.to_bits()` + file revision keep the key exact.
         let key: RenderKey = (
             path.to_string_lossy().to_string(),
@@ -225,7 +225,7 @@ impl PdfEngine for PdfEngineSelector {
     }
 
     fn get_text_blocks(&self, path: &Path, page: usize) -> Result<Vec<TextBlock>, EngineError> {
-        // Recommendation #7 — memoise per-page text blocks; invalidated by the
+        // Recommendation #7 - memoise per-page text blocks; invalidated by the
         // file revision token so edits to the PDF are always re-parsed.
         let key: BlocksKey = (
             path.to_string_lossy().to_string(),

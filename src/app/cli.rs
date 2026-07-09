@@ -14,7 +14,7 @@ use std::sync::mpsc::{Receiver, Sender};
 #[command(name = "dual-core-pdf-pipeline")]
 #[command(version)]
 #[command(
-    about = "Bank Statement Fidelity Editor — high-fidelity PDF editing toolkit",
+    about = "Bank Statement Fidelity Editor - high-fidelity PDF editing toolkit",
     long_about = "Bank Statement Fidelity Editor CLI\n\n\
         A toolkit for rendering, extracting, and verifying PDF documents with the \
         same capabilities as the GUI.\n\n\
@@ -39,7 +39,7 @@ pub enum Commands {
     /// Run headless and expose an HTTP health surface (for containers /
     /// cloud platforms like Railway). Binds 0.0.0.0:$PORT (default 8080)
     /// and keeps the worker runtime alive. Reuses the same Job/JobResult
-    /// runtime as the GUI and CLI — no separate code path.
+    /// runtime as the GUI and CLI - no separate code path.
     Serve,
 
     /// Modify text with high visual fidelity
@@ -83,7 +83,7 @@ pub enum Commands {
         #[arg(short, long)]
         edited: PathBuf,
         /// Directory for the verification report and diff renders.
-        /// Long flag only — `-o` would collide with `--original`.
+        /// Long flag only - `-o` would collide with `--original`.
         #[arg(long)]
         output_dir: PathBuf,
         #[arg(long)]
@@ -124,7 +124,7 @@ pub enum Commands {
     #[command(hide = true)]
     Ping,
 
-    /// Hidden end-to-end self-test: render → edit → re-render → verify on a
+    /// Hidden end-to-end self-test: render -> edit -> re-render -> verify on a
     /// bundled example PDF, asserting the edit lands and is visually localized.
     /// Exits 0 on PASS, non-zero on FAIL. Useful for CI and quick sanity checks.
     #[command(hide = true)]
@@ -321,7 +321,7 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
                 tracing::info!("[progress] {}: {:.0}%", label, fraction * 100.0);
             }
             // `LoadDocument` fires an async font-analysis task that emits
-            // `FontAnalysisReady` independently of the document-load result —
+            // `FontAnalysisReady` independently of the document-load result -
             // and on a cache hit it can arrive *first*. It is not a terminal
             // result for any CLI flow, so skip it (otherwise `extract` and
             // friends mistake it for their answer and report "unexpected
@@ -350,7 +350,7 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
     }
 }
 
-/// End-to-end self-test: render → edit a real text span → re-render, asserting
+/// End-to-end self-test: render -> edit a real text span -> re-render, asserting
 /// the edit changed the page (and only locally). Drives the same Job runtime
 /// the GUI uses. Returns a process exit code (0 = PASS).
 fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Option<PathBuf>) -> i32 {
@@ -458,7 +458,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         deep_font_replication: false,
     });
     match wait_for_terminal_result(job_rx) {
-        Ok(JobResult::ChangeApplied { .. }) => println!("  ✅ edit applied → {}", out.display()),
+        Ok(JobResult::ChangeApplied { .. }) => println!("  ✅ edit applied -> {}", out.display()),
         other => {
             eprintln!("  ❌ edit failed: {other:?}");
             return exit_code::GENERAL;
@@ -481,7 +481,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
     };
 
     if after == before {
-        eprintln!("  ❌ edited render is identical to baseline — the edit did not land");
+        eprintln!("  ❌ edited render is identical to baseline - the edit did not land");
         return exit_code::GENERAL;
     }
     println!(
@@ -489,7 +489,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         after.len(),
         before.len()
     );
-    println!("✅ SELF-TEST PASSED — render, text-edit, and re-render all work end-to-end.");
+    println!("✅ SELF-TEST PASSED - render, text-edit, and re-render all work end-to-end.");
     exit_code::SUCCESS
 }
 
@@ -521,7 +521,7 @@ fn run_doctor(
     job_rx: &Receiver<JobResult>,
 ) -> i32 {
     println!("══════════════════════════════════════════════════════════");
-    println!("  Bank Statement Fidelity Editor — Doctor");
+    println!("  Bank Statement Fidelity Editor - Doctor");
     println!("══════════════════════════════════════════════════════════");
 
     let mut missing_required: Vec<&'static str> = Vec::new();
@@ -557,7 +557,7 @@ fn run_doctor(
     // ---- Document AI auth method (only meaningful when configured) -------
     if let Some(da) = &config.document_ai {
         let auth = if !da.api_key.is_empty() {
-            "API key (v1beta3) — primary"
+            "API key (v1beta3) - primary"
         } else if !da.adc_path.is_empty() {
             "Application Default Credentials (gcloud)"
         } else if !da.service_account_path.is_empty() {
@@ -622,7 +622,7 @@ fn run_doctor(
     println!("\n══════════════════════════════════════════════════════════");
 
     if !missing_required.is_empty() || !runtime_ok || !fs_ok {
-        println!(" Doctor: ❌ Not ready — required items are missing.\n");
+        println!(" Doctor: ❌ Not ready - required items are missing.\n");
         for name in &missing_required {
             println!("{}\n", indent_block(&env_spec::guidance_for(name)));
         }
@@ -642,7 +642,7 @@ fn run_doctor(
         println!(" Doctor: ⚠️  Usable, but some recommended features are off.\n");
         for name in &missing_recommended {
             if let Some(spec) = env_spec::lookup(name) {
-                println!("  • {} → enables: {}", spec.name, spec.enables);
+                println!("  • {} -> enables: {}", spec.name, spec.enables);
             }
         }
         println!("\n Run with these set to unlock the full feature set.");
@@ -957,7 +957,7 @@ pub fn run(
             // Improvement #8: seed intended_bboxes from the saved edit history
             // (audit/history.json) when present, so regions the user actually
             // edited aren't flagged as anomalies ("only intended changes").
-            // Absent history → empty list (previous behavior).
+            // Absent history -> empty list (previous behavior).
             let intended_bboxes: Vec<(usize, [f32; 4])> =
                 match ChangeHistory::load_from_file(std::path::Path::new("audit/history.json")) {
                     Ok(h) => h.get_history().iter().map(|r| (r.page, r.bbox)).collect(),
@@ -1146,7 +1146,7 @@ pub fn run(
                         return 1;
                     }
                 };
-                println!("Polling dataset…");
+                println!("Polling dataset...");
                 let (labeled, total) = match client.count_labeled_documents().await {
                     Ok(t) => t,
                     Err(e) => {
@@ -1176,7 +1176,7 @@ pub fn run(
                     }
                 };
                 println!("Operation: {op}");
-                println!("Polling (this typically takes 1-6 hours)…");
+                println!("Polling (this typically takes 1-6 hours)...");
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     match client.poll_operation(&op).await {
@@ -1202,7 +1202,7 @@ pub fn run(
                     // The version ID is the last path segment of the operation
                     // metadata; we don't have it without another GET, so we ask
                     // the user to set it themselves. Surface a clear message.
-                    println!("ℹ️ --set-default requested. Inspect the operation response for the new version ID, then set it in the Console (Manage versions → Set default).");
+                    println!("ℹ️ --set-default requested. Inspect the operation response for the new version ID, then set it in the Console (Manage versions -> Set default).");
                 }
                 0
             })

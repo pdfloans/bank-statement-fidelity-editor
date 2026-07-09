@@ -1,7 +1,7 @@
 pub mod engine;
 pub mod native_engine;
-// mupdf_engine removed — replaced by NativePdfEngine (oxidize-pdf)
-// pymupdf_engine removed — replaced by NativePdfEngine (oxidize-pdf)
+// mupdf_engine removed - replaced by NativePdfEngine (oxidize-pdf)
+// pymupdf_engine removed - replaced by NativePdfEngine (oxidize-pdf)
 pub mod selector;
 
 pub use engine::*;

@@ -108,7 +108,7 @@ fn build_segment_document(
     let catalog_id = out.new_object_id();
 
     // Collect the transitive closure of objects reachable from each page in the
-    // window (the page dict, its /Resources, /Contents, fonts, xobjects, …).
+    // window (the page dict, its /Resources, /Contents, fonts, xobjects, ...).
     let mut needed: BTreeSet<ObjectId> = BTreeSet::new();
     for &page_id in window {
         collect_referenced(doc, page_id, &mut needed);
@@ -494,7 +494,7 @@ fn resolve_page_geometry(
 /// The merged document keeps a single coherent `Catalog` + flat `Pages` tree:
 /// every object each segment contains is renumbered through a per-segment id
 /// remap and copied in, so each page's `/Resources` (and the `/Font`,
-/// `/XObject`, and `/ExtGState` sub-resources it references) is carried over —
+/// `/XObject`, and `/ExtGState` sub-resources it references) is carried over -
 /// no glyph programs or images are dropped. For each appended page the flat
 /// tree discards the segment's intermediate `/Pages` nodes, so `/MediaBox`,
 /// `/CropBox`, and `/Rotate` are explicitly copied onto the new leaf (with a
@@ -537,7 +537,7 @@ pub fn merge_pdfs(ordered_paths: &[PathBuf], output_path: &Path) -> Result<usize
         // Map old IDs to new IDs. Every object the segment contains is copied
         // and renumbered below, so each page's `/Resources` (and the `/Font`,
         // `/XObject`, and `/ExtGState` sub-resources it references) is carried
-        // through this remap — no glyph programs or images are dropped.
+        // through this remap - no glyph programs or images are dropped.
         let mut id_map: BTreeMap<ObjectId, ObjectId> = BTreeMap::new();
         for &id in doc.objects.keys() {
             id_map.insert(id, (next_object_id, 0));

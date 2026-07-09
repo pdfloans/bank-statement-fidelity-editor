@@ -83,7 +83,7 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
 
     #[cfg(feature = "otel")]
     if let Some(endpoint) = &cfg.otel_endpoint {
-        // OTLP requires a running tokio runtime — gracefully degrade if absent.
+        // OTLP requires a running tokio runtime - gracefully degrade if absent.
         let in_tokio = tokio::runtime::Handle::try_current().is_ok();
         if !in_tokio {
             eprintln!(
@@ -137,7 +137,7 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
     }
 
     // Recommendation #8: when built without the `otel` feature, there is no
-    // exporter to install — just bring up stdout/file logging.
+    // exporter to install - just bring up stdout/file logging.
     #[cfg(not(feature = "otel"))]
     subscriber.init();
 

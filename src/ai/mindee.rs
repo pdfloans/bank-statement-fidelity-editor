@@ -3,7 +3,7 @@
 //! Provides bank statement extraction via the Mindee REST API as a fallback
 //! or alternative to Google Document AI. Uses the `financial_document` model
 //! which returns structured transaction line items with per-field polygon
-//! bounding boxes — a near-direct mapping to the existing `BankStatement` /
+//! bounding boxes - a near-direct mapping to the existing `BankStatement` /
 //! `Transaction` / `FieldBboxes` types.
 //!
 //! # Auth
@@ -294,11 +294,11 @@ impl MindeeClient {
             .send()
             .await?;
 
-        // 401/403 → bad key. Anything else (even 405) means the key is valid.
+        // 401/403 -> bad key. Anything else (even 405) means the key is valid.
         match resp.status() {
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(MindeeError::Api(
                 resp.status(),
-                "Invalid MINDEE_API_KEY — check your key at https://platform.mindee.com/".into(),
+                "Invalid MINDEE_API_KEY - check your key at https://platform.mindee.com/".into(),
             )),
             _ => Ok(()),
         }
@@ -453,7 +453,7 @@ impl MindeeClient {
                             .unwrap_or_else(|| "Unknown failure".into());
                         return Err(MindeeError::ExtractionFailed(msg));
                     }
-                    // "waiting" | "processing" → keep polling
+                    // "waiting" | "processing" -> keep polling
                     _ => {
                         tracing::debug!("[mindee] poll {}: status={}", attempt, job_status.status);
                     }
@@ -469,7 +469,7 @@ impl MindeeClient {
 }
 
 // ---------------------------------------------------------------------------
-// Response → BankStatement mapping
+// Response -> BankStatement mapping
 // ---------------------------------------------------------------------------
 
 /// Convert a Mindee Financial Document response into the project's
@@ -516,7 +516,7 @@ pub fn parse_mindee_response(
         })
         .filter(|s| !s.is_empty());
 
-    // ─── Line items → Transactions ──────────────────────────────────
+    // ─── Line items -> Transactions ──────────────────────────────────
     let line_items = prediction.map(|p| p.line_items.as_slice()).unwrap_or(&[]);
 
     let mut transactions = Vec::with_capacity(line_items.len());
@@ -549,7 +549,7 @@ pub fn parse_mindee_response(
             .and_then(|poly| polygon_to_bbox(poly, page_w, page_h));
 
         // Per-field bboxes: Mindee doesn't provide separate polygons per
-        // sub-field within a line item — only the row-level polygon. We
+        // sub-field within a line item - only the row-level polygon. We
         // leave sub-field bboxes as None so the editor falls back to the
         // row-level bbox (consistent with DocAI when properties lack anchors).
         let field_bboxes = FieldBboxes::default();
@@ -617,7 +617,7 @@ pub fn polygon_to_bbox(
 }
 
 /// Read the real page dimensions from a PDF file via `lopdf`, returning a
-/// map of page index → (width_pts, height_pts). Mirrors the helper in
+/// map of page index -> (width_pts, height_pts). Mirrors the helper in
 /// `document_ai.rs`.
 fn get_real_page_dims(pdf_path: &Path) -> std::collections::HashMap<usize, (f32, f32)> {
     let mut dims = std::collections::HashMap::new();
@@ -729,7 +729,7 @@ mod tests {
         }"#;
 
         let response: MindeeQueueResponse = serde_json::from_str(json_str).unwrap();
-        let dims = std::collections::HashMap::new(); // No real dims → uses defaults
+        let dims = std::collections::HashMap::new(); // No real dims -> uses defaults
 
         let stmt = parse_mindee_response(&response, &dims).unwrap();
 
@@ -739,7 +739,7 @@ mod tests {
         assert_eq!(stmt.closing_balance, f64_to_dec(1192.83));
         assert_eq!(stmt.account_number.as_deref(), Some("807466413"));
 
-        // First transaction: positive amount → debit (money in)
+        // First transaction: positive amount -> debit (money in)
         let tx0 = &stmt.transactions[0];
         assert_eq!(tx0.date, "09/02/2026");
         assert_eq!(tx0.raw_text, "Interest Paid");
@@ -751,7 +751,7 @@ mod tests {
             _ => panic!("Expected Mindee provenance"),
         }
 
-        // Second transaction: negative amount → credit (money out)
+        // Second transaction: negative amount -> credit (money out)
         let tx1 = &stmt.transactions[1];
         assert_eq!(tx1.raw_text, "ATM Withdrawal");
         assert_eq!(tx1.debit, None);
