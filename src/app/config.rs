@@ -186,6 +186,10 @@ pub enum AiProviderMode {
     GeminiApiKey,
     /// Google Gemini via Vertex AI (enterprise, uses service-account / ADC).
     GeminiVertex,
+    /// Groq API (extremely fast Llama 3 inference, free tier available).
+    GroqApiKey,
+    /// OpenRouter API (access to DeepSeek and hundreds of other models).
+    OpenRouterApiKey,
 }
 
 impl AiProviderMode {
@@ -193,6 +197,8 @@ impl AiProviderMode {
         match self {
             Self::GeminiApiKey => "Gemini (API Key)",
             Self::GeminiVertex => "Gemini (Vertex AI)",
+            Self::GroqApiKey => "Groq (Llama 3 / Fast)",
+            Self::OpenRouterApiKey => "OpenRouter (DeepSeek)",
             Self::ManualOnly => "Manual Only (No AI)",
         }
     }
@@ -257,6 +263,8 @@ pub struct AppConfig {
     pub gemini_api_key: Option<String>,
     pub pdfrest_api_key: Option<String>,
     pub lipi_api_key: Option<String>,
+    pub groq_api_key: Option<String>,
+    pub openrouter_api_key: Option<String>,
     pub document_ai: Option<DocumentAiConfig>,
     /// Mindee API key for the Financial Document model.
     pub mindee_api_key: Option<String>,
@@ -286,6 +294,8 @@ impl Default for AppConfig {
             gemini_api_key: None,
             pdfrest_api_key: None,
             lipi_api_key: None,
+            groq_api_key: None,
+            openrouter_api_key: None,
             document_ai: None,
             mindee_api_key: None,
             pymupdf_pro_key: None,
@@ -320,6 +330,8 @@ impl AppConfig {
 
         // Optional API keys
         let gemini_api_key = clean_key(env::var("GEMINI_API_KEY"));
+        let groq_api_key = clean_key(env::var("GROQ_API_KEY"));
+        let openrouter_api_key = clean_key(env::var("OPENROUTER_API_KEY"));
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
@@ -418,6 +430,8 @@ impl AppConfig {
 
         Ok(Self {
             gemini_api_key,
+            groq_api_key,
+            openrouter_api_key,
             pdfrest_api_key,
             lipi_api_key,
             document_ai: doc_ai,
@@ -528,6 +542,8 @@ impl AppConfig {
     pub fn detect_availability(&self) -> ApiAvailability {
         ApiAvailability {
             gemini_api_key: self.gemini_api_key.is_some(),
+            groq_api_key: self.groq_api_key.is_some(),
+            openrouter_api_key: self.openrouter_api_key.is_some(),
             gemini_vertex: self
                 .document_ai
                 .as_ref()
@@ -564,6 +580,8 @@ impl AppConfig {
 pub struct ApiAvailability {
     /// `GEMINI_API_KEY` is set (AI Studio mode).
     pub gemini_api_key: bool,
+    pub groq_api_key: bool,
+    pub openrouter_api_key: bool,
     /// A service-account or ADC path is configured for Vertex AI.
     pub gemini_vertex: bool,
     /// Google Document AI processor + auth are fully configured.
