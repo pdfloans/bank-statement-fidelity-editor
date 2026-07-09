@@ -205,9 +205,6 @@ pub enum DocumentParserMode {
     /// Mindee Financial Document API (excellent accuracy, simple API-key
     /// auth, per-field bounding boxes). Default parser — best balance of
     /// accuracy, ease of setup, and cost.
-    /// Mindee Financial Document API (excellent accuracy, simple API-key
-    /// auth, per-field bounding boxes). Default parser — best balance of
-    /// accuracy, ease of setup, and cost.
     MindeeFinDoc,
     /// LlamaParse (API-based document parser using LLMs for extraction).
     #[default]

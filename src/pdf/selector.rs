@@ -88,8 +88,8 @@ impl PdfEngineSelector {
         F: Fn(&dyn PdfEngine) -> Result<T, EngineError>,
     {
         match self.current_mode() {
-            crate::app::config::PdfEngineMode::NativeOnly => operation(&*self.primary),
-            crate::app::config::PdfEngineMode::PyMuPdfOnly => operation(&*self.fallback),
+            crate::app::config::PdfEngineMode::NativeOnly => operation(&*self.fallback),
+            crate::app::config::PdfEngineMode::PyMuPdfOnly => operation(&*self.primary),
             crate::app::config::PdfEngineMode::Auto
             | crate::app::config::PdfEngineMode::TypstReconstruct
             | crate::app::config::PdfEngineMode::DualConcurrent => {
