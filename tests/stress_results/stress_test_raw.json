@@ -6,7 +6,7 @@
       "fidelity": 96,
       "avg": 98.0,
       "details": "Found 30/30 txn lines in markdown",
-      "elapsed_ms": 24380
+      "elapsed_ms": 27569
     },
     {
       "tool": "Offline Heuristic",
@@ -14,7 +14,7 @@
       "fidelity": 98,
       "avg": 93.0,
       "details": "Found 25/30 txns, closing=Y",
-      "elapsed_ms": 16
+      "elapsed_ms": 45
     },
     {
       "tool": "PyMuPDF Built-in",
@@ -22,7 +22,7 @@
       "fidelity": 95,
       "avg": 47.5,
       "details": "Found 0/30 txns, 0 decimal errors",
-      "elapsed_ms": 94
+      "elapsed_ms": 63
     },
     {
       "tool": "Mindee API",
@@ -30,7 +30,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 401: {\"api_request\": {\"error\": {\"code\": \"Unauthorized\", \"details\": \"The token provided is for the v2 API. Please check the documentation here: https://docs.mindee.com/integrations/\", \"message\": \"Authorizat",
-      "elapsed_ms": 2864
+      "elapsed_ms": 4666
     },
     {
       "tool": "Document AI",
@@ -38,7 +38,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 401: {\n  \"error\": {\n    \"code\": 401,\n    \"message\": \"API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.goog",
-      "elapsed_ms": 3353
+      "elapsed_ms": 9050
     }
   ],
   "Test 2: Fidelity Edit": [
@@ -48,7 +48,7 @@
       "fidelity": 85,
       "avg": 87.5,
       "details": "Found 18 '7' glyphs, 18 successful edits, restored=Y",
-      "elapsed_ms": 867
+      "elapsed_ms": 97
     },
     {
       "tool": "Pdfium",
@@ -56,7 +56,7 @@
       "fidelity": 92,
       "avg": 76.0,
       "details": "Rendered 2480x3509px @ 300DPI, content=Y",
-      "elapsed_ms": 802
+      "elapsed_ms": 351
     },
     {
       "tool": "Typst Reconstruct",
@@ -64,7 +64,7 @@
       "fidelity": 65,
       "avg": 70.0,
       "details": "26/26 spans extractable, 1 fonts: {'Helvetica'}",
-      "elapsed_ms": 54
+      "elapsed_ms": 49
     }
   ],
   "Test 3: Math Balance": [
@@ -74,7 +74,7 @@
       "fidelity": 100,
       "avg": 92.5,
       "details": "Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21",
-      "elapsed_ms": 20
+      "elapsed_ms": 6
     },
     {
       "tool": "Gemini AI",
@@ -82,7 +82,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400: {\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/googl",
-      "elapsed_ms": 2282
+      "elapsed_ms": 2347
     },
     {
       "tool": "Document AI",
@@ -90,7 +90,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 401",
-      "elapsed_ms": 3148
+      "elapsed_ms": 2513
     }
   ],
   "Test 4: Visual QA": [
@@ -100,7 +100,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "SSIM\u22480.997970, max_tile=0.583347, diff_px=72852, region_detect=Y",
-      "elapsed_ms": 29433
+      "elapsed_ms": 9545
     },
     {
       "tool": "Applitools Eyes",
@@ -108,7 +108,7 @@
       "fidelity": 100,
       "avg": 70.0,
       "details": "Visual AI diff=MISSED, output_len=111",
-      "elapsed_ms": 4888
+      "elapsed_ms": 2106
     },
     {
       "tool": "pdfRest Cloud",
@@ -116,7 +116,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 404: { \"error\":\"Invalid endpoint. Please refer to documentation at https://pdfrest.com/documentation/\" }",
-      "elapsed_ms": 5301
+      "elapsed_ms": 4920
     },
     {
       "tool": "Gemini Vision",
@@ -124,7 +124,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400",
-      "elapsed_ms": 6342
+      "elapsed_ms": 4772
     }
   ]
 }

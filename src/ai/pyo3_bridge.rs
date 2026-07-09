@@ -273,7 +273,7 @@ impl PyEngine {
         font_path: Option<&str>,
     ) -> Result<String, String> {
         Self::safe_python_with_gil(|py| {
-            let json_mod = py.import("json").map_err(|e| e.to_string())?;
+            let _json_mod = py.import("json").map_err(|e| e.to_string())?;
             let json_mod = py.import("json").map_err(|e: pyo3::PyErr| e.to_string())?;
             let loads = json_mod.getattr("loads").map_err(|e: pyo3::PyErr| e.to_string())?;
             let edits_obj = loads.call1((edits_json,)).map_err(|e: pyo3::PyErr| e.to_string())?;

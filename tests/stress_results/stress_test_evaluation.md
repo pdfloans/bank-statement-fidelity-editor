@@ -1,6 +1,6 @@
 # Stress Test Evaluation Matrix — Bank Statement Fidelity Editor v0.5.1
 
-**Executed:** 2026-07-05 21:53:51 UTC
+**Executed:** 2026-07-09 16:33:55 UTC
 **Platform:** Python 3.14.3, PyMuPDF 1.27.2.3
 
 ## Results Matrix
@@ -18,11 +18,11 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **LlamaParse** | 100 | 96 | **98.0** | 24380ms | Found 30/30 txn lines in markdown |
-| 2 | **Offline Heuristic** | 88 | 98 | **93.0** | 16ms | Found 25/30 txns, closing=Y |
-| 3 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 94ms | Found 0/30 txns, 0 decimal errors |
-| 4 | **Mindee API** | 0 | 0 | **0.0** | 2864ms | HTTP 401: {"api_request": {"error": {"code": "Unauthorized", "details": "The token provided is for the v2 API. Please check the documentation here: https://docs.mindee.com/integrations/", "message": "Authorizat |
-| 5 | **Document AI** | 0 | 0 | **0.0** | 3353ms | HTTP 401: {
+| 1 | **LlamaParse** | 100 | 96 | **98.0** | 27569ms | Found 30/30 txn lines in markdown |
+| 2 | **Offline Heuristic** | 88 | 98 | **93.0** | 45ms | Found 25/30 txns, closing=Y |
+| 3 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 63ms | Found 0/30 txns, 0 decimal errors |
+| 4 | **Mindee API** | 0 | 0 | **0.0** | 4666ms | HTTP 401: {"api_request": {"error": {"code": "Unauthorized", "details": "The token provided is for the v2 API. Please check the documentation here: https://docs.mindee.com/integrations/", "message": "Authorizat |
+| 5 | **Document AI** | 0 | 0 | **0.0** | 9050ms | HTTP 401: {
   "error": {
     "code": 401,
     "message": "API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.goog |
@@ -31,16 +31,16 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 867ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
-| 2 | **Pdfium** | 60 | 92 | **76.0** | 802ms | Rendered 2480x3509px @ 300DPI, content=Y |
-| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 54ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
+| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 97ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
+| 2 | **Pdfium** | 60 | 92 | **76.0** | 351ms | Rendered 2480x3509px @ 300DPI, content=Y |
+| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 49ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
 
 ### Test 3: Math Balance
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Local Math Engine** | 85 | 100 | **92.5** | 20ms | Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21 |
-| 2 | **Gemini AI** | 0 | 0 | **0.0** | 2282ms | HTTP 400: {
+| 1 | **Local Math Engine** | 85 | 100 | **92.5** | 6ms | Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21 |
+| 2 | **Gemini AI** | 0 | 0 | **0.0** | 2347ms | HTTP 400: {
   "error": {
     "code": 400,
     "message": "API key not valid. Please pass a valid API key.",
@@ -48,16 +48,16 @@
     "details": [
       {
         "@type": "type.googleapis.com/googl |
-| 3 | **Document AI** | 0 | 0 | **0.0** | 3148ms | HTTP 401 |
+| 3 | **Document AI** | 0 | 0 | **0.0** | 2513ms | HTTP 401 |
 
 ### Test 4: Visual QA
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 29433ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
-| 2 | **Applitools Eyes** | 40 | 100 | **70.0** | 4888ms | Visual AI diff=MISSED, output_len=111 |
-| 3 | **pdfRest Cloud** | 0 | 0 | **0.0** | 5301ms | HTTP 404: { "error":"Invalid endpoint. Please refer to documentation at https://pdfrest.com/documentation/" } |
-| 4 | **Gemini Vision** | 0 | 0 | **0.0** | 6342ms | HTTP 400 |
+| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 9545ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
+| 2 | **Applitools Eyes** | 40 | 100 | **70.0** | 2106ms | Visual AI diff=MISSED, output_len=111 |
+| 3 | **pdfRest Cloud** | 0 | 0 | **0.0** | 4920ms | HTTP 404: { "error":"Invalid endpoint. Please refer to documentation at https://pdfrest.com/documentation/" } |
+| 4 | **Gemini Vision** | 0 | 0 | **0.0** | 4772ms | HTTP 400 |
 
 ## Production Fallback Routing Logic
 
