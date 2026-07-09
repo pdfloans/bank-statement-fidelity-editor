@@ -9,7 +9,7 @@ pub struct PyEngine {
 impl PyEngine {
     pub fn init() -> Result<Self, String> {
         // Safe to call multiple times, but we only call once in actor thread
-        pyo3::prepare_freethreaded_python();
+        pyo3::Python::initialize();
 
         let py_code = include_str!("../../python/pymupdf_pro_integration.py");
 
@@ -23,7 +23,7 @@ impl PyEngine {
             let sys = py.import("sys").map_err(|e| e.to_string())?;
             let path = sys.getattr("path").map_err(|e| e.to_string())?;
             let path_list = path
-                .downcast::<pyo3::types::PyList>()
+                .cast::<pyo3::types::PyList>()
                 .map_err(|e| e.to_string())?;
             let candidates: Vec<std::path::PathBuf> = [
                 std::env::var("PYO3_PYTHON_DIR")
@@ -62,15 +62,15 @@ impl PyEngine {
         F: FnOnce(Python<'_>) -> R,
     {
         if tokio::runtime::Handle::try_current().is_ok() {
-            tokio::task::block_in_place(|| Python::with_gil(f))
+            tokio::task::block_in_place(|| pyo3::Python::attach(f))
         } else {
-            Python::with_gil(f)
+            pyo3::Python::attach(f)
         }
     }
 
     fn call_json<'py, N>(&self, py: Python<'py>, fn_name: &str, args: N) -> Result<String, String>
     where
-        N: IntoPyObject<'py, Target = PyTuple>,
+        N: IntoPyObject<'py, Target = PyTuple> + pyo3::call::PyCallArgs<'py>,
     {
         let func = self
             .module
@@ -82,9 +82,9 @@ impl PyEngine {
         let dumps = json.getattr("dumps").map_err(|e| e.to_string())?;
         let json_str: String = dumps
             .call1((result,))
-            .map_err(|e| e.to_string())?
+            .map_err(|e: pyo3::PyErr| e.to_string())?
             .extract()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e: pyo3::PyErr| e.to_string())?;
 
         Ok(json_str)
     }
@@ -117,7 +117,7 @@ impl PyEngine {
                 .map_err(|e| e.to_string())?;
 
             let (is_simple, avg_color): (bool, (f32, f32, f32)) =
-                bg_result.extract(py).map_err(|e| e.to_string())?;
+                bg_result.extract(py).map_err(|e: pyo3::PyErr| e.to_string())?;
 
             let mut warning: Option<String> = None;
             if !is_simple {
@@ -274,20 +274,21 @@ impl PyEngine {
     ) -> Result<String, String> {
         Self::safe_python_with_gil(|py| {
             let json_mod = py.import("json").map_err(|e| e.to_string())?;
-            let loads = json_mod.getattr("loads").map_err(|e| e.to_string())?;
-            let edits_obj = loads.call1((edits_json,)).map_err(|e| e.to_string())?;
+            let json_mod = py.import("json").map_err(|e: pyo3::PyErr| e.to_string())?;
+            let loads = json_mod.getattr("loads").map_err(|e: pyo3::PyErr| e.to_string())?;
+            let edits_obj = loads.call1((edits_json,)).map_err(|e: pyo3::PyErr| e.to_string())?;
 
             let func = self
                 .module
                 .getattr(py, "apply_many_edits")
-                .map_err(|e| e.to_string())?;
+                .map_err(|e: pyo3::PyErr| e.to_string())?;
             let kwargs = PyDict::new(py);
             kwargs
                 .set_item("pdf_path", pdf_path)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e: pyo3::PyErr| e.to_string())?;
             kwargs
                 .set_item("output_path", output_path)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e: pyo3::PyErr| e.to_string())?;
             kwargs
                 .set_item("edits", edits_obj)
                 .map_err(|e| e.to_string())?;
@@ -305,7 +306,7 @@ impl PyEngine {
                         .call1((obj,))
                         .map_err(|e| e.to_string())?
                         .extract()
-                        .map_err(|e| e.to_string())?;
+                        .map_err(|e: pyo3::PyErr| e.to_string())?;
                     Ok(s)
                 }
                 Err(e) => {
@@ -424,7 +425,7 @@ impl PyEngine {
     /// Force Python garbage collection.
     /// Stage 2 Memory Management: explicit collection to prevent OOM in batch processing.
     pub fn garbage_collect() {
-        if let Err(e) = Python::with_gil(|py| py.run(c"import gc; gc.collect()", None, None)) {
+        if let Err(e) = pyo3::Python::attach(|py| py.run(c"import gc; gc.collect()", None, None)) {
             tracing::warn!("Failed to run Python GC: {}", e);
         }
     }

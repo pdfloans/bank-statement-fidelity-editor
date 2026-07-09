@@ -1,12 +1,6 @@
 use crate::app::config::AppConfig;
 #[cfg(feature = "otel")]
-use opentelemetry::KeyValue;
-#[cfg(feature = "otel")]
 use opentelemetry_otlp::WithExportConfig;
-#[cfg(feature = "otel")]
-use opentelemetry_sdk::trace;
-#[cfg(feature = "otel")]
-use opentelemetry_sdk::Resource;
 use std::sync::Once;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -100,17 +94,24 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
         }
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            opentelemetry_otlp::new_pipeline()
-                .tracing()
-                .with_exporter(
-                    opentelemetry_otlp::new_exporter()
-                        .tonic()
-                        .with_endpoint(endpoint),
-                )
-                .with_trace_config(trace::config().with_resource(Resource::new(vec![
-                    KeyValue::new("service.name", cfg.otel_service_name.clone()),
-                ])))
-                .install_batch(opentelemetry_sdk::runtime::Tokio)
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(endpoint)
+                .build()?;
+                
+            let resource = opentelemetry_sdk::Resource::new(vec![
+                opentelemetry::KeyValue::new("service.name", cfg.otel_service_name.clone()),
+            ]);
+                
+            let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+                .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+                .with_resource(resource)
+                .build();
+                
+            use opentelemetry::trace::TracerProvider;
+            let tracer = provider.tracer("dual-core-pdf-pipeline");
+            opentelemetry::global::set_tracer_provider(provider);
+            Ok::<_, opentelemetry::trace::TraceError>(tracer)
         }));
 
         match result {
