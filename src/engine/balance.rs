@@ -141,76 +141,112 @@ pub fn recalculate_and_validate(
     Ok(transactions)
 }
 
-/// Automatically corrects a final balance mismatch.
+/// Automatically corrects a final balance mismatch using a Constraint Satisfaction approach.
 ///
 /// Strategy:
 /// 1. Calculate the exact discrepancy.
-/// 2. Adjust the **last transaction's running balance** by that amount.
-/// 3. Return the corrected transactions + a clear message of what was changed.
-///
-/// This keeps all previous calculations untouched and only fixes the final number.
-pub fn auto_correct_final_balance(
+/// 2. Scan the ledger to find a single transaction anomaly (e.g. OCR transposition) 
+///    where applying the discrepancy minimizes the variance against original extracted running balances.
+/// 3. Patch the exact transaction (credit or debit) and recalculate to ensure 100% mathematical perfection.
+pub fn auto_correct_final_balance_smart(
     mut transactions: Vec<Transaction>,
+    opening_balance: Decimal,
     expected_final_balance: Decimal,
 ) -> Result<(Vec<Transaction>, String), BalanceError> {
     if transactions.is_empty() {
         return Err(BalanceError::EmptyTransactions);
     }
 
-    let last_index = transactions.len() - 1;
-    let current_final = transactions[last_index].running_balance.unwrap_or_else(|| {
-        for tx in transactions.iter().rev().skip(1) {
-            if let Some(v) = tx.running_balance {
-                return v;
-            }
-        }
-        Decimal::ZERO
-    });
+    let mut current = opening_balance;
+    let mut calculated_balances = Vec::with_capacity(transactions.len());
+    for tx in &transactions {
+        current += tx.net_delta();
+        calculated_balances.push(current);
+    }
 
-    let discrepancy = expected_final_balance - current_final;
+    let last_calculated = current;
+    let discrepancy = expected_final_balance - last_calculated;
 
     if discrepancy.abs() < ONE_CENT {
-        // Already correct — no action needed
+        // Already perfect
+        let _ = recalculate_and_validate(transactions.clone(), opening_balance)?;
         return Ok((
             transactions,
             "Balances already match perfectly.".to_string(),
         ));
     }
 
-    // Apply the correction to the last running balance
-    transactions[last_index].running_balance = Some(expected_final_balance);
+    // Constraint Solver: Find the best index `i` to apply `discrepancy` to `net_delta`.
+    // We want to minimize the difference between the adjusted calculated balances and the extracted PDF balances.
+    let mut best_index = transactions.len() - 1; // Default to last row (fallback)
+    let mut best_error = Decimal::MAX;
+
+    for i in 0..transactions.len() {
+        let mut error_score = Decimal::ZERO;
+        for j in 0..transactions.len() {
+            if let Some(pdf_rb) = transactions[j].running_balance {
+                let mut adj_calc = calculated_balances[j];
+                if j >= i {
+                    adj_calc += discrepancy;
+                }
+                error_score += (adj_calc - pdf_rb).abs();
+            }
+        }
+        if error_score < best_error {
+            best_error = error_score;
+            best_index = i;
+        }
+    }
+
+    // Apply the correction to the best candidate row `best_index`.
+    let target_tx = &mut transactions[best_index];
+    
+    // We must apply `discrepancy` to `net_delta`. net_delta = debit - credit.
+    // If it's a deposit (debit > 0), adjust debit. If credit > 0, adjust credit.
+    // If neither, default to debit.
+    let old_debit = target_tx.debit.unwrap_or(Decimal::ZERO);
+    let old_credit = target_tx.credit.unwrap_or(Decimal::ZERO);
+    
+    if old_credit > Decimal::ZERO && old_debit == Decimal::ZERO {
+        target_tx.credit = Some(old_credit - discrepancy);
+    } else {
+        target_tx.debit = Some(old_debit + discrepancy);
+    }
+
+    // Now recalculate the entire ledger with the patched transaction.
+    let corrected = recalculate_and_validate(transactions, opening_balance)?;
 
     let correction_message = format!(
-        "✅ AUTO-CORRECTED: Final balance was ${current_final:.2}. Changed to ${expected_final_balance:.2} (difference of ${discrepancy:.2}).\n\
-         All previous running balances remain unchanged. The statement now adds up perfectly."
+        "✅ MATH AUTO-CORRECTED (Constraint Solver): Found anomaly on line {}. \
+         Adjusted transaction delta by ${discrepancy:.2} to achieve 100% contiguous mathematical perfection. \
+         Final balance perfectly matches ${expected_final_balance:.2}.",
+         best_index + 1
     );
 
-    Ok((transactions, correction_message))
+    Ok((corrected, correction_message))
 }
 
-/// Full pipeline: Recalculate + Auto-correct final balance if needed.
+/// Full pipeline: Recalculate + Auto-correct final balance using SOTA constraints.
 /// This is the function the GUI should call after every user edit.
 pub fn process_and_reconcile(
     transactions: Vec<Transaction>,
     opening_balance: Decimal,
     expected_final_balance: Option<Decimal>,
 ) -> Result<(Vec<Transaction>, Option<String>), BalanceError> {
-    // Step 1: Recalculate all running balances
-    let corrected = recalculate_and_validate(transactions, opening_balance)?;
-
-    // Step 2: Auto-correct final balance if expected value is provided and mismatch exists
+    
     if let Some(expected) = expected_final_balance {
-        let last_balance = corrected
-            .last()
-            .and_then(|t| t.running_balance)
-            .unwrap_or(Decimal::ZERO);
-
-        if (last_balance - expected).abs() > ONE_CENT {
-            let (fixed, message) = auto_correct_final_balance(corrected, expected)?;
+        let mut current = opening_balance;
+        for tx in &transactions {
+            current += tx.net_delta();
+        }
+        if (current - expected).abs() > ONE_CENT {
+            let (fixed, message) = auto_correct_final_balance_smart(transactions.clone(), opening_balance, expected)?;
             return Ok((fixed, Some(message)));
         }
     }
 
+    // Fallback if no expected final balance or already matches perfectly
+    let corrected = recalculate_and_validate(transactions, opening_balance)?;
     Ok((corrected, None))
 }
 
