@@ -1016,6 +1016,22 @@ impl AppModals for MyApp {
                                 .desired_width(220.0),
                         );
                         ui.end_row();
+
+                        ui.label("Groq API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_groq_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("OpenRouter API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_openrouter_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
                     });
 
                 ui.add_space(6.0);
@@ -1054,6 +1070,8 @@ impl AppModals for MyApp {
                         self.edit_llamaparse_api_key = std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default();
                         self.edit_pdfrest_api_key = std::env::var("PDFREST_API_KEY").unwrap_or_default();
                         self.edit_applitools_api_key = std::env::var("APPLITOOLS_API_KEY").unwrap_or_default();
+                        self.edit_groq_api_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
+                        self.edit_openrouter_api_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
                         self.toast(ToastKind::Info, "Reloaded keys from environment");
                     }
                     if ui
