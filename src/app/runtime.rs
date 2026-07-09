@@ -910,7 +910,7 @@ impl Runtime {
                                     return;
                                 }
                             };
-                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                            let gemini = match crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                 Ok(c) => std::sync::Arc::new(c),
                                 Err(_) => {
                                     let _ = res_tx.send(JobResult::TransferFailed {
@@ -1817,7 +1817,7 @@ impl Runtime {
                                     return;
                                 }
                             };
-                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                            let gemini = match crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                 Ok(c) => std::sync::Arc::new(c),
                                 Err(_) => {
                                     let _ = res_tx.send(JobResult::Error {
@@ -2442,7 +2442,7 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Smart Balance Analysis".to_string(), fraction: 0.1 });
 
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
-                            let gemini = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg).ok().map(Arc::new);
+                            let gemini = crate::ai::backend::AiBackend::from_app_config(&cfg).ok().map(Arc::new);
 
                             // If both AI services are available, use the full smart engine
                             if let (Some(doc_ai), Some(gemini)) = (doc_ai, gemini) {
@@ -2791,7 +2791,7 @@ impl Runtime {
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::Progress { label: "Validating AI Credentials...".into(), fraction: 0.1 });
 
-                            let gemini_res = match crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await {
+                            let gemini_res = match crate::ai::backend::AiBackend::from_app_config_async(&cfg).await {
                                 Ok(client) => client.ping().await.map_err(|e| e.to_string()),
                                 Err(e) => Err(e.to_string()),
                             };
@@ -2821,7 +2821,7 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statementâ€¦".to_string(), fraction: 0.1 });
 
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
-                            let gemini = crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await.ok().map(Arc::new);
+                            let gemini = crate::ai::backend::AiBackend::from_app_config_async(&cfg).await.ok().map(Arc::new);
 
                             if let (Some(doc_ai), Some(gemini)) = (doc_ai, gemini) {
                                 // â”€â”€ Online: full smart engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -3469,7 +3469,7 @@ impl Runtime {
                                     let _ = res_tx.send(JobResult::Progress { label: "Asking Gemini to validate completeness".into(), fraction: 0.7 });
 
                                     let gemini_init_and_validate = async {
-                                        let g = crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await?;
+                                        let g = crate::ai::backend::AiBackend::from_app_config_async(&cfg).await?;
                                         g.validate_parse_completeness(
                                             &stmt.transactions,
                                             crate::engine::model::dec_to_f64(stmt.opening_balance),
@@ -4260,7 +4260,7 @@ impl Runtime {
                                     }
                                     if let (Ok(doc_ai), Ok(gemini)) = (
                                         crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg_math),
-                                        crate::ai::gemini_client::GeminiClient::from_app_config(&cfg_math)
+                                        crate::ai::backend::AiBackend::from_app_config(&cfg_math)
                                     ) {
                                         match doc_ai.parse_entire_statement(&out_math, None).await {
                                             Ok(stmt) => {
@@ -4356,7 +4356,7 @@ impl Runtime {
                                         );
                                         break;
                                     }
-                                    let vision_ok = match crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                    let vision_ok = match crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                         Ok(g) => {
                                             let mut all_ok = true;
                                             for &page_num in &changed_pages {
@@ -4496,7 +4496,7 @@ impl Runtime {
 
                                                     // Double-verify with Gemini (advisory only)
                                                     if is_valid {
-                                                        if let Ok(gemini) = crate::ai::gemini_client::GeminiClient::from_app_config(&cfg) {
+                                                        if let Ok(gemini) = crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                                             let tx_json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
                                                             let _ = res_tx.send(JobResult::Progress {
                                                                 label: "Double-verifying math with Geminiâ€¦".into(),

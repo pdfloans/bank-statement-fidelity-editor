@@ -265,6 +265,7 @@ pub struct AppConfig {
     pub lipi_api_key: Option<String>,
     pub groq_api_key: Option<String>,
     pub openrouter_api_key: Option<String>,
+    pub ai_provider: AiProviderMode,
     pub document_ai: Option<DocumentAiConfig>,
     /// Mindee API key for the Financial Document model.
     pub mindee_api_key: Option<String>,
@@ -296,6 +297,7 @@ impl Default for AppConfig {
             lipi_api_key: None,
             groq_api_key: None,
             openrouter_api_key: None,
+            ai_provider: AiProviderMode::default(),
             document_ai: None,
             mindee_api_key: None,
             pymupdf_pro_key: None,
@@ -432,6 +434,7 @@ impl AppConfig {
             gemini_api_key,
             groq_api_key,
             openrouter_api_key,
+            ai_provider: AiProviderMode::default(),
             pdfrest_api_key,
             lipi_api_key,
             document_ai: doc_ai,

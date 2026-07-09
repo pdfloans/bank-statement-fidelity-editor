@@ -12,7 +12,7 @@
 //! - Apply all approved changes with maximum visual fidelity
 
 use crate::ai::document_ai::DocumentAiClient;
-use crate::ai::gemini_client::GeminiClient;
+use crate::ai::backend::AiBackend;
 use crate::engine::model::{dec_to_f64, f64_to_dec, ProposedChange, Transaction};
 use crate::extractors::merger::HybridMerger;
 use crate::pdf::PdfEngine;
@@ -45,7 +45,7 @@ pub struct SmartDocumentEngine {
 
     pdf_engine: Arc<dyn PdfEngine>,
     doc_ai: Arc<DocumentAiClient>,
-    gemini: Arc<GeminiClient>,
+    ai_backend: Arc<AiBackend>,
     merger: Arc<HybridMerger>,
 }
 
@@ -53,7 +53,7 @@ impl SmartDocumentEngine {
     pub fn new(
         pdf_engine: Arc<dyn PdfEngine>,
         doc_ai: Arc<DocumentAiClient>,
-        gemini: Arc<GeminiClient>,
+        ai_backend: Arc<AiBackend>,
         merger: Arc<HybridMerger>,
     ) -> Self {
         Self {
@@ -64,7 +64,7 @@ impl SmartDocumentEngine {
             total_pages: 0,
             pdf_engine,
             doc_ai,
-            gemini,
+            ai_backend,
             merger,
         }
     }
@@ -152,14 +152,17 @@ impl SmartDocumentEngine {
         // Gemini's REST contract returns JSON-numbers; convert to f64 at the
         // network boundary, back to Decimal for storage.
         let plan = self
-            .gemini
+            .ai_backend
             .propose_balance_adjustments(&self.all_transactions, dec_to_f64(imbalance), layout)
             .await
             .map_err(|e| {
-                if let crate::ai::gemini_client::GeminiError::LowConfidence(c) = e {
-                    EngineError::LowConfidence(c)
-                } else {
-                    EngineError::AiPlanFailed(format!("Gemini failed: {e}"))
+                match e {
+                    crate::ai::backend::AiBackendError::Gemini(crate::ai::gemini_client::GeminiError::LowConfidence(c)) => {
+                        EngineError::AiPlanFailed(format!("AI low confidence ({c:.2})"))
+                    }
+                    _ => {
+                        EngineError::AiPlanFailed(format!("AI failed: {e}"))
+                    }
                 }
             })?;
 
