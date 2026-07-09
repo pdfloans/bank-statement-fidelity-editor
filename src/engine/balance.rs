@@ -312,35 +312,29 @@ mod tests {
 
     #[test]
     fn auto_correct_noop_when_already_balanced() -> anyhow::Result<()> {
-        let mut txs = vec![make_tx(None, None)];
-        txs[0].running_balance = Some(dec!(100.00));
-        let (res, msg) = auto_correct_final_balance(txs, dec!(100))?;
-        assert_eq!(res[0].running_balance, Some(dec!(100.00)));
+        let mut txs = vec![make_tx(Some(dec!(20)), None)];
+        let (res, msg) = auto_correct_final_balance_smart(txs, dec!(100), dec!(120))?;
+        assert_eq!(res[0].running_balance, Some(dec!(120.00)));
         assert_eq!(msg, "Balances already match perfectly.");
         Ok(())
     }
 
     #[test]
-    fn auto_correct_adjusts_only_last_running_balance() -> anyhow::Result<()> {
-        let mut txs = vec![make_tx(None, None), make_tx(None, None)];
-        txs[0].running_balance = Some(dec!(100.00));
-        txs[1].running_balance = Some(dec!(100.00));
-
-        let (res, _) = auto_correct_final_balance(txs, dec!(120))?;
-        assert_eq!(res[0].running_balance, Some(dec!(100.00)));
-        assert_eq!(res[1].running_balance, Some(dec!(120)));
-        Ok(())
-    }
-
-    #[test]
-    fn auto_correct_message_contains_old_new_and_diff() -> anyhow::Result<()> {
-        let mut txs = vec![make_tx(None, None)];
-        txs[0].running_balance = Some(dec!(100.00));
-
-        let (_, msg) = auto_correct_final_balance(txs, dec!(120))?;
-        assert!(msg.contains("100.00"));
-        assert!(msg.contains("120.00"));
-        assert!(msg.contains("20.00")); // diff
+    fn auto_correct_smart_fixes_anomalous_row() -> anyhow::Result<()> {
+        // Op: 100
+        // Tx0: +20 = 120
+        // Tx1: -30 = 90
+        // But say OCR captured Tx1 as -50.
+        let txs = vec![
+            make_tx(Some(dec!(20)), None),
+            make_tx(None, Some(dec!(50))), // error
+        ];
+        // We know final should be 90 (if it was 30).
+        let (res, msg) = auto_correct_final_balance_smart(txs, dec!(100), dec!(90))?;
+        // It should patch the -50 to -30
+        assert_eq!(res[1].debit, Some(dec!(30)));
+        assert_eq!(res[1].running_balance, Some(dec!(90)));
+        assert!(msg.contains("Patched discrepancy"));
         Ok(())
     }
 

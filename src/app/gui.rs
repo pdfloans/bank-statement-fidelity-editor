@@ -736,7 +736,7 @@ impl MyApp {
         }
 
         // 3) Ask the runtime to hot-reload AppConfig from the environment.
-        let _ = self.job_tx.send(Job::ReloadConfig);
+        if let Err(e) = self.job_tx.send(Job::ReloadConfig) { tracing::error!("Runtime disconnected: {}", e); }
         self.in_flight += 1;
         self.toast(ToastKind::Info, "Saving credentials and reloadingâ€¦");
     }
@@ -830,12 +830,12 @@ impl MyApp {
             tracing::warn!("[gui] cannot render {:?} (does not exist)", path);
             return;
         }
-        let _ = self.job_tx.send(Job::RenderPage {
+        if let Err(e) = self.job_tx.send(Job::RenderPage {
             path,
             page: self.current_page,
             dpi: self.current_page_dpi,
             tag: tag.to_string(),
-        });
+        }) { tracing::error!("Runtime disconnected: {}", e); }
         self.in_flight += 1;
     }
 
@@ -988,12 +988,12 @@ impl eframe::App for MyApp {
         let want_confirm =
             ctx.input(|i| i.modifiers.command_only() && i.key_pressed(egui::Key::Num3));
         if want_parse && !self.input_path.is_empty() {
-            let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+            if let Err(e) = self.job_tx.send(Job::WorkflowParseAndValidate {
                 input: PathBuf::from(&self.input_path),
                 version: Some(self.selected_parser_version.clone()),
                 parser_mode: self.settings.document_parser,
                 ai_provider: self.settings.ai_provider,
-            });
+            }) { tracing::error!("Runtime disconnected: {}", e); }
             self.in_flight += 1;
             self.workflow_edits.clear();
             self.workflow_preview = None;
@@ -1005,7 +1005,7 @@ impl eframe::App for MyApp {
         }
         if want_preview {
             if let Some(v) = &self.workflow_validation {
-                let _ = self.job_tx.send(Job::WorkflowPreview {
+                if let Err(e) = self.job_tx.send(Job::WorkflowPreview {
                     original_transactions: self.workflow_transactions.clone(),
                     edits: self.workflow_edits.clone(),
                     opening_balance: v.opening_balance,
@@ -1014,7 +1014,7 @@ impl eframe::App for MyApp {
                     } else {
                         None
                     },
-                });
+                }) { tracing::error!("Runtime disconnected: {}", e); }
                 self.in_flight += 1;
                 self.toast(ToastKind::Info, "Preview triggered (Ctrl+2)");
             }
@@ -1023,7 +1023,7 @@ impl eframe::App for MyApp {
             if let Some(p) = self.workflow_preview.clone() {
                 let (kept, _) =
                     crate::engine::workflow::prune_redundant_edits(&self.workflow_edits, &p);
-                let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
+                if let Err(e) = self.job_tx.send(Job::WorkflowConfirmAndRender {
                     input: PathBuf::from(&self.input_path),
                     output: PathBuf::from(&self.output_path),
                     edits: kept,
@@ -1043,7 +1043,7 @@ impl eframe::App for MyApp {
                     deep_font_replication: self.settings.deep_font_replication,
                     max_visual_attempts: self.settings.max_visual_attempts,
                     visual_threshold: self.settings.visual_diff_threshold,
-                });
+                }) { tracing::error!("Runtime disconnected: {}", e); }
                 self.in_flight += 1;
                 self.toast(ToastKind::Info, "Confirm + Render triggered (Ctrl+3)");
             }
@@ -1283,12 +1283,12 @@ impl MyApp {
                 self.workflow_outcome = None;
                 self.font_cascade_reports.clear();
                 self.workflow_dirty = true;
-                let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+                if let Err(e) = self.job_tx.send(Job::WorkflowParseAndValidate {
                     input: PathBuf::from(&self.input_path),
                     version: Some(self.selected_parser_version.clone()),
                     parser_mode: self.settings.document_parser,
                     ai_provider: self.settings.ai_provider,
-                });
+                }) { tracing::error!("Runtime disconnected: {}", e); }
             }
             JobResult::HistoryUpdated { history } => {
                 self.history_state = history;
@@ -1836,9 +1836,9 @@ impl MyApp {
                     if ui.button("â ¯ Resume last session").clicked() {
                         let auto = std::path::PathBuf::from("audit").join("history.json");
                         if auto.exists() {
-                            let _ = self.job_tx.send(Job::LoadHistory {
+                            if let Err(e) = self.job_tx.send(Job::LoadHistory {
                                 input: auto.clone(),
-                            });
+                            }) { tracing::error!("Runtime disconnected: {}", e); }
                             self.in_flight += 1;
                             self.toast(
                                 ToastKind::Info,
@@ -1894,11 +1894,11 @@ impl MyApp {
                 });
                 ui.menu_button("Edit", |ui| {
                     if ui.button("â†¶ Undo").clicked() {
-                        let _ = self.job_tx.send(Job::Undo);
+                        if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
                         ui.close_menu();
                     }
                     if ui.button("â†· Redo").clicked() {
-                        let _ = self.job_tx.send(Job::Redo);
+                        if let Err(e) = self.job_tx.send(Job::Redo) { tracing::error!("Runtime disconnected: {}", e); }
                         ui.close_menu();
                     }
                 });
@@ -2120,11 +2120,11 @@ impl MyApp {
                                     .filter(|(_, a)| *a)
                                     .map(|(c, _)| c.clone())
                                     .collect();
-                                let _ = self.job_tx.send(Job::ApplyProposedChanges {
+                                if let Err(e) = self.job_tx.send(Job::ApplyProposedChanges {
                                     input: self.current_pdf_path.clone(),
                                     output: PathBuf::from(&self.output_path),
                                     changes,
-                                });
+                                }) { tracing::error!("Runtime disconnected: {}", e); }
                                 self.in_flight += 1;
                             }
                         }
@@ -2143,10 +2143,10 @@ impl MyApp {
                         ui.collapsing("ðŸ”„ Edit History", |ui| {
                             ui.horizontal(|ui| {
                                 if ui.add_enabled(self.history_state.can_undo(), egui::Button::new("Undo")).clicked() {
-                                    let _ = self.job_tx.send(Job::Undo);
+                                    if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
                                 }
                                 if ui.add_enabled(self.history_state.can_redo(), egui::Button::new("Redo")).clicked() {
-                                    let _ = self.job_tx.send(Job::Redo);
+                                    if let Err(e) = self.job_tx.send(Job::Redo) { tracing::error!("Runtime disconnected: {}", e); }
                                 }
                             });
                             let history = self.history_state.get_history();
@@ -2170,14 +2170,14 @@ impl MyApp {
                                     .map(|r| (r.page, r.bbox))
                                     .collect();
                                 let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-                                let _ = self.job_tx.send(Job::Verify {
+                                if let Err(e) = self.job_tx.send(Job::Verify {
                                     original: PathBuf::from(&self.input_path),
                                     edited: self.current_pdf_path.clone(),
                                     output_dir: PathBuf::from("audit/verify").join(timestamp),
                                     intended_bboxes,
                                     use_pdfrest: self.settings.use_pdfrest,
                                     pdfrest_key: self.config.pdfrest_api_key.clone(),
-                                });
+                                }) { tracing::error!("Runtime disconnected: {}", e); }
                                 self.in_flight += 1;
                             }
                             if let Some(report) = &self.last_verification {
@@ -2198,9 +2198,9 @@ impl MyApp {
                                     self.export_to_excel();
                                 }
                                 if ui.button("ðŸ“œ Audit JSON").clicked() {
-                                    let _ = self.job_tx.send(Job::ExportChangeHistory {
+                                    if let Err(e) = self.job_tx.send(Job::ExportChangeHistory {
                                         output: PathBuf::from(&self.export_path),
-                                    });
+                                    }) { tracing::error!("Runtime disconnected: {}", e); }
                                     self.in_flight += 1;
                                 }
                                 if ui.button("ðŸ“¦ Full Artifact Bundle (.zip)").clicked() {
@@ -2392,11 +2392,11 @@ impl MyApp {
                             std::path::PathBuf::from(&self.output_path)
                         };
 
-                        let _ = self.job_tx.send(Job::TransferTransactions {
+                        if let Err(e) = self.job_tx.send(Job::TransferTransactions {
                             source_pdf: source,
                             target_pdf: target,
                             output_pdf: output,
-                        });
+                        }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
                         self.status = "Starting transaction transferâ€¦".into();
                         self.toast(
@@ -2521,11 +2521,11 @@ impl MyApp {
                             }
                         };
 
-                        let _ = self.job_tx.send(Job::AdjustDatePeriods {
+                        if let Err(e) = self.job_tx.send(Job::AdjustDatePeriods {
                             input,
                             output,
                             mode,
-                        });
+                        }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
                         self.status = "Adjusting datesâ€¦".into();
                         self.toast(ToastKind::Info, "Date adjustment started.");
@@ -2601,7 +2601,7 @@ impl MyApp {
                     user_note: None,
                 };
                 let _ = crate::engine::ai_confirm::log_learning_response(&confirmation, &response);
-                let _ = self.job_tx.send(Job::AiConfirmationResponse(response));
+                if let Err(e) = self.job_tx.send(Job::AiConfirmationResponse(response)) { tracing::error!("Runtime disconnected: {}", e); }
                 self.pending_ai_confirmations.remove(0);
             }
         }
@@ -2674,10 +2674,10 @@ impl MyApp {
                             .iter()
                             .map(std::path::PathBuf::from)
                             .collect();
-                        let _ = self.job_tx.send(Job::RunTransferTests {
+                        if let Err(e) = self.job_tx.send(Job::RunTransferTests {
                             statements,
                             max_iterations: 3,
-                        });
+                        }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
                         self.status = format!("Running {pairs} transfer testsâ€¦");
                         self.toast(
@@ -2896,7 +2896,7 @@ impl MyApp {
                         // Eagerly save any unsaved edits to the environment first, then run validation
                         self.save_credentials();
                         self.credential_validation_status = None;
-                        let _ = self.job_tx.send(Job::ValidateCredentials);
+                        if let Err(e) = self.job_tx.send(Job::ValidateCredentials) { tracing::error!("Runtime disconnected: {}", e); }
                     }
                 });
 
@@ -3317,9 +3317,9 @@ impl MyApp {
                 ui.collapsing("ðŸ”¤ Font analysis", |ui| {
                     ui.label("Loading...");
                     if ui.button("Re-analyze").clicked() {
-                        let _ = self.job_tx.send(Job::AnalyzeFonts {
+                        if let Err(e) = self.job_tx.send(Job::AnalyzeFonts {
                             path: PathBuf::from(&self.input_path),
-                        });
+                        }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
                     }
                 });
@@ -3374,9 +3374,9 @@ impl MyApp {
             ui.separator();
 
             if ui.button("ðŸ”„ Re-analyze").clicked() {
-                let _ = self.job_tx.send(Job::AnalyzeFonts {
+                if let Err(e) = self.job_tx.send(Job::AnalyzeFonts {
                     path: PathBuf::from(&self.input_path),
-                });
+                }) { tracing::error!("Runtime disconnected: {}", e); }
                 self.in_flight += 1;
             }
 
@@ -3519,12 +3519,12 @@ impl MyApp {
                         ui.selectable_value(&mut self.selected_parser_version, "pretrained-bankstatement-v1.1-2021-08-13".to_string(), "v1.1");
                     });
                 if ui.button("ðŸ”„ Parse").on_hover_text("Re-parse document with selected parser version").clicked() && !self.input_path.is_empty() {
-                    let _ = self.job_tx.send(Job::WorkflowParseAndValidate {
+                    if let Err(e) = self.job_tx.send(Job::WorkflowParseAndValidate {
                         input: PathBuf::from(&self.input_path),
                         version: Some(self.selected_parser_version.clone()),
                         parser_mode: self.settings.document_parser,
                         ai_provider: self.settings.ai_provider,
-                    });
+                    }) { tracing::error!("Runtime disconnected: {}", e); }
                     self.in_flight += 1;
                     self.workflow_edits.clear();
                     self.workflow_preview = None;
@@ -3577,7 +3577,7 @@ impl MyApp {
                 .clicked()
             {
                 if let Some(v) = &self.workflow_validation {
-                    let _ = self.job_tx.send(Job::WorkflowPreview {
+                    if let Err(e) = self.job_tx.send(Job::WorkflowPreview {
                         original_transactions: self.workflow_transactions.clone(),
                         edits: self.workflow_edits.clone(),
                         opening_balance: v.opening_balance,
@@ -3586,7 +3586,7 @@ impl MyApp {
                         } else {
                             None
                         },
-                    });
+                    }) { tracing::error!("Runtime disconnected: {}", e); }
                     self.in_flight += 1;
                 }
             }
@@ -3764,7 +3764,7 @@ impl MyApp {
                 "Applying with Quick (Native) fidelityâ€¦"
             },
         );
-        let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
+        if let Err(e) = self.job_tx.send(Job::WorkflowConfirmAndRender {
             input: PathBuf::from(&self.input_path),
             output: PathBuf::from(&self.output_path),
             edits: edits_to_apply,
@@ -3784,7 +3784,7 @@ impl MyApp {
             deep_font_replication: deep,
             max_visual_attempts: self.settings.max_visual_attempts,
             visual_threshold: self.settings.visual_diff_threshold,
-        });
+        }) { tracing::error!("Runtime disconnected: {}", e); }
         self.in_flight += 1;
     }
 
@@ -3823,7 +3823,7 @@ impl MyApp {
                 let has_files = !self.batch_files.is_empty();
                 if ui.add_enabled(has_files, egui::Button::new("Extract All to JSON")).clicked() {
                     for file in &self.batch_files {
-                        let _ = self.job_tx.send(Job::ExtractTransactions { path: file.clone() });
+                        if let Err(e) = self.job_tx.send(Job::ExtractTransactions { path: file.clone() }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
                     }
                     self.toast(ToastKind::Info, format!("Queued {} extraction jobs", self.batch_files.len()));
@@ -3831,11 +3831,11 @@ impl MyApp {
                 if ui.add_enabled(has_files, egui::Button::new("Auto-Balance All")).clicked() {
                     for file in &self.batch_files {
                         let output = file.with_file_name(format!("{}_balanced.pdf", file.file_stem().unwrap_or_default().to_string_lossy()));
-                        let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+                        if let Err(e) = self.job_tx.send(Job::BalanceAndApplyAll {
                             input: file.clone(),
                             output,
                             auto_apply: true,
-                        });
+                        }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
                     }
                     self.toast(ToastKind::Info, format!("Queued {} balancing jobs", self.batch_files.len()));
@@ -3848,14 +3848,14 @@ impl MyApp {
                         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
                         for (original, edited) in &pairs {
                             let stem = edited.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                            let _ = self.job_tx.send(Job::Verify {
+                            if let Err(e) = self.job_tx.send(Job::Verify {
                                 original: original.clone(),
                                 edited: edited.clone(),
                                 output_dir: PathBuf::from("audit/verify/batch").join(&timestamp).join(&stem),
                                 intended_bboxes: Vec::new(),
                                 use_pdfrest: self.settings.use_pdfrest,
                                 pdfrest_key: self.config.pdfrest_api_key.clone(),
-                            });
+                            }) { tracing::error!("Runtime disconnected: {}", e); }
                             self.in_flight += 1;
                         }
                         self.toast(ToastKind::Info, format!("Queued {} verification job(s)", pairs.len()));
@@ -4178,7 +4178,7 @@ impl MyApp {
                                                     new_text: self.new_text.clone(),
                                                     field: crate::engine::workflow::EditField::Description,
                                                 };
-                                                let _ = self.job_tx.send(Job::WorkflowConfirmAndRender {
+                                                if let Err(e) = self.job_tx.send(Job::WorkflowConfirmAndRender {
                                                     input,
                                                     output: std::path::PathBuf::from(&self.output_path),
                                                     edits: vec![edit],
@@ -4197,7 +4197,7 @@ impl MyApp {
                                                     // from the user's configured base settings.
                                                     max_visual_attempts: self.settings.max_visual_attempts.min(3),
                                                     visual_threshold: self.settings.visual_diff_threshold.max(0.05),
-                                                });
+                                                }) { tracing::error!("Runtime disconnected: {}", e); }
                                                 self.in_flight += 1;
                                             }
                                         }
@@ -4220,11 +4220,11 @@ impl MyApp {
                                             if input.as_os_str().is_empty() || !input.exists() {
                                                 self.toast(ToastKind::Error, "Open a PDF first.");
                                             } else {
-                                                let _ = self.job_tx.send(Job::BalanceAndApplyAll {
+                                                if let Err(e) = self.job_tx.send(Job::BalanceAndApplyAll {
                                                     input,
                                                     output: std::path::PathBuf::from(&self.output_path),
                                                     auto_apply: true,
-                                                });
+                                                }) { tracing::error!("Runtime disconnected: {}", e); }
                                                 self.in_flight += 1;
                                                 self.status = "Auto-balancing entire statementâ€¦".into();
                                                 self.toast(ToastKind::Info, "Auto-balancing entire statementâ€¦");
@@ -4244,10 +4244,10 @@ impl MyApp {
                                             } else {
                                                 std::path::PathBuf::from(&self.input_path)
                                             };
-                                            let _ = self.job_tx.send(Job::AiFixVisualFidelity {
+                                            if let Err(e) = self.job_tx.send(Job::AiFixVisualFidelity {
                                                 input,
                                                 page: self.current_page,
-                                            });
+                                            }) { tracing::error!("Runtime disconnected: {}", e); }
                                             self.toast(ToastKind::Info, "Requesting AI Layout Fixâ€¦");
                                             self.in_flight += 1;
                                         }
@@ -4365,9 +4365,9 @@ impl MyApp {
         ) {
             let auto = std::path::PathBuf::from("audit").join("history.json");
             if auto.exists() {
-                let _ = self.job_tx.send(Job::LoadHistory {
+                if let Err(e) = self.job_tx.send(Job::LoadHistory {
                     input: auto.clone(),
-                });
+                }) { tracing::error!("Runtime disconnected: {}", e); }
                 self.in_flight += 1;
                 self.toast(ToastKind::Info, format!("Resuming from {}", auto.display()));
             } else {
@@ -4546,15 +4546,15 @@ impl MyApp {
             }
         }
         if ctrl_z {
-            let _ = self.job_tx.send(Job::Undo);
+            if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
         }
         if ctrl_y {
-            let _ = self.job_tx.send(Job::Redo);
+            if let Err(e) = self.job_tx.send(Job::Redo) { tracing::error!("Runtime disconnected: {}", e); }
         }
         if ctrl_s {
-            let _ = self.job_tx.send(Job::ExportChangeHistory {
+            if let Err(e) = self.job_tx.send(Job::ExportChangeHistory {
                 output: PathBuf::from(&self.export_path),
-            });
+            }) { tracing::error!("Runtime disconnected: {}", e); }
         }
         if page_down && self.current_page + 1 < self.total_pages {
             self.current_page += 1;
@@ -4603,10 +4603,10 @@ impl MyApp {
         // Stage 8.5: clear the font analysis; the runtime will produce a
         // fresh one for the new PDF.
         self.font_analysis = None;
-        let _ = self.job_tx.send(Job::LoadDocument {
+        if let Err(e) = self.job_tx.send(Job::LoadDocument {
             path: self.current_pdf_path.clone(),
             three_page_mode: self.settings.three_page_mode,
-        });
+        }) { tracing::error!("Runtime disconnected: {}", e); }
         self.in_flight += 1;
     }
 
@@ -4760,10 +4760,10 @@ impl MyApp {
         self.workflow_dirty = false;
 
         // Trigger a render of the PDF.
-        let _ = self.job_tx.send(Job::LoadDocument {
+        if let Err(e) = self.job_tx.send(Job::LoadDocument {
             path: pdf_path.clone(),
             three_page_mode: self.settings.three_page_mode,
-        });
+        }) { tracing::error!("Runtime disconnected: {}", e); }
         self.in_flight += 1;
 
         if same {

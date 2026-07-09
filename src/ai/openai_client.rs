@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+
 use reqwest::StatusCode;
 use crate::app::config::{AppConfig, AiProviderMode};
 use crate::engine::model::{Transaction};

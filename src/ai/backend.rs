@@ -1,4 +1,4 @@
-use crate::ai::gemini_client::{GeminiClient, GeminiBalancePlan, GeminiCompletenessReport, GeminiError};
+use crate::ai::gemini_client::{GeminiClient, GeminiCompletenessReport, GeminiError};
 use crate::ai::openai_client::{OpenAiClient, OpenAiError};
 use crate::app::config::{AppConfig, AiProviderMode};
 use crate::engine::model::Transaction;
