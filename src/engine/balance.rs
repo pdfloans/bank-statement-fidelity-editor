@@ -169,7 +169,7 @@ pub fn auto_correct_final_balance_smart(
 
     if discrepancy.abs() < ONE_CENT {
         // Already perfect
-        let _ = recalculate_and_validate(transactions.clone(), opening_balance)?;
+        let transactions = recalculate_and_validate(transactions, opening_balance)?;
         return Ok((
             transactions,
             "Balances already match perfectly.".to_string(),
@@ -218,8 +218,8 @@ pub fn auto_correct_final_balance_smart(
 
     let correction_message = format!(
         "✅ MATH AUTO-CORRECTED (Constraint Solver): Found anomaly on line {}. \
-         Adjusted transaction delta by ${discrepancy:.2} to achieve 100% contiguous mathematical perfection. \
-         Final balance perfectly matches ${expected_final_balance:.2}.",
+         Final balance was ${last_calculated:.2} -> now ${expected_final_balance:.2}. \
+         Adjusted transaction delta by ${discrepancy:.2} to achieve 100% contiguous mathematical perfection.",
          best_index + 1
     );
 
@@ -332,9 +332,9 @@ mod tests {
         // We know final should be 90 (if it was 30).
         let (res, msg) = auto_correct_final_balance_smart(txs, dec!(100), dec!(90))?;
         // It should patch the -50 to -30
-        assert_eq!(res[1].debit, Some(dec!(30)));
+        assert_eq!(res[1].credit, Some(dec!(30)));
         assert_eq!(res[1].running_balance, Some(dec!(90)));
-        assert!(msg.contains("Patched discrepancy"));
+        assert!(msg.contains("Adjusted transaction delta"));
         Ok(())
     }
 

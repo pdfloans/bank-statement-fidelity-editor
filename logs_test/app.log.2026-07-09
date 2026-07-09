@@ -1,0 +1,16 @@
+2026-07-09T12:09:36.931959Z ERROR engine::balance::tests::auto_correct_smart_fixes_anomalous_row ThreadId(74) dual_core_pdf_pipeline::app::telemetry: [PANIC] at src\engine\balance.rs:335 -- assertion `left == right` failed
+  left: None
+ right: Some(30)
+2026-07-09T12:09:36.935559Z ERROR                          engine::balance::tests::auto_correct_noop_when_already_balanced ThreadId(73) dual_core_pdf_pipeline::app::telemetry: [PANIC] at src\engine\balance.rs:317 -- assertion `left == right` failed
+  left: None
+ right: Some(120.00)
+2026-07-09T12:09:36.935587Z ERROR engine::balance::tests::process_and_reconcile_with_expected_balance_returns_some_message ThreadId(76) dual_core_pdf_pipeline::app::telemetry: [PANIC] at src\engine\balance.rs:356 -- assertion failed: msg.unwrap_or_default().contains("110.00")
+2026-07-09T12:09:37.045347Z  INFO                  extractors::templates::tests::learn_template_clamps_negative_lo_to_zero ThreadId(182) dual_core_pdf_pipeline::extractors::templates: [templates] refined template written: C:\Users\home\AppData\Local\Temp\.tmpep0WDm\test_bank.refined.yaml (fields: ["date"])
+2026-07-09T12:09:37.045624Z  INFO extractors::templates::tests::learn_template_ignores_repeated_field_observations_correctly ThreadId(183) dual_core_pdf_pipeline::extractors::templates: [templates] refined template written: C:\Users\home\AppData\Local\Temp\.tmp5ZEteT\test_bank.refined.yaml (fields: ["date"])
+2026-07-09T12:09:37.054217Z  INFO     extractors::templates::tests::learn_template_writes_refined_yaml_with_observed_columns ThreadId(185) dual_core_pdf_pipeline::extractors::templates: [templates] refined template written: C:\Users\home\AppData\Local\Temp\.tmp6Ir7Kp\test_bank.refined.yaml (fields: ["date", "amount"])
+2026-07-09T12:22:38.017224Z ERROR engine::balance::tests::auto_correct_smart_fixes_anomalous_row ThreadId(74) dual_core_pdf_pipeline::app::telemetry: [PANIC] at src\engine\balance.rs:335 -- assertion `left == right` failed
+  left: None
+ right: Some(30)
+2026-07-09T12:22:38.153748Z  INFO extractors::templates::tests::learn_template_clamps_negative_lo_to_zero ThreadId(182) dual_core_pdf_pipeline::extractors::templates: [templates] refined template written: C:\Users\home\AppData\Local\Temp\.tmpCqXacj\test_bank.refined.yaml (fields: ["date"])
+2026-07-09T12:22:38.160458Z  INFO extractors::templates::tests::learn_template_ignores_repeated_field_observations_correctly ThreadId(183) dual_core_pdf_pipeline::extractors::templates: [templates] refined template written: C:\Users\home\AppData\Local\Temp\.tmpBFi0DZ\test_bank.refined.yaml (fields: ["date"])
+2026-07-09T12:22:38.170652Z  INFO     extractors::templates::tests::learn_template_writes_refined_yaml_with_observed_columns ThreadId(185) dual_core_pdf_pipeline::extractors::templates: [templates] refined template written: C:\Users\home\AppData\Local\Temp\.tmprUR3x3\test_bank.refined.yaml (fields: ["date", "amount"])

@@ -938,6 +938,12 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.headless_update(ctx);
+    }
+}
+
+impl MyApp {
+    pub fn headless_update(&mut self, ctx: &egui::Context) {
         // theme
         self.settings.theme.apply(ctx);
 
@@ -2217,7 +2223,7 @@ impl MyApp {
                     ui.collapsing("âš™ Settings", |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Theme:");
-                            egui::ComboBox::from_id_source("settings_theme")
+                            egui::ComboBox::from_id_salt("settings_theme")
                                 .selected_text(self.settings.theme.label())
                                 .show_ui(ui, |ui| {
                                     for t in [Theme::System, Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
@@ -2299,7 +2305,7 @@ impl MyApp {
                         let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 60.0));
                         let response = ui.allocate_rect(rect, egui::Sense::hover());
                         ui.painter().rect_stroke(response.rect, 4.0, egui::Stroke::new(1.0, self.settings.theme.palette().weak));
-                        ui.allocate_ui_at_rect(response.rect, |ui| {
+                        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(response.rect), |ui| {
                             ui.centered_and_justified(|ui| {
                                 ui.label(egui::RichText::new("Drop fonts here").color(self.settings.theme.palette().weak).size(16.0));
                             });
@@ -2975,7 +2981,7 @@ impl MyApp {
 
         egui::ScrollArea::both()
             .max_height(220.0)
-            .id_source("workflow-edit-table")
+            .id_salt("workflow-edit-table")
             .show(ui, |ui| {
                 use egui_extras::{Column, TableBuilder};
                 TableBuilder::new(ui)
@@ -3384,7 +3390,7 @@ impl MyApp {
 
             // Per-font breakdown.
             egui::ScrollArea::vertical()
-                .id_source("font-analysis-list")
+                .id_salt("font-analysis-list")
                 .max_height(280.0)
                 .show(ui, |ui| {
                     for (i, font) in analysis.fonts.iter().enumerate() {
@@ -3509,7 +3515,7 @@ impl MyApp {
 
             ui.horizontal(|ui| {
                 ui.label("Parser Version:");
-                egui::ComboBox::from_id_source("parser_version_select")
+                egui::ComboBox::from_id_salt("parser_version_select")
                     .selected_text(self.selected_parser_version.split('-').nth(2).unwrap_or(&self.selected_parser_version))
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.selected_parser_version, "pretrained-bankstatement-v5.0-2023-12-06".to_string(), "v5.0 (Default)");
@@ -4284,7 +4290,7 @@ impl MyApp {
 
         // If a PDF is currently open but the texture hasn't streamed in yet
         if self.current_pdf_path.exists() {
-            ui.allocate_ui_at_rect(rect, |ui| {
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect), |ui| {
                 ui.centered_and_justified(|ui| {
                     ui.vertical_centered(|ui| {
                         ui.add(egui::Spinner::new().size(40.0).color(p.accent));
