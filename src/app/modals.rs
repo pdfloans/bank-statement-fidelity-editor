@@ -340,6 +340,31 @@ impl AppModals for MyApp {
                                 } else {
                                     r.on_hover_text("Enterprise. Authenticates via Google Cloud service account / ADC. Data stays in your GCP project.");
                                 }
+                                // Groq API Key
+                                let groq_label = if avail.groq_api_key {
+                                    "Groq (Llama 3 / Fast)"
+                                } else {
+                                    "Groq (Llama 3) \u{26d4} No API Key"
+                                };
+                                let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GroqApiKey, groq_label);
+                                if !avail.groq_api_key {
+                                    r.on_hover_text("\u{26a0} GROQ_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
+                                } else {
+                                    r.on_hover_text("Uses Groq API (Llama 3) for fast math reasoning and verification.");
+                                }
+
+                                // OpenRouter API Key
+                                let or_label = if avail.openrouter_api_key {
+                                    "OpenRouter (DeepSeek)"
+                                } else {
+                                    "OpenRouter \u{26d4} No API Key"
+                                };
+                                let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::OpenRouterApiKey, or_label);
+                                if !avail.openrouter_api_key {
+                                    r.on_hover_text("\u{26a0} OPENROUTER_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
+                                } else {
+                                    r.on_hover_text("Uses OpenRouter (DeepSeek) for double-check reasoning.");
+                                }
                             });
                         ui.end_row();
 
@@ -468,6 +493,12 @@ impl AppModals for MyApp {
                     }
                     AiProviderMode::GeminiVertex if !avail.gemini_vertex => {
                         warnings.push("\u{26a0} Gemini (Vertex AI) selected but no service account / ADC credentials found.");
+                    }
+                    AiProviderMode::GroqApiKey if !avail.groq_api_key => {
+                        warnings.push("\u{26a0} Groq (Llama 3) selected but GROQ_API_KEY is not set.");
+                    }
+                    AiProviderMode::OpenRouterApiKey if !avail.openrouter_api_key => {
+                        warnings.push("\u{26a0} OpenRouter selected but OPENROUTER_API_KEY is not set.");
                     }
                     _ => {}
                 }

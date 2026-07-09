@@ -469,6 +469,8 @@ pub struct MyApp {
     edit_llamaparse_api_key: String,
     edit_pdfrest_api_key: String,
     edit_applitools_api_key: String,
+    edit_groq_api_key: String,
+    edit_openrouter_api_key: String,
     /// Gemini auth mode buffer: false = API key (default), true = Vertex AI
     /// (service-account / ADC). Persisted as `GEMINI_AUTH_MODE`.
     edit_gemini_use_vertex: bool,
@@ -606,6 +608,8 @@ impl MyApp {
             edit_llamaparse_api_key: std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default(),
             edit_pdfrest_api_key: std::env::var("PDFREST_API_KEY").unwrap_or_default(),
             edit_applitools_api_key: std::env::var("APPLITOOLS_API_KEY").unwrap_or_default(),
+            edit_groq_api_key: std::env::var("GROQ_API_KEY").unwrap_or_default(),
+            edit_openrouter_api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
             edit_gemini_use_vertex: matches!(
                 std::env::var("GEMINI_AUTH_MODE")
                     .unwrap_or_default()
@@ -686,6 +690,14 @@ impl MyApp {
             (
                 "APPLITOOLS_API_KEY",
                 self.edit_applitools_api_key.trim().to_string(),
+            ),
+            (
+                "GROQ_API_KEY",
+                self.edit_groq_api_key.trim().to_string(),
+            ),
+            (
+                "OPENROUTER_API_KEY",
+                self.edit_openrouter_api_key.trim().to_string(),
             ),
             (
                 "GEMINI_AUTH_MODE",
