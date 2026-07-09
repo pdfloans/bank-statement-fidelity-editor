@@ -8,13 +8,13 @@ on:
   workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_TERM_COLOR: "always"
+  RUST_BACKTRACE: "1"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   # Required at compile time by AppConfig::from_env(). The CI doesn't run the
   # binary, but `cargo test` runs unit tests that may indirectly depend on
   # env presence.
-  DUAL_CORE_PASSPHRASE: ci-only-passphrase-do-not-use-in-prod
+  DUAL_CORE_PASSPHRASE: "ci-only-passphrase-do-not-use-in-prod"
 
 jobs:
   # ------------------------------------------------------------------
