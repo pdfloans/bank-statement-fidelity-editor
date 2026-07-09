@@ -222,19 +222,66 @@ impl LlamaParseClient {
 
     fn parse_markdown_to_statement(
         &self,
-        _markdown: &str,
+        markdown: &str,
     ) -> Result<BankStatement, LlamaParseError> {
-        // TODO: Implement a robust parser that extracts tables from Markdown.
-        // For now, we return a fallback empty statement because generic markdown
-        // parsing without an LLM is error-prone. In a full implementation, we would
-        // either use regex to find table boundaries and map columns, or request
-        // structured JSON from LlamaParse's premium mode.
-        tracing::warn!(
-            "[llamaparse] Markdown parsing is partially implemented. Returning empty statement."
-        );
+        let mut transactions = Vec::new();
+        let mut in_table = false;
+        let mut line_on_page = 0;
+
+        for line in markdown.lines() {
+            let line = line.trim();
+            if line.starts_with('|') {
+                if line.contains("---") {
+                    in_table = true;
+                    continue;
+                }
+                if in_table {
+                    let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+                    // | Date | Description | Debit | Credit | Balance | -> split yields at least 7 parts if properly closed, or 6
+                    if parts.len() >= 5 {
+                        let date = parts.get(1).unwrap_or(&"").to_string();
+                        let desc = parts.get(2).unwrap_or(&"").to_string();
+                        
+                        let parse_dec = |s: &str| -> Option<Decimal> {
+                            let cleaned = s.replace(['$', ',', ' '], "");
+                            cleaned.parse::<Decimal>().ok()
+                        };
+                        
+                        let debit = parts.get(3).and_then(|s| parse_dec(s));
+                        let credit = parts.get(4).and_then(|s| parse_dec(s));
+                        let balance = parts.get(5).and_then(|s| parse_dec(s));
+                        
+                        if !date.is_empty() && (debit.is_some() || credit.is_some()) {
+                            line_on_page += 1;
+                            transactions.push(crate::engine::model::Transaction {
+                                page: 1,
+                                line_on_page,
+                                date,
+                                raw_text: desc,
+                                debit,
+                                credit,
+                                running_balance: balance,
+                                bbox: None,
+                                field_bboxes: Default::default(),
+                                provenance: crate::engine::model::Provenance::Computed,
+                            });
+                        }
+                    }
+                }
+            } else {
+                in_table = false;
+            }
+        }
+
+        if transactions.is_empty() {
+            tracing::warn!("[llamaparse] No transactions found in markdown. Returning empty statement.");
+        } else {
+            tracing::info!("[llamaparse] Parsed {} transactions from markdown.", transactions.len());
+        }
+
         Ok(BankStatement {
             total_pages: 1,
-            transactions: vec![],
+            transactions,
             opening_balance: Decimal::ZERO,
             closing_balance: Decimal::ZERO,
             account_number: None,

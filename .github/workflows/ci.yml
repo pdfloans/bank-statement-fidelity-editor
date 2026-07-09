@@ -42,19 +42,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
 
-      - name: Install Python 3.11 (Mac/Windows)
-        if: runner.os != 'Linux'
+      - name: Install Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install pymupdf
+
+      - name: Set PYO3_PYTHON
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "PYO3_PYTHON=python" >> $GITHUB_ENV
+          else
+            echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
+          fi
 
       - name: Install system dependencies (Mac)
         if: runner.os == 'macOS'
         run: |
           brew install pkg-config || true
           brew install openssl@3 || true
-          pip install pymupdf
-          echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
 
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
@@ -125,19 +134,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libfreetype6-dev pkg-config
 
-      - name: Install Python 3.11 (Mac/Windows)
-        if: runner.os != 'Linux'
+      - name: Install Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install pymupdf
+
+      - name: Set PYO3_PYTHON
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "PYO3_PYTHON=python" >> $GITHUB_ENV
+          else
+            echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
+          fi
 
       - name: Install system dependencies (Mac)
         if: runner.os == 'macOS'
         run: |
           brew install pkg-config || true
           brew install openssl@3 || true
-          pip install pymupdf
-          echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
 
       - uses: Swatinem/rust-cache@v2
 
