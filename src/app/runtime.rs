@@ -1,4 +1,4 @@
-// pyo3_bridge removed â€” zero FFI architecture
+// pyo3_bridge removed - zero FFI architecture
 use crate::app::audit::AuditLog;
 use crate::engine::history::{ChangeHistory, ChangeRecord};
 use crate::engine::segments::{GlobalEdit, SegmentManager, SegmentMap};
@@ -139,8 +139,8 @@ pub enum PythonJob {
     AnalyzeFonts {
         pdf_path: String,
     },
-    /// Stage 11: targeted font cascade. Runs composite synthesis â†’
-    /// subset extension â†’ Gemini Vision donor identification on the
+    /// Stage 11: targeted font cascade. Runs composite synthesis ->
+    /// subset extension -> Gemini Vision donor identification on the
     /// supplied `missing_chars`. Returns the JSON dict produced by
     /// `replicate_font_for_chars`.
     ReplicateFontForMissingChars {
@@ -152,7 +152,7 @@ pub enum PythonJob {
     /// Clone (duplicate) pages within a PDF to create capacity for more
     /// transactions. Each entry in `page_indices` is a source page to clone;
     /// clones are inserted immediately after the original. Does NOT require
-    /// PyMuPDF Pro â€” page-level operations use the free tier.
+    /// PyMuPDF Pro - page-level operations use the free tier.
     ClonePages {
         pdf_path: String,
         output_path: String,
@@ -327,7 +327,7 @@ pub enum Job {
         max_iterations: u32,
     },
 
-    // â”€â”€ Document AI Version Management â”€â”€
+    // -- Document AI Version Management --
     /// Fetch list of available processor versions from the API.
     ListDocAiVersions,
     /// Deploy a specific processor version for inference.
@@ -950,7 +950,7 @@ impl Runtime {
                             if source_transactions.is_empty() {
                                 let _ = res_tx.send(JobResult::TransferFailed {
                                     stage: "AnalyzeSource".into(),
-                                    message: "Source statement has 0 transactions â€” nothing to transfer.".into(),
+                                    message: "Source statement has 0 transactions - nothing to transfer.".into(),
                                 });
                                 return;
                             }
@@ -980,7 +980,7 @@ impl Runtime {
                             if target_transactions.is_empty() {
                                 let _ = res_tx.send(JobResult::TransferFailed {
                                     stage: "AnalyzeTarget".into(),
-                                    message: "Target statement has 0 transactions â€” no layout to map into.".into(),
+                                    message: "Target statement has 0 transactions - no layout to map into.".into(),
                                 });
                                 return;
                             }
@@ -1080,7 +1080,7 @@ impl Runtime {
 
                                 // ======= STAGE 5: PDF Surgery ========
                                 send_progress(&res_tx, TransferStage::PdfSurgery);
-                                tracing::info!("[TRANSFER] Stage 5: PDF surgery â€” applying changes");
+                                tracing::info!("[TRANSFER] Stage 5: PDF surgery - applying changes");
 
                                 if let Err(e) = std::fs::copy(&target_pdf, &output_pdf) {
                                     let _ = res_tx.send(JobResult::TransferFailed {
@@ -1512,7 +1512,7 @@ impl Runtime {
                                 if (vision_anomaly || !visual_verified) && attempt < max_retries {
                                     tracing::warn!("[TRANSFER] Visual check failed (anomaly or strict threshold). Attempting font synthesis for retry.");
                                     let _ = res_tx.send(JobResult::Progress {
-                                        label: format!("(Attempt {attempt}) Adapting font metrics to Gemini Vision anomalyâ€¦"),
+                                        label: format!("(Attempt {attempt}) Adapting font metrics to Gemini Vision anomaly..."),
                                         fraction: 0.75,
                                     });
                                     let (rtx, rrx) = tokio::sync::oneshot::channel();
@@ -1662,10 +1662,10 @@ impl Runtime {
                             }
 
                             tracing::info!(
-                                "[TRANSFER] âœ… Complete in {:.1}s â€” math: {}, visual: {}",
+                                "[TRANSFER] âœ... Complete in {:.1}s - math: {}, visual: {}",
                                 final_result.total_duration_secs,
-                                if final_result.math_verified { "âœ“" } else { "âœ—" },
-                                if final_result.visual_verified { "âœ“" } else { "âœ—" },
+                                if final_result.math_verified { "âœ“" } else { "âœ-" },
+                                if final_result.visual_verified { "âœ“" } else { "âœ-" },
                             );
 
                             let _ = res_tx.send(JobResult::Progress {
@@ -1683,7 +1683,7 @@ impl Runtime {
                         let py_tx = python_tx_clone.clone();
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Parsing statement for date adjustmentâ€¦".to_string(),
+                                label: "Parsing statement for date adjustment...".to_string(),
                                 fraction: 0.1,
                             });
 
@@ -1711,7 +1711,7 @@ impl Runtime {
                             };
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Adjusting datesâ€¦".to_string(),
+                                label: "Adjusting dates...".to_string(),
                                 fraction: 0.4,
                             });
 
@@ -1803,7 +1803,7 @@ impl Runtime {
                             let total_pairs = pairs.len();
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: format!("Running {total_pairs} transfer test pairsâ€¦"),
+                                label: format!("Running {total_pairs} transfer test pairs..."),
                                 fraction: 0.0,
                             });
 
@@ -1841,7 +1841,7 @@ impl Runtime {
 
                                 let _ = res_tx.send(JobResult::Progress {
                                     label: format!(
-                                        "Testing pair {}/{}: {} â†’ {}",
+                                        "Testing pair {}/{}: {} -> {}",
                                         pair_idx + 1, total_pairs,
                                         source.file_stem().unwrap_or_default().to_string_lossy(),
                                         target.file_stem().unwrap_or_default().to_string_lossy(),
@@ -2004,7 +2004,7 @@ impl Runtime {
                         });
                     }
 
-                    // â”€â”€ Document AI Version Management Handlers â”€â”€
+                    // -- Document AI Version Management Handlers --
                     Job::ListDocAiVersions => {
                         let res_tx = result_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
@@ -2478,7 +2478,7 @@ impl Runtime {
                                     }
                                 }
                             } else {
-                                // â”€â”€ Offline fallback: local balance analysis â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                                // -- Offline fallback: local balance analysis ---------€
                                 tracing::info!("[balance] AI services not configured; using offline balance analysis");
                                 let _ = res_tx.send(JobResult::Progress { label: "Using offline balance analysis (no AI)...".to_string(), fraction: 0.3 });
 
@@ -2536,7 +2536,7 @@ impl Runtime {
                         tokio::spawn(async move {
                             let _permit = semaphore.acquire().await.unwrap();
                             // Determine page count: cascaded balance changes
-                            // routinely land MANY pages from the edited row â€”
+                            // routinely land MANY pages from the edited row -
                             // often >3 pages away. A direct full-document apply
                             // would trip the PyMuPDF Pro 3-page guard, so for
                             // long statements we route through 3-Page-Mode:
@@ -2818,13 +2818,13 @@ impl Runtime {
 
                         tokio::spawn(async move {
                             let _permit = semaphore.acquire().await.unwrap();
-                            let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statementâ€¦".to_string(), fraction: 0.1 });
+                            let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statement...".to_string(), fraction: 0.1 });
 
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
                             let gemini = crate::ai::backend::AiBackend::from_app_config_async(&cfg).await.ok().map(Arc::new);
 
                             if let (Some(doc_ai), Some(gemini)) = (doc_ai, gemini) {
-                                // â”€â”€ Online: full smart engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                                // -- Online: full smart engine ----------------------
                                 let template_provider = Arc::new(crate::extractors::BankTemplateProvider::new(std::path::PathBuf::from("bank_templates").as_path(), eng.clone()));
                                 let merger = Arc::new(crate::extractors::HybridMerger::new(vec![
                                     template_provider as Arc<dyn crate::extractors::GeometryProvider>,
@@ -2866,7 +2866,7 @@ impl Runtime {
                                                 visual_threshold: 0.02,
                                             });
                                         } else if changes.is_empty() {
-                                            let _ = res_tx.send(JobResult::Progress { label: "Already balanced â€” nothing to apply".to_string(), fraction: 1.0 });
+                                            let _ = res_tx.send(JobResult::Progress { label: "Already balanced - nothing to apply".to_string(), fraction: 1.0 });
                                         }
                                     }
                                     Err(crate::engine::statement::EngineError::LowConfidence(c)) => {
@@ -2877,7 +2877,7 @@ impl Runtime {
                                     }
                                 }
                             } else {
-                                // â”€â”€ Offline fallback: local balance + optional auto-apply â”€â”€
+                                // -- Offline fallback: local balance + optional auto-apply --
                                 tracing::info!("[balance_and_apply_all] AI not configured; using offline balance");
                                 let _ = res_tx.send(JobResult::Progress { label: "Using offline balance analysis (no AI)...".to_string(), fraction: 0.3 });
 
@@ -2944,7 +2944,7 @@ impl Runtime {
                                         visual_threshold: 0.02,
                                     });
                                 } else if changes.is_empty() {
-                                    let _ = res_tx.send(JobResult::Progress { label: "Already balanced â€” nothing to apply (offline)".to_string(), fraction: 1.0 });
+                                    let _ = res_tx.send(JobResult::Progress { label: "Already balanced - nothing to apply (offline)".to_string(), fraction: 1.0 });
                                 }
                             }
                         });
@@ -3106,11 +3106,11 @@ impl Runtime {
                                 stage: crate::engine::workflow::WorkflowStage::Parsing,
                             });
 
-                            // â”€â”€â”€ Tier 1: Determine parsing strategy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                            // ---€ Tier 1: Determine parsing strategy -------------------€
                             use crate::app::config::DocumentParserMode;
 
                             let stmt = match parser_mode {
-                                // â”€â”€ Document AI (online) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                                // -- Document AI (online) ----------------------------
                                 DocumentParserMode::DocumentAi => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
 
@@ -3199,7 +3199,7 @@ impl Runtime {
                                             }
                                         }
                                         Err(e) => {
-                                            // Document AI not configured â€” auto-fallback to offline
+                                            // Document AI not configured - auto-fallback to offline
                                             tracing::warn!("[workflow] Document AI not configured: {e}; auto-falling back to offline parser");
                                             let _ = res_tx.send(JobResult::Progress { label: "Document AI not configured, using offline parser...".into(), fraction: 0.3 });
 
@@ -3227,7 +3227,7 @@ impl Runtime {
                                     }
                                 }
 
-                                // â”€â”€ Mindee Financial Document (online) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                                // -- Mindee Financial Document (online) --------------
                                 // ── LlamaParse (online) ──────────────
                                 DocumentParserMode::LlamaParse => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
@@ -3270,7 +3270,7 @@ impl Runtime {
                                             }
                                         }
                                         Err(e) => {
-                                            // LlamaParse not configured — auto-fallback to offline
+                                            // LlamaParse not configured - auto-fallback to offline
                                             tracing::warn!("[workflow] LlamaParse not configured: {e}; auto-falling back to offline parser");
                                             let _ = res_tx.send(JobResult::Progress { label: "LlamaParse not configured, using offline parser...".into(), fraction: 0.3 });
 
@@ -3359,7 +3359,7 @@ impl Runtime {
                                             }
                                         }
                                         Err(e) => {
-                                            // Mindee not configured â€” auto-fallback to offline
+                                            // Mindee not configured - auto-fallback to offline
                                             tracing::warn!("[workflow] Mindee not configured: {e}; auto-falling back to offline parser");
                                             let _ = res_tx.send(JobResult::Progress { label: "Mindee not configured, using offline parser...".into(), fraction: 0.3 });
 
@@ -3386,7 +3386,7 @@ impl Runtime {
                                     }
                                 }
 
-                                // â”€â”€ PyMuPDF built-in (offline) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                                // -- PyMuPDF built-in (offline) ----------------------
                                 DocumentParserMode::PyMuPdfBuiltin => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with PyMuPDF (offline)...".into(), fraction: 0.3 });
                                     let eng = engine_for_tokio.clone();
@@ -3410,7 +3410,7 @@ impl Runtime {
                                     }
                                 }
 
-                                // â”€â”€ Local OCR (ocrs, offline, feature-gated) â”€â”€â”€â”€â”€â”€â”€â”€
+                                // -- Local OCR (ocrs, offline, feature-gated) --------
                                 DocumentParserMode::LocalOcrs => {
                                     let _ = res_tx.send(JobResult::Progress { label: "Parsing with Local OCR (ocrs)...".into(), fraction: 0.3 });
 
@@ -3433,7 +3433,7 @@ impl Runtime {
                                                 crate::engine::offline_parser::parse_statement_from_geometry(&geometries, total_pages)
                                             }
                                             Ok(_) | Err(_) => {
-                                                // OCR produced nothing or failed â€” fallback to text layer
+                                                // OCR produced nothing or failed - fallback to text layer
                                                 tracing::warn!("[workflow] LocalOCR produced no results; falling back to PyMuPDF text extraction");
                                                 crate::engine::offline_parser::parse_statement_offline(&path, eng)
                                             }
@@ -3456,7 +3456,7 @@ impl Runtime {
                                 }
                             };
 
-                            // â”€â”€â”€ AI Completeness Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                            // ---€ AI Completeness Validation ---------------------------€
                             // If AI provider is ManualOnly, skip Gemini validation entirely
                             use crate::app::config::AiProviderMode;
 
@@ -3665,10 +3665,10 @@ impl Runtime {
                                 // Row-drift guard (pre-flight)
                                 //
                                 // Three-tier resilience:
-                                //   Tier 1: >=50% overlap â†’ accept as-is (ideal)
-                                //   Tier 2: <50% overlap but spans exist â†’ snap bbox
+                                //   Tier 1: >=50% overlap -> accept as-is (ideal)
+                                //   Tier 2: <50% overlap but spans exist -> snap bbox
                                 //           to the closest span by Y-midpoint and warn
-                                //   Tier 3: no spans at all â†’ warn and proceed (PDF may
+                                //   Tier 3: no spans at all -> warn and proceed (PDF may
                                 //           be image-only; the edit will still apply via
                                 //           redaction)
                                 //
@@ -3696,7 +3696,7 @@ impl Runtime {
                                                 .unwrap_or_default();
 
                                             if blocks.is_empty() {
-                                                // Tier 3: no spans at all â€” image-only page
+                                                // Tier 3: no spans at all - image-only page
                                                 tracing::warn!(
                                                     "[ROW_DRIFT] Edit {} on page {}: no text spans found (image-only page?). Proceeding without guard.",
                                                     idx, e.page,
@@ -3714,7 +3714,7 @@ impl Runtime {
                                                 continue;
                                             }
 
-                                            // Tier 2: poor overlap â€” find nearest span by Y-midpoint
+                                            // Tier 2: poor overlap - find nearest span by Y-midpoint
                                             let edit_y_mid = (e.bbox[1] + e.bbox[3]) / 2.0;
                                             let nearest = blocks.iter()
                                                 .filter(|b| b.page == check_page)
@@ -4348,7 +4348,7 @@ impl Runtime {
                                     //
                                     // Short-circuit: if the perceptual diff is
                                     // essentially zero, skip the vision check
-                                    // entirely â€” there's nothing to flag.
+                                    // entirely - there's nothing to flag.
                                     if report.visual_diff_score < 0.001 {
                                         tracing::info!(
                                             "[workflow] Perceptual diff {:.6} is near-zero, skipping Gemini vision check",
@@ -4435,7 +4435,7 @@ impl Runtime {
                                 // Bail early to prevent OOM on large multi-page docs.
                                 if attempt >= 2 && last_score > 0.30 {
                                     tracing::warn!(
-                                        "[workflow] Visual diff {:.4} after {} attempts â€” structural issue detected. \
+                                        "[workflow] Visual diff {:.4} after {} attempts - structural issue detected. \
                                          Accepting early to prevent memory exhaustion. Manual review required.",
                                         last_score, attempt
                                     );
@@ -4458,7 +4458,7 @@ impl Runtime {
                                     } else {
                                         tracing::warn!(
                                             "[workflow] Accepting render after {} attempts with HIGH visual diff score {:.4}. \
-                                             The output may have visual artifacts â€” manual review strongly recommended.",
+                                             The output may have visual artifacts - manual review strongly recommended.",
                                             attempt, last_score
                                         );
                                     }
@@ -4475,7 +4475,7 @@ impl Runtime {
                             // of the final check so the user sees movement
                             // during the (often slow) DocAI re-parse.
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Final math check: re-parsing rendered output with Document AIâ€¦".into(),
+                                label: "Final math check: re-parsing rendered output with Document AI...".into(),
                                 fraction: 0.95,
                             });
 
@@ -4499,13 +4499,13 @@ impl Runtime {
                                                         if let Ok(gemini) = crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                                             let tx_json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
                                                             let _ = res_tx.send(JobResult::Progress {
-                                                                label: "Double-verifying math with Geminiâ€¦".into(),
+                                                                label: "Double-verifying math with Gemini...".into(),
                                                                 fraction: 0.98,
                                                             });
                                                             let opening_f64 = crate::engine::model::dec_to_f64(opening);
                                                             if let Ok(is_sound) = gemini.verify_statement_mathematics(&tx_json, opening_f64).await {
                                                                 if !is_sound {
-                                                                    // Advisory only â€” log but do NOT override engine result.
+                                                                    // Advisory only - log but do NOT override engine result.
                                                                     // The engine balance check is deterministic; Gemini
                                                                     // re-parse can produce different transaction counts.
                                                                     tracing::warn!("[workflow] Gemini flagged mathematics as unsound, but engine approved it. Treating as advisory.");
@@ -4565,7 +4565,7 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
 
                             // Stage 4 / Item #13: refine the matched bank template
-                            // from the actual edited bboxes. Background task â€” we
+                            // from the actual edited bboxes. Background task - we
                             // don't block completion on it, just fire and log.
                             let edits_for_learn = edits.clone();
                             let input_for_learn = input.clone();

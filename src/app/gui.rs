@@ -1,4 +1,4 @@
-//! Bank Statement Fidelity Editor â€” production GUI
+//! Bank Statement Fidelity Editor - production GUI
 //!
 //! Layout (5-region):
 //!   [ menu / status / actions / theme toggle ]
@@ -215,7 +215,7 @@ pub struct AppSettings {
     pub webhook_url: String,
     #[serde(default)]
     pub llamaparse_api_key: String,
-    /// Master toggle for "3 Page Mode" — the DEFAULT operating mode.
+    /// Master toggle for "3 Page Mode" - the DEFAULT operating mode.
     /// When true, opened PDFs are transparently split into <=3-page
     /// segments for Pro editing and re-merged on save. Defaults to TRUE,
     /// and a missing/absent stored value is also treated as true.
@@ -439,7 +439,7 @@ pub struct MyApp {
     /// `workflow_validation`, `workflow_transactions` or `workflow_edits`
     /// is mutated; cleared after a successful save. Stage 5 / Item #9.
     workflow_dirty: bool,
-    /// Last instant we wrote `audit/workflow.json`. Used to debounce â€” at
+    /// Last instant we wrote `audit/workflow.json`. Used to debounce - at
     /// most one save every 1.5s while edits are flying in.
     workflow_last_save: Option<Instant>,
     /// Cached `(input_path, sha256)` for the currently-open PDF so the
@@ -453,7 +453,7 @@ pub struct MyApp {
     // Config (read-only)
     config: std::sync::Arc<crate::app::config::AppConfig>,
 
-    // --- In-app API key / credentials editor (Settings â†’ API keys) ---
+    // --- In-app API key / credentials editor (Settings -> API keys) ---
     /// Editable buffers, seeded from the current environment. Persisted to
     /// `.env` and hot-reloaded into the runtime via `Job::ReloadConfig`.
     edit_gemini_api_key: String,
@@ -494,7 +494,7 @@ pub struct MyApp {
     /// Selected parser version for Document AI
     pub selected_parser_version: String,
 
-    // â”€â”€ Document AI Version Manager â”€â”€
+    // -- Document AI Version Manager --
     /// Cached list of available processor versions
     docai_versions: Vec<crate::ai::document_ai::ProcessorVersionInfo>,
     /// True while fetching versions from the API
@@ -732,13 +732,13 @@ impl MyApp {
         if let Err(e) = upsert_env_file(std::path::Path::new(".env"), &pairs) {
             tracing::warn!("[gui] failed to write .env: {}", e);
             self.toast(ToastKind::Error, format!("Could not write .env: {e}"));
-            // Still attempt the live reload below â€” the in-memory env is set.
+            // Still attempt the live reload below - the in-memory env is set.
         }
 
         // 3) Ask the runtime to hot-reload AppConfig from the environment.
         if let Err(e) = self.job_tx.send(Job::ReloadConfig) { tracing::error!("Runtime disconnected: {}", e); }
         self.in_flight += 1;
-        self.toast(ToastKind::Info, "Saving credentials and reloadingâ€¦");
+        self.toast(ToastKind::Info, "Saving credentials and reloading...");
     }
 
     fn toast(&mut self, kind: ToastKind, msg: impl Into<String>) {
@@ -807,7 +807,7 @@ impl MyApp {
     fn request_render(&mut self, tag: &str) {
         // Only render if the page actually changed since the last request for
         // this tag. This drops bursts when the user clicks rapidly through
-        // pages or zooms â€” preventing render queue blow-up.
+        // pages or zooms - preventing render queue blow-up.
         let key = (
             tag.to_string(),
             self.current_page,
@@ -952,7 +952,7 @@ impl eframe::App for MyApp {
                         .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(150));
                 });
 
-            egui::Window::new("Workingâ€¦")
+            egui::Window::new("Working...")
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -978,9 +978,9 @@ impl eframe::App for MyApp {
         }
 
         // Stage 13 / Item #6: workflow shortcuts.
-        //   Ctrl+1 â†’ Parse + AI validate
-        //   Ctrl+2 â†’ Balance Out Preview
-        //   Ctrl+3 â†’ Confirm and Render
+        //   Ctrl+1 -> Parse + AI validate
+        //   Ctrl+2 -> Balance Out Preview
+        //   Ctrl+3 -> Confirm and Render
         let want_parse =
             ctx.input(|i| i.modifiers.command_only() && i.key_pressed(egui::Key::Num1));
         let want_preview =
@@ -1334,7 +1334,7 @@ impl MyApp {
                     } else {
                         ToastKind::Success
                     },
-                    format!("Edit applied: {} â†’ {}", record.old_text, record.new_text),
+                    format!("Edit applied: {} -> {}", record.old_text, record.new_text),
                 );
                 if requires_visual_review {
                     self.last_warning = Some("Review required: complex background.".into());
@@ -1398,7 +1398,7 @@ impl MyApp {
                     if document_ai_configured {
                         "âœ“"
                     } else {
-                        "âœ—"
+                        "âœ-"
                     }
                 ));
                 parts.push(format!(
@@ -1406,7 +1406,7 @@ impl MyApp {
                     if gemini_configured {
                         "âœ“"
                     } else {
-                        "âœ—"
+                        "âœ-"
                     }
                 ));
                 parts.push(format!(
@@ -1414,7 +1414,7 @@ impl MyApp {
                     if pro_editing_available {
                         "âœ“"
                     } else {
-                        "âœ—"
+                        "âœ-"
                     }
                 ));
                 let summary = parts.join(" Â· ");
@@ -1432,7 +1432,7 @@ impl MyApp {
                     } else {
                         ToastKind::Warn
                     },
-                    format!("Credentials reloaded â€” {summary}"),
+                    format!("Credentials reloaded - {summary}"),
                 );
             }
             JobResult::TransactionsExtracted(txs) => {
@@ -1606,7 +1606,7 @@ impl MyApp {
                 self.progress = None;
                 self.toast(ToastKind::Success, outcome.completion_summary.clone());
                 self.workflow_outcome = Some(outcome);
-                // Stage 6: workflow finished cleanly â€” clear the in-flight
+                // Stage 6: workflow finished cleanly - clear the in-flight
                 // edit queue and remove the autosaved draft so the next
                 // session starts fresh. Resume-draft now correctly reports
                 // "no draft to resume" until new edits accumulate.
@@ -1676,17 +1676,17 @@ impl MyApp {
                 self.progress = None;
                 self.in_flight = self.in_flight.saturating_sub(1);
                 let msg = format!(
-                    "âœ… Transfer complete: {} txns â†’ output, math: {}, visual: {} ({:.1}s)",
+                    "âœ... Transfer complete: {} txns -> output, math: {}, visual: {} ({:.1}s)",
                     result.source_tx_count,
                     if result.math_verified {
                         "âœ“"
                     } else {
-                        "âœ—"
+                        "âœ-"
                     },
                     if result.visual_verified {
                         "âœ“"
                     } else {
-                        "âœ—"
+                        "âœ-"
                     },
                     result.total_duration_secs,
                 );
@@ -1748,7 +1748,7 @@ impl MyApp {
             } => {
                 self.progress = None;
                 let msg = format!(
-                    "ðŸ“… Adjusted {} dates â†’ {}",
+                    "ðŸ“... Adjusted {} dates -> {}",
                     records.len(),
                     output_path.display()
                 );
@@ -1774,7 +1774,7 @@ impl MyApp {
                 self.transfer_test_report = Some(report);
             }
 
-            // â”€â”€ Document AI Version Management â”€â”€
+            // -- Document AI Version Management --
             JobResult::DocAiVersionsListed(versions) => {
                 self.docai_versions = versions;
                 self.docai_versions_loading = false;
@@ -1809,7 +1809,7 @@ impl MyApp {
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("ðŸ“‚ Open PDFâ€¦").clicked() {
+                    if ui.button("ðŸ“‚ Open PDF...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("PDF", &["pdf"])
                             .pick_file()
@@ -1852,7 +1852,7 @@ impl MyApp {
                     if ui
                         .button("ðŸ“‹ Resume workflow draft")
                         .on_hover_text(
-                            "Reload audit/workflow.json â€” restores parse, queued edits and stage",
+                            "Reload audit/workflow.json - restores parse, queued edits and stage",
                         )
                         .clicked()
                     {
@@ -1860,7 +1860,7 @@ impl MyApp {
                         ui.close_menu();
                     }
                     if ui
-                        .button("ðŸ—‘ Discard workflow draft")
+                        .button("ðŸ-‘ Discard workflow draft")
                         .on_hover_text("Delete audit/workflow.json so next resume starts fresh")
                         .clicked()
                     {
@@ -1878,7 +1878,7 @@ impl MyApp {
                     let recent = self.settings.recent_files.clone();
                     for f in recent {
                         let label = if f.len() > 40 {
-                            format!("â€¦{}", &f[f.len() - 38..])
+                            format!("...{}", &f[f.len() - 38..])
                         } else {
                             f.clone()
                         };
@@ -1971,14 +1971,14 @@ impl MyApp {
                 ui.add(
                     egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
                         .desired_width(ui.available_width())
-                        .text(format!("{} â€” {}%", p.label, pct)),
+                        .text(format!("{} - {}%", p.label, pct)),
                 );
                 ui.add_space(2.0);
             } else if self.in_flight > 0 {
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new());
                     ui.small(format!(
-                        "Workingâ€¦ ({} task{} in progress)",
+                        "Working... ({} task{} in progress)",
                         self.in_flight,
                         if self.in_flight == 1 { "" } else { "s" }
                     ));
@@ -2022,7 +2022,7 @@ impl MyApp {
             .show(ctx, |ui| {
                 ui.heading("Navigation");
                 ui.horizontal(|ui| {
-                    if ui.button("â—€").clicked() && self.current_page > 0 {
+                    if ui.button("-€").clicked() && self.current_page > 0 {
                         self.current_page -= 1;
                         self.request_render("current");
                     }
@@ -2109,7 +2109,7 @@ impl MyApp {
                             for (change, approved) in &mut self.proposed_changes {
                                 ui.checkbox(
                                     approved,
-                                    format!("P{}: {} â†’ {}", change.page + 1, change.old_text, change.new_text),
+                                    format!("P{}: {} -> {}", change.page + 1, change.old_text, change.new_text),
                                 );
                                 ui.small(&change.reason);
                             }
@@ -2151,7 +2151,7 @@ impl MyApp {
                             });
                             let history = self.history_state.get_history();
                             for (i, rec) in history.iter().enumerate() {
-                                ui.small(format!("[{}] P{} {} â†’ {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
+                                ui.small(format!("[{}] P{} {} -> {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
                             }
                         });
 
@@ -2183,7 +2183,7 @@ impl MyApp {
                             if let Some(report) = &self.last_verification {
                                 ui.label(format!(
                                     "Math {} / Visual {:.4}",
-                                    if report.math_valid { "âœ…" } else { "â Œ" },
+                                    if report.math_valid { "âœ..." } else { "â Œ" },
                                     report.visual_diff_score
                                 ));
                             }
@@ -2330,7 +2330,7 @@ impl MyApp {
                 ui.label("Source Statement PDF (transactions to take):");
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.transfer_source_path);
-                    if ui.button("Browseâ€¦").clicked() {
+                    if ui.button("Browse...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("PDF", &["pdf"])
                             .pick_file()
@@ -2398,10 +2398,10 @@ impl MyApp {
                             output_pdf: output,
                         }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
-                        self.status = "Starting transaction transferâ€¦".into();
+                        self.status = "Starting transaction transfer...".into();
                         self.toast(
                             ToastKind::Info,
-                            "Transaction transfer started â€” this may take 2â€“3 minutes.",
+                            "Transaction transfer started - this may take 2â€“3 minutes.",
                         );
                         self.show_transfer_dialog = false;
                     }
@@ -2420,7 +2420,7 @@ impl MyApp {
                 if !target_ok {
                     ui.colored_label(
                         self.settings.theme.palette().warn,
-                        "âš  Load a target PDF first (File â†’ Open)",
+                        "âš  Load a target PDF first (File -> Open)",
                     );
                 }
             });
@@ -2443,7 +2443,7 @@ impl MyApp {
 
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context) {
         let mut open = self.show_date_adjust_dialog;
-        egui::Window::new("ðŸ“… Adjust Date Periods")
+        egui::Window::new("ðŸ“... Adjust Date Periods")
             .open(&mut open)
             .default_size(egui::vec2(420.0, 320.0))
             .collapsible(false)
@@ -2527,7 +2527,7 @@ impl MyApp {
                             mode,
                         }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
-                        self.status = "Adjusting datesâ€¦".into();
+                        self.status = "Adjusting dates...".into();
                         self.toast(ToastKind::Info, "Date adjustment started.");
                         self.show_date_adjust_dialog = false;
                     }
@@ -2583,7 +2583,7 @@ impl MyApp {
                     for (i, option) in confirmation.options.iter().enumerate() {
                         let is_default = confirmation.default_answer == Some(i);
                         let label = if is_default {
-                            format!("â†’ {option} (recommended)")
+                            format!("-> {option} (recommended)")
                         } else {
                             option.clone()
                         };
@@ -2618,7 +2618,7 @@ impl MyApp {
                 ui.spacing_mut().item_spacing.y = 8.0;
 
                 ui.heading("Cross-Statement Transfer Tests");
-                ui.label("Select PDFs to test all NÃ—(Nâˆ’1) transfer directions:");
+                ui.label("Select PDFs to test all NÃ-(Nâˆ’1) transfer directions:");
                 ui.separator();
 
                 // List current paths
@@ -2640,7 +2640,7 @@ impl MyApp {
                     self.transfer_test_paths.remove(idx);
                 }
 
-                if ui.button("âž• Add PDFâ€¦").clicked() {
+                if ui.button("âž• Add PDF...").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("PDF", &["pdf"])
                         .pick_file()
@@ -2652,7 +2652,7 @@ impl MyApp {
 
                 let n = self.transfer_test_paths.len();
                 let pairs = if n >= 2 { n * (n - 1) } else { 0 };
-                ui.label(format!("{n} statements â†’ {pairs} test pairs"));
+                ui.label(format!("{n} statements -> {pairs} test pairs"));
 
                 ui.add_space(8.0);
                 ui.separator();
@@ -2679,10 +2679,10 @@ impl MyApp {
                             max_iterations: 3,
                         }) { tracing::error!("Runtime disconnected: {}", e); }
                         self.in_flight += 1;
-                        self.status = format!("Running {pairs} transfer testsâ€¦");
+                        self.status = format!("Running {pairs} transfer tests...");
                         self.toast(
                             ToastKind::Info,
-                            format!("Running {pairs} transfer test pairsâ€¦"),
+                            format!("Running {pairs} transfer test pairs..."),
                         );
                     }
 
@@ -2709,7 +2709,7 @@ impl MyApp {
                         .show(ui, |ui| {
                             for r in &report.results {
                                 let icon = if r.converged && r.final_math_ok {
-                                    "âœ…"
+                                    "âœ..."
                                 } else {
                                     "â Œ"
                                 };
@@ -2718,7 +2718,7 @@ impl MyApp {
                                 let tgt =
                                     r.target.file_stem().unwrap_or_default().to_string_lossy();
                                 ui.label(format!(
-                                    "{} {} â†’ {} ({}iter, {:.1}s)",
+                                    "{} {} -> {} ({}iter, {:.1}s)",
                                     icon, src, tgt, r.iterations, r.duration_secs
                                 ));
                                 if !r.corrections.is_empty() {
@@ -2737,17 +2737,17 @@ impl MyApp {
         self.show_transfer_test_dialog = open;
     }
 
-    /// Settings â†’ API keys & credentials editor.
+    /// Settings -> API keys & credentials editor.
     ///
     /// Lets the user view/update the Gemini key, Document AI processor
     /// coordinates, the service-account JSON path (best-practice auth), an
-    /// optional Document AI API key, and the PyMuPDF Pro key â€” then persist
+    /// optional Document AI API key, and the PyMuPDF Pro key - then persist
     /// them to `.env`, push them into the process environment, and hot-reload
     /// the runtime config (`Job::ReloadConfig`) so they take effect with no
     /// restart.
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui) {
             ui.collapsing("🔑 API keys & credentials", |ui| {
-                ui.small("Stored in .env (gitignored). Applied live — no restart needed.");
+                ui.small("Stored in .env (gitignored). Applied live - no restart needed.");
                 ui.add_space(4.0);
 
                 egui::Grid::new("api_keys_grid")
@@ -2760,7 +2760,7 @@ impl MyApp {
                                 .password(true)
                                 .desired_width(220.0),
                         )
-                        .on_hover_text("AI Studio key (AIza…). Used for completeness + vision checks.");
+                        .on_hover_text("AI Studio key (AIza...). Used for completeness + vision checks.");
                         ui.end_row();
 
                         ui.label("Gemini auth mode:");
@@ -2776,7 +2776,7 @@ impl MyApp {
 
                         ui.label("Doc AI location:");
                         ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
-                            .on_hover_text("e.g. 'us' or 'eu' — must match the processor region.");
+                            .on_hover_text("e.g. 'us' or 'eu' - must match the processor region.");
                         ui.end_row();
 
                         ui.label("Doc AI processor ID:");
@@ -2788,7 +2788,7 @@ impl MyApp {
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
                                 .on_hover_text("Path to the service-account key JSON (best-practice auth).");
-                            if ui.button("Browse…").clicked() {
+                            if ui.button("Browse...").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("JSON", &["json"])
                                     .pick_file()
@@ -2814,7 +2814,7 @@ impl MyApp {
                                 .password(true)
                                 .desired_width(220.0),
                         )
-                        .on_hover_text("24-char 'hFKt…' trial key enables per-segment Pro editing.");
+                        .on_hover_text("24-char 'hFKt...' trial key enables per-segment Pro editing.");
                         ui.end_row();
 
                         ui.label("Mindee API key:");
@@ -2901,7 +2901,7 @@ impl MyApp {
                 });
 
                 // Live credential status reported by the runtime after the last
-                // Save & apply (Job::ReloadConfig → JobResult::ConfigReloaded).
+                // Save & apply (Job::ReloadConfig -> JobResult::ConfigReloaded).
                 ui.add_space(4.0);
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
@@ -2962,7 +2962,7 @@ impl MyApp {
         let palette = self.settings.theme.palette();
 
         ui.label(format!(
-            "ðŸ“‹ Inline edit ({} rows) â€” Tab to next field, â†¶ reverts row",
+            "ðŸ“‹ Inline edit ({} rows) - Tab to next field, â†¶ reverts row",
             self.workflow_transactions.len()
         ));
 
@@ -3011,7 +3011,7 @@ impl MyApp {
                                     ui.label(format!("{}", tx.line_on_page + 1));
                                 });
 
-                                // Date â€” text field
+                                // Date - text field
                                 row.col(|ui| {
                                     let buf = Self::cell_buffer(
                                         &mut self.workflow_cell_buffers,
@@ -3035,7 +3035,7 @@ impl MyApp {
                                     }
                                 });
 
-                                // Description â€” text field
+                                // Description - text field
                                 row.col(|ui| {
                                     let buf = Self::cell_buffer(
                                         &mut self.workflow_cell_buffers,
@@ -3059,7 +3059,7 @@ impl MyApp {
                                     }
                                 });
 
-                                // Debit / Credit / Balance â€” money fields with red border on parse failure.
+                                // Debit / Credit / Balance - money fields with red border on parse failure.
                                 Self::money_cell(
                                     &mut row,
                                     &mut self.workflow_cell_buffers,
@@ -3130,7 +3130,7 @@ impl MyApp {
 
     /// Pick the per-field bbox for an edit. Falls back to the row-level
     /// bbox when the field-specific one isn't known (older parses, manual
-    /// transactions). Stage 7.5 â€” without this, a debit edit would redact
+    /// transactions). Stage 7.5 - without this, a debit edit would redact
     /// the entire row.
     fn bbox_for_field(
         tx: &crate::engine::model::Transaction,
@@ -3227,7 +3227,7 @@ impl MyApp {
 
     /// Insert or replace the edit on (page, line, field). When the new
     /// text equals the originally-parsed value, the edit is removed from
-    /// the queue instead â€” typing a value back to its original is
+    /// the queue instead - typing a value back to its original is
     /// equivalent to no edit at all.
     fn upsert_edit(&mut self, mut edit: crate::engine::workflow::UserEdit) {
         // If the new text equals the original, drop any matching edit.
@@ -3259,7 +3259,7 @@ impl MyApp {
             edit.old_text = original_text.clone();
         }
 
-        // No-op if the user typed back to the original â€” drop it.
+        // No-op if the user typed back to the original - drop it.
         if edit.new_text == original_text {
             self.workflow_edits.retain(|e| {
                 !(e.page == edit.page
@@ -3329,12 +3329,12 @@ impl MyApp {
 
         let header = if analysis.summary.all_fonts_covered {
             format!(
-                "ðŸ”¤ Font analysis â€” âœ… {} font(s), all covered",
+                "ðŸ”¤ Font analysis - âœ... {} font(s), all covered",
                 analysis.summary.total_fonts
             )
         } else {
             format!(
-                "ðŸ”¤ Font analysis â€” âš  {}/{} font(s) need attention",
+                "ðŸ”¤ Font analysis - âš  {}/{} font(s) need attention",
                 analysis.summary.fonts_needing_action, analysis.summary.total_fonts
             )
         };
@@ -3403,7 +3403,7 @@ impl MyApp {
                         };
                         let header = format!(
                             "{} {} â€¢ {} â€¢ {} use(s) on {} page(s)",
-                            if needs_action { "âš " } else { "âœ…" },
+                            if needs_action { "âš " } else { "âœ..." },
                             font.base_name,
                             role_label,
                             font.occurrences,
@@ -3432,7 +3432,7 @@ impl MyApp {
                             let used_preview: String = if font.characters_used.chars().count() > 80
                             {
                                 let head: String = font.characters_used.chars().take(80).collect();
-                                format!("{head}â€¦")
+                                format!("{head}...")
                             } else {
                                 font.characters_used.clone()
                             };
@@ -3468,7 +3468,7 @@ impl MyApp {
     }
 
     fn draw_workflow_section(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing("ðŸ¤– Workflow (AI parse â†’ preview â†’ render â†’ verify)", |ui| {
+        ui.collapsing("ðŸ¤– Workflow (AI parse -> preview -> render -> verify)", |ui| {
             let stage = self.workflow_stage.clone();
             let p = self.settings.theme.palette();
 
@@ -3611,12 +3611,12 @@ impl MyApp {
                         // accented Latin) doesn't panic on byte slicing.
                         let desc_short: String = if r.description.chars().count() > 24 {
                             let head: String = r.description.chars().take(24).collect();
-                            format!("{head}â€¦")
+                            format!("{head}...")
                         } else {
                             r.description.clone()
                         };
                         ui.small(format!(
-                            "P{} L{} {} â€¢ bal {:?} â†’ {:?}",
+                            "P{} L{} {} â€¢ bal {:?} -> {:?}",
                             r.page + 1,
                             r.line_on_page + 1,
                             desc_short,
@@ -3640,7 +3640,7 @@ impl MyApp {
             // replication overhead (~3s per edit plus a fixed warm-up).
             let quick_eta = 2 + edit_count;
             let deep_eta = 5 + edit_count * 3;
-            ui.label("â‘¢ Apply edits â€” choose fidelity:");
+            ui.label("â‘¢ Apply edits - choose fidelity:");
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
@@ -3648,7 +3648,7 @@ impl MyApp {
                         egui::Button::new(format!("âš¡ Quick (Native) â€¢ ~{quick_eta}s")),
                     )
                     .on_hover_text(
-                        "Fast native-engine apply. Best when the native result already matches â€” you can still run Deep afterwards if it doesn't suffice.",
+                        "Fast native-engine apply. Best when the native result already matches - you can still run Deep afterwards if it doesn't suffice.",
                     )
                     .clicked()
                 {
@@ -3682,7 +3682,7 @@ impl MyApp {
                         va.attempt,
                         va.max_attempts,
                         va.diff_score,
-                        if va.only_intended { "âœ“" } else { "âœ—" }
+                        if va.only_intended { "âœ“" } else { "âœ-" }
                     ),
                 );
             }
@@ -3759,9 +3759,9 @@ impl MyApp {
         self.toast(
             ToastKind::Info,
             if deep {
-                "Applying with Deep (PyMuPDF) fidelityâ€¦"
+                "Applying with Deep (PyMuPDF) fidelity..."
             } else {
-                "Applying with Quick (Native) fidelityâ€¦"
+                "Applying with Quick (Native) fidelity..."
             },
         );
         if let Err(e) = self.job_tx.send(Job::WorkflowConfirmAndRender {
@@ -3923,7 +3923,7 @@ impl MyApp {
                     egui::Sense::drag().union(egui::Sense::click()),
                 );
 
-                // Zoom â€” Ctrl+wheel
+                // Zoom - Ctrl+wheel
                 let zoom_scroll = ui.input(|i| {
                     if i.modifiers.command {
                         i.smooth_scroll_delta.y
@@ -3936,7 +3936,7 @@ impl MyApp {
                     self.fit_to_view = false;
                 }
 
-                // Pan â€” any drag (primary, middle, etc.)
+                // Pan - any drag (primary, middle, etc.)
                 if response.dragged() {
                     self.pan_offset += response.drag_delta();
                     self.fit_to_view = false;
@@ -4013,7 +4013,7 @@ impl MyApp {
                         }
                     }
 
-                    // Click â†’ resolve text block via Python
+                    // Click -> resolve text block via Python
                     if response.clicked() {
                         if let Some(pos) = response.interact_pointer_pos() {
                             let relative = pos - rect.min;
@@ -4065,7 +4065,7 @@ impl MyApp {
 
                     // Stage 5 / Item #20: live diff overlay during preview.
                     // Translucent yellow over each `will_change` bbox on the
-                    // current page; tooltip shows old â†’ new.
+                    // current page; tooltip shows old -> new.
                     if let Some(preview) = self.workflow_preview.clone() {
                         let (sx, sy) = if let Some((w, h)) = self.current_page_size_pts {
                             (size.x / w, size.y / h)
@@ -4104,18 +4104,18 @@ impl MyApp {
                                     egui::Color32::from_rgb(220, 180, 0),
                                 ),
                             );
-                            // Hover tooltip with the diff text â€” only when
+                            // Hover tooltip with the diff text - only when
                             // the pointer is actually over this cell.
                             if let Some(m) = mouse {
                                 if cell.contains(m) {
                                     let old_str = prow
                                         .old_running_balance
                                         .map(|v| format!("{v:.2}"))
-                                        .unwrap_or_else(|| "â€”".into());
+                                        .unwrap_or_else(|| "-".into());
                                     let new_str = prow
                                         .new_running_balance
                                         .map(|v| format!("{v:.2}"))
-                                        .unwrap_or_else(|| "â€”".into());
+                                        .unwrap_or_else(|| "-".into());
                                     egui::show_tooltip(
                                         ctx,
                                         egui::LayerId::new(
@@ -4129,7 +4129,7 @@ impl MyApp {
                                                 prow.page + 1,
                                                 prow.line_on_page + 1
                                             ));
-                                            ui.label(format!("{old_str} â†’ {new_str}"));
+                                            ui.label(format!("{old_str} -> {new_str}"));
                                         },
                                     );
                                 }
@@ -4226,8 +4226,8 @@ impl MyApp {
                                                     auto_apply: true,
                                                 }) { tracing::error!("Runtime disconnected: {}", e); }
                                                 self.in_flight += 1;
-                                                self.status = "Auto-balancing entire statementâ€¦".into();
-                                                self.toast(ToastKind::Info, "Auto-balancing entire statementâ€¦");
+                                                self.status = "Auto-balancing entire statement...".into();
+                                                self.toast(ToastKind::Info, "Auto-balancing entire statement...");
                                             }
                                         }
                                     });
@@ -4248,13 +4248,13 @@ impl MyApp {
                                                 input,
                                                 page: self.current_page,
                                             }) { tracing::error!("Runtime disconnected: {}", e); }
-                                            self.toast(ToastKind::Info, "Requesting AI Layout Fixâ€¦");
+                                            self.toast(ToastKind::Info, "Requesting AI Layout Fix...");
                                             self.in_flight += 1;
                                         }
 
                                         ui.add_space(8.0);
 
-                                        if ui.button("ðŸ“… Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
+                                        if ui.button("ðŸ“... Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
                                             self.show_date_adjust_dialog = true;
                                         }
 
@@ -4319,7 +4319,7 @@ impl MyApp {
         painter.text(
             center + egui::vec2(0.0, 18.0),
             egui::Align2::CENTER_CENTER,
-            "Drop a PDF here, or use File â†’ Open",
+            "Drop a PDF here, or use File -> Open",
             egui::FontId::proportional(14.0),
             p.weak,
         );
@@ -4350,7 +4350,7 @@ impl MyApp {
             );
             resp.on_hover_text(hint).clicked()
         };
-        if button(ui, "ðŸ“‚ Open PDFâ€¦", "Browse for a bank statement PDF") {
+        if button(ui, "ðŸ“‚ Open PDF...", "Browse for a bank statement PDF") {
             if let Some(path) = rfd::FileDialog::new()
                 .add_filter("PDF", &["pdf"])
                 .pick_file()
@@ -4377,7 +4377,7 @@ impl MyApp {
         if button(
             ui,
             "ðŸ“‹ Resume workflow draft",
-            "Reload audit/workflow.json â€” restores parse, queued edits and stage",
+            "Reload audit/workflow.json - restores parse, queued edits and stage",
         ) {
             self.resume_workflow_draft();
         }
@@ -4472,7 +4472,7 @@ impl MyApp {
                         let icon = match toast.kind {
                             ToastKind::Info => "â„¹",
                             ToastKind::Warn => "âš ",
-                            ToastKind::Error => "âœ—",
+                            ToastKind::Error => "âœ-",
                             ToastKind::Success => "âœ“",
                         };
                         // fade based on remaining lifetime
@@ -4597,7 +4597,7 @@ impl MyApp {
         self.last_warning = None;
         self.selected_block = None;
         // Stage 6: opening a new PDF invalidates any cached hash and any
-        // in-flight workflow buffers â€” those belong to the previous file.
+        // in-flight workflow buffers - those belong to the previous file.
         self.workflow_input_hash = None;
         self.workflow_cell_buffers.clear();
         // Stage 8.5: clear the font analysis; the runtime will produce a
@@ -4611,14 +4611,14 @@ impl MyApp {
     }
 
     /// Path of the on-disk autosave for the current workflow. One file per
-    /// session â€” overwritten as edits change. Stage 5 / Item #9.
+    /// session - overwritten as edits change. Stage 5 / Item #9.
     fn workflow_draft_path() -> PathBuf {
         PathBuf::from("audit").join("workflow.json")
     }
 
     /// Delete the on-disk draft if it exists. Used after a successful
     /// `WorkflowComplete` and from the "Discard draft" menu. Errors are
-    /// logged but never surfaced â€” the file may legitimately be missing.
+    /// logged but never surfaced - the file may legitimately be missing.
     fn discard_workflow_draft_quiet() {
         let path = Self::workflow_draft_path();
         if path.exists() {
@@ -4631,7 +4631,7 @@ impl MyApp {
     /// Persist the current workflow state to `audit/workflow.json` if there
     /// is anything worth saving (validation has been done, OR there are
     /// queued edits) and the dirty flag is set. Debounced to at most one
-    /// write per 1.5s. Failures are logged but never raised â€” losing an
+    /// write per 1.5s. Failures are logged but never raised - losing an
     /// autosave is non-fatal.
     fn autosave_workflow_draft(&mut self) {
         if !self.workflow_dirty {
@@ -4697,7 +4697,7 @@ impl MyApp {
     /// Resume a workflow from `audit/workflow.json`, restoring validation,
     /// transactions and queued edits. Verifies the on-disk PDF still
     /// hashes to what the draft expects; if not, surfaces a warning toast
-    /// but proceeds â€” the user might intentionally be loading a draft
+    /// but proceeds - the user might intentionally be loading a draft
     /// against a manually-saved copy.
     fn resume_workflow_draft(&mut self) {
         let path = Self::workflow_draft_path();
@@ -4721,7 +4721,7 @@ impl MyApp {
             self.toast(
                 ToastKind::Warn,
                 format!(
-                    "PDF missing: {} â€” please pick the file",
+                    "PDF missing: {} - please pick the file",
                     pdf_path.display()
                 ),
             );
@@ -4736,7 +4736,7 @@ impl MyApp {
                 None => {
                     self.toast(
                         ToastKind::Info,
-                        "Resume cancelled â€” draft kept; pick the PDF later.",
+                        "Resume cancelled - draft kept; pick the PDF later.",
                     );
                     return;
                 }
@@ -4770,7 +4770,7 @@ impl MyApp {
             self.toast(
                 ToastKind::Success,
                 format!(
-                    "Resumed workflow draft â€” {} edits queued",
+                    "Resumed workflow draft - {} edits queued",
                     draft.edits.len()
                 ),
             );
@@ -4783,7 +4783,7 @@ impl MyApp {
     }
 }
 
-/// Upsert `pairs` (env var name â†’ value) into a dotenv file at `path`.
+/// Upsert `pairs` (env var name -> value) into a dotenv file at `path`.
 ///
 /// Existing `KEY=...` lines are replaced in place (preserving order and
 /// unrelated lines/comments); keys not present are appended. A key whose
