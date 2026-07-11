@@ -339,6 +339,13 @@ pub enum AppView {
     AuditExplorer,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActiveWorkflow {
+    EditStatement,
+    TransferTransactions,
+    Settings,
+}
+
 pub struct MyApp {
     // Files
     input_path: String,
@@ -358,6 +365,8 @@ pub struct MyApp {
 
     // View
     current_view: AppView,
+    active_workflow: ActiveWorkflow,
+    sidebar_expanded: bool,
     zoom_factor: f32,
     pan_offset: egui::Vec2,
     show_curtain: bool,
@@ -532,6 +541,8 @@ impl MyApp {
             batch_folder_path: None,
             batch_files: Vec::new(),
             current_view: AppView::SingleDocument,
+            active_workflow: ActiveWorkflow::EditStatement,
+            sidebar_expanded: true,
             zoom_factor: 1.0,
             pan_offset: egui::Vec2::ZERO,
             show_curtain: false,
@@ -1220,23 +1231,22 @@ impl MyApp {
             }
         }
 
-        // ---- 3. Top bar ----------------------------------------------------
-        self.draw_top_bar(ctx);
+        // ---- 3. Collapsible Sidebar ----------------------------------------
+        self.draw_sidebar(ctx);
 
         // ---- 4. Bottom status bar -----------------------------------------
         self.draw_status_bar(ctx);
 
-        // ---- 5. Left, right, central (or Batch) ---------------------------
-        match self.current_view {
-            AppView::SingleDocument => {
-                self.draw_left_panel(ctx);
-                self.draw_central_panel(ctx);
+        // ---- 5. Main Workspace Routing ------------------------------------
+        match self.active_workflow {
+            ActiveWorkflow::EditStatement => {
+                self.draw_edit_statement_workflow(ctx);
             }
-            AppView::BatchProcessing => {
-                self.draw_batch_panel(ctx);
+            ActiveWorkflow::TransferTransactions => {
+                self.draw_transfer_workflow(ctx);
             }
-            AppView::AuditExplorer => {
-                self.draw_audit_explorer_view(ctx);
+            ActiveWorkflow::Settings => {
+                self.draw_settings_workflow(ctx);
             }
         }
 
@@ -1810,159 +1820,59 @@ impl MyApp {
             }
         }
     }
-
-    fn draw_top_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("ðŸ“‚ Open PDF...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("PDF", &["pdf"])
-                            .pick_file()
-                        {
-                            self.open_pdf(path);
-                        }
-                        ui.close_menu();
-                    }
-                    if ui.button("ðŸ”‘ Import .env key").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Environment File", &["env", "txt"])
-                            .pick_file()
-                        {
-                            match dotenvy::from_path(&path) {
-                                Ok(_) => {
-                                    self.toast(ToastKind::Success, "Loaded .env file successfully")
-                                }
-                                Err(e) => self
-                                    .toast(ToastKind::Error, format!("Failed to load .env: {e}")),
-                            }
-                        }
-                        ui.close_menu();
-                    }
-                    if ui.button("â ¯ Resume last session").clicked() {
-                        let auto = std::path::PathBuf::from("audit").join("history.json");
-                        if auto.exists() {
-                            if let Err(e) = self.job_tx.send(Job::LoadHistory {
-                                input: auto.clone(),
-                            }) { tracing::error!("Runtime disconnected: {}", e); }
-                            self.in_flight += 1;
-                            self.toast(
-                                ToastKind::Info,
-                                format!("Resuming from {}", auto.display()),
-                            );
-                        } else {
-                            self.toast(ToastKind::Warn, "No previous session found.");
-                        }
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button("ðŸ“‹ Resume workflow draft")
-                        .on_hover_text(
-                            "Reload audit/workflow.json - restores parse, queued edits and stage",
-                        )
-                        .clicked()
-                    {
-                        self.resume_workflow_draft();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button("ðŸ-‘ Discard workflow draft")
-                        .on_hover_text("Delete audit/workflow.json so next resume starts fresh")
-                        .clicked()
-                    {
-                        // Stage 13 / Item #12: confirm before destructive action.
-                        let path = Self::workflow_draft_path();
-                        if path.exists() {
-                            self.show_discard_draft_confirm = true;
-                        } else {
-                            self.toast(ToastKind::Warn, "No workflow draft to discard");
-                        }
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    ui.label("Recent:");
-                    let recent = self.settings.recent_files.clone();
-                    for f in recent {
-                        let label = if f.len() > 40 {
-                            format!("...{}", &f[f.len() - 38..])
-                        } else {
-                            f.clone()
-                        };
-                        if ui.button(label).clicked() {
-                            self.open_pdf(PathBuf::from(f));
-                            ui.close_menu();
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        std::process::exit(0);
+    fn draw_sidebar(&mut self, ctx: &egui::Context) {
+        let width = if self.sidebar_expanded { 220.0 } else { 60.0 };
+        egui::SidePanel::left("sidebar")
+            .exact_width(width)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button(if self.sidebar_expanded { "â‰¡ Hide" } else { "â‰¡" }).clicked() {
+                        self.sidebar_expanded = !self.sidebar_expanded;
                     }
                 });
-                ui.menu_button("Edit", |ui| {
-                    if ui.button("â†¶ Undo").clicked() {
-                        if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
-                        ui.close_menu();
-                    }
-                    if ui.button("â†· Redo").clicked() {
-                        if let Err(e) = self.job_tx.send(Job::Redo) { tracing::error!("Runtime disconnected: {}", e); }
-                        ui.close_menu();
-                    }
-                });
-                ui.menu_button("Help", |ui| {
-                    if ui.button("Shortcuts").clicked() {
-                        self.toast(
-                            ToastKind::Info,
-                            "Ctrl+O open â€¢ Ctrl+Z undo â€¢ Ctrl+Y redo â€¢ Ctrl+S save â€¢ +/-/0 zoom",
-                        );
-                        ui.close_menu();
-                    }
-                });
+                ui.add_space(20.0);
 
-                ui.separator();
-                ui.heading("Bank Statement Fidelity Editor");
-                ui.separator();
+                let mut selected = self.active_workflow.clone();
+                let workflows = [
+                    (ActiveWorkflow::EditStatement, "ðŸ“„", "Edit Statement"),
+                    (ActiveWorkflow::TransferTransactions, "â‡„", "Transfer Txns"),
+                    (ActiveWorkflow::Settings, "âš™", "Settings"),
+                ];
 
-                ui.selectable_value(
-                    &mut self.current_view,
-                    AppView::SingleDocument,
-                    "Single Statement",
-                );
-                ui.selectable_value(
-                    &mut self.current_view,
-                    AppView::BatchProcessing,
-                    "Batch Processing",
-                );
-                ui.selectable_value(
-                    &mut self.current_view,
-                    AppView::AuditExplorer,
-                    "Audit Explorer",
-                );
+                for (workflow, icon, text) in workflows {
+                    let btn_text = if self.sidebar_expanded { format!("{} {}", icon, text) } else { icon.to_string() };
+                    let mut btn = egui::Button::new(btn_text).min_size(egui::vec2(ui.available_width(), 40.0));
+                    if self.active_workflow == workflow {
+                        btn = btn.fill(ui.visuals().selection.bg_fill);
+                    }
+                    if ui.add(btn).clicked() {
+                        selected = workflow;
+                    }
+                    ui.add_space(5.0);
+                }
+                self.active_workflow = selected;
+            });
+    }
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("âš™ï¸  Settings & Tools").clicked() {
-                        self.show_settings_modal = true;
-                    }
-                    if self.settings.advanced_mode && ui.button("ðŸŒ  Remote Engine").clicked() {
-                        // Stub for remote engine connect
-                        if self.settings.remote_engine_url.is_empty() {
-                            self.settings.remote_engine_url =
-                                "https://engine.example.com".to_string();
-                            self.toast(ToastKind::Info, "Configured remote engine (stub)");
-                        } else {
-                            self.settings.remote_engine_url.clear();
-                            self.toast(ToastKind::Info, "Disconnected from remote engine");
-                        }
-                    }
+    fn draw_edit_statement_workflow(&mut self, ctx: &egui::Context) {
+        self.draw_left_panel(ctx);
+        self.draw_central_panel(ctx);
+    }
 
-                    if let Some(p) = &self.progress {
-                        ui.add(
-                            egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0)).desired_width(220.0),
-                        );
-                    } else if self.in_flight > 0 {
-                        ui.spinner();
-                        ui.label(format!("{} job(s) running", self.in_flight));
-                    }
-                });
+    fn draw_transfer_workflow(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Transfer Transactions Workspace");
+            ui.label("Dual dropzones and transfer execution will be implemented here.");
+        });
+    }
+
+    fn draw_settings_workflow(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Settings & Configurations");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label("Consolidated settings hub will be migrated here.");
             });
         });
     }
