@@ -25,8 +25,8 @@ def app_instance():
     if not os.path.exists(APP_PATH):
         pytest.skip(f"Binary not found at {APP_PATH}. Please run 'cargo build' first.")
     
-    print(f"Starting app at {APP_PATH}")
-    app = Application(backend="uia").start(APP_PATH)
+    print(f"Starting app at {APP_PATH} gui")
+    app = Application(backend="uia").start(f'"{APP_PATH}" gui', wait_for_idle=False)
     
     # Wait for the main window to be ready
     time.sleep(2)

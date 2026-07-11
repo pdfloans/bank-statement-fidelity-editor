@@ -38,7 +38,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host " 0.5. Running CLI Pipeline Self-Test" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
-cargo run -- selftest
+cargo run --bin dual-core-pdf-pipeline -- selftest
 if ($LASTEXITCODE -ne 0) {
     Write-Host "CLI self-test failed. Aborting." -ForegroundColor Red
     exit 1

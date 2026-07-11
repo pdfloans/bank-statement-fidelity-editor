@@ -12,7 +12,12 @@ impl PdfEngine for DummyEngine {
     fn get_text_blocks(&self, _path: &std::path::Path, _page: usize) -> Result<Vec<TextBlock>, EngineError> { Ok(vec![]) }
     fn find_text_block_at_click(&self, _path: &std::path::Path, _page: usize, _x: f32, _y: f32) -> Result<Option<TextBlock>, EngineError> { Ok(None) }
     fn apply_change(&self, _i: &std::path::Path, _o: &std::path::Path, _p: usize, _b: [f32; 4], _n: &str, _ot: &str, _fp: Option<&std::path::Path>) -> Result<ReplaceOutcome, EngineError> { Ok(ReplaceOutcome { success: true, font_used: "MockFont".into(), overflow: false, obj_id: None }) }
-    fn analyze_layout(&self, _path: &std::path::Path) -> Result<DocumentLayout, EngineError> { Ok(DocumentLayout { total_pages: 1, pages: vec![], has_consistent_headers: true, has_consistent_footers: true, overall_style: "Standard".to_string(), layout_confidence: 1.0 }) }
+    fn analyze_layout(&self, path: &std::path::Path) -> Result<DocumentLayout, EngineError> { 
+        if !path.exists() {
+            return Err(EngineError::ExtractFailed("Failed to parse statement offline".to_string()));
+        }
+        Ok(DocumentLayout { total_pages: 1, pages: vec![], has_consistent_headers: true, has_consistent_footers: true, overall_style: "Standard".to_string(), layout_confidence: 1.0 }) 
+    }
 }
 
 #[tokio::test]
