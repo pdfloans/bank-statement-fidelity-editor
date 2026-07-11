@@ -344,6 +344,7 @@ pub enum ActiveWorkflow {
     EditStatement,
     TransferTransactions,
     Settings,
+    ApiKeys,
 }
 
 pub struct MyApp {
@@ -1248,6 +1249,9 @@ impl MyApp {
             ActiveWorkflow::Settings => {
                 self.draw_settings_workflow(ctx);
             }
+            ActiveWorkflow::ApiKeys => {
+                self.draw_api_keys_workflow(ctx);
+            }
         }
 
         // ---- 6. Toasts ----------------------------------------------------
@@ -1839,6 +1843,7 @@ impl MyApp {
                     (ActiveWorkflow::EditStatement, "ðŸ“„", "Edit Statement"),
                     (ActiveWorkflow::TransferTransactions, "â‡„", "Transfer Txns"),
                     (ActiveWorkflow::Settings, "âš™", "Settings"),
+                    (ActiveWorkflow::ApiKeys, "ðŸ”‘", "API Keys"),
                 ];
 
                 for (workflow, icon, text) in workflows {
@@ -1873,6 +1878,15 @@ impl MyApp {
             ui.heading("Settings & Configurations");
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.label("Consolidated settings hub will be migrated here.");
+            });
+        });
+    }
+
+    fn draw_api_keys_workflow(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("API Keys Management");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label("API Key forms and connection testers will be migrated here.");
             });
         });
     }
