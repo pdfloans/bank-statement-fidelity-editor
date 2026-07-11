@@ -107,6 +107,7 @@ typst = "0.14.0"
 subsetter = "0.2.6"
 image-compare = "0.5.0"
 rustybuzz = "0.20.1"
+sysinfo = "0.38.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
