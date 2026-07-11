@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_python_exception_safely_mapped_to_rust_error() {
-        pyo3::prepare_freethreaded_python();
+        pyo3::Python::initialize();
         let res: Result<(), String> = PyEngine::safe_python_with_gil(|py| {
             // Trigger a Python exception deliberately
             let _ = py.run(c"raise ValueError('Intentional Python Exception')", None, None)
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_python_panic_safely_caught() {
-        pyo3::prepare_freethreaded_python();
+        pyo3::Python::initialize();
         let res: Result<(), String> = PyEngine::safe_python_with_gil(|_py| {
             // Simulate a raw Rust panic inside the GIL closure
             panic!("Raw Rust panic inside python worker thread");
