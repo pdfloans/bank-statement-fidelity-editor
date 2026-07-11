@@ -175,8 +175,8 @@ def render_page_to_png(pdf_path: str, page_num: int = 0, dpi: float = 150.0):
 
 def get_text_blocks(pdf_path: str, page_num: int = 0):
     """Return list of text spans with precise bounding boxes and font info"""
-    # Pro 3-page guard (Req 5): verify <=3 pages BEFORE unlocking Pro.
-    _ensure_pro_unlocked(pdf_path)
+    # Pro unlock without page limit guard, as text extraction is a free tier feature.
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     page = doc[page_num]
 
@@ -3436,7 +3436,7 @@ def extract_font(pdf_path: str, output_path: str, font_name: str = ""):
     import io
     from fontTools.ttLib import TTFont
     
-    _ensure_pro_unlocked(pdf_path)
+    _ensure_pro_unlocked()
     doc = pymupdf.open(pdf_path)
     target_xref = None
     
