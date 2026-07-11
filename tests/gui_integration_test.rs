@@ -34,4 +34,17 @@ fn test_bank_statement_modifier_ui() {
 
     // Verify the "Editing Toolbox" appears
     let _toolbox = harness.get_by_label_contains("Editing Toolbox");
+
+    // Test Settings Workflow
+    harness.get_by_label_contains("âš™").click();
+    harness.step();
+    let _settings_header = harness.get_by_label_contains("App Settings");
+
+    // Test API Keys Workflow
+    harness.get_by_label_contains("ðŸ”‘").click();
+    harness.step();
+    let _api_keys_header = harness.get_by_label_contains("API & Engine Preferences");
+    
+    // Test Modals (Trigger "Exit without saving" or something if applicable, 
+    // but just checking the workflows gets us all the core screens).
 }

@@ -33,21 +33,21 @@ pub enum Theme {
     Solarized,
 }
 
-struct Palette {
-    bg: egui::Color32,
-    panel: egui::Color32,
-    surface: egui::Color32,
-    text: egui::Color32,
-    weak: egui::Color32,
-    accent: egui::Color32,
-    success: egui::Color32,
-    warn: egui::Color32,
-    error: egui::Color32,
-    info: egui::Color32,
+pub struct Palette {
+    pub bg: egui::Color32,
+    pub panel: egui::Color32,
+    pub surface: egui::Color32,
+    pub text: egui::Color32,
+    pub weak: egui::Color32,
+    pub accent: egui::Color32,
+    pub success: egui::Color32,
+    pub warn: egui::Color32,
+    pub error: egui::Color32,
+    pub info: egui::Color32,
 }
 
 impl Theme {
-    fn palette(self) -> Palette {
+    pub fn palette(self) -> Palette {
         let resolved = if self == Theme::System {
             if dark_light::detect().unwrap_or(dark_light::Mode::Dark) == dark_light::Mode::Light {
                 Theme::Light
@@ -111,7 +111,7 @@ impl Theme {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Theme::System => "System (Auto)",
             Theme::Dark => "Dark",
@@ -298,12 +298,12 @@ pub enum ToastKind {
 }
 
 #[derive(Debug, Clone)]
-struct Toast {
-    kind: ToastKind,
-    text: String,
-    expires_at: Instant,
-    action_label: Option<String>,
-    action_id: Option<String>,
+pub struct Toast {
+    pub kind: ToastKind,
+    pub text: String,
+    pub expires_at: Instant,
+    pub action_label: Option<String>,
+    pub action_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -349,16 +349,16 @@ pub enum ActiveWorkflow {
 
 pub struct MyApp {
     // Files
-    input_path: String,
-    output_path: String,
-    current_pdf_path: PathBuf,
+    pub input_path: String,
+    pub output_path: String,
+    pub current_pdf_path: PathBuf,
     previous_pdf_path: Option<PathBuf>,
-    export_path: String,
+    pub export_path: String,
 
     // Document state
     current_page: usize,
     total_pages: usize,
-    history_state: ChangeHistory,
+    pub history_state: ChangeHistory,
 
     // Batch Processing
     batch_folder_path: Option<PathBuf>,
@@ -386,19 +386,19 @@ pub struct MyApp {
     current_page_size_pts: Option<(f32, f32)>,
 
     // App / job state
-    status: String,
+    pub status: String,
     progress: Option<ProgressState>,
     last_warning: Option<String>,
-    last_verification: Option<VerificationReport>,
-    proposed_changes: Vec<(crate::engine::model::ProposedChange, bool)>,
-    last_imbalance: Option<rust_decimal::Decimal>,
-    in_flight: usize,
-    settings: AppSettings,
+    pub last_verification: Option<VerificationReport>,
+    pub proposed_changes: Vec<(crate::engine::model::ProposedChange, bool)>,
+    pub last_imbalance: Option<rust_decimal::Decimal>,
+    pub in_flight: usize,
+    pub settings: AppSettings,
     toasts: VecDeque<Toast>,
 
     // Channels
-    job_tx: std::sync::mpsc::Sender<Job>,
-    job_rx: std::sync::mpsc::Receiver<JobResult>,
+    pub job_tx: std::sync::mpsc::Sender<Job>,
+    pub job_rx: std::sync::mpsc::Receiver<JobResult>,
     pending_python: Option<tokio::sync::oneshot::Receiver<PythonJobResult>>,
 
     // Render coalescing
@@ -423,22 +423,22 @@ pub struct MyApp {
     font_analysis: Option<crate::engine::font_analysis::FontAnalysis>,
     /// Stage 13 / Item #12: pending modal confirmations. Each entry is
     /// (title, body, on_confirm action).
-    show_discard_draft_confirm: bool,
-    show_settings_modal: bool,
-    show_transfer_dialog: bool,
-    transfer_source_path: String,
+    pub show_discard_draft_confirm: bool,
+    pub show_settings_modal: bool,
+    pub show_transfer_dialog: bool,
+    pub transfer_source_path: String,
     // Date Adjust dialog state
-    show_date_adjust_dialog: bool,
-    date_adjust_shift_days: String,
-    date_adjust_mode_shift: bool, // true = shift, false = remap
-    date_adjust_from: String,
-    date_adjust_to: String,
+    pub show_date_adjust_dialog: bool,
+    pub date_adjust_shift_days: String,
+    pub date_adjust_mode_shift: bool, // true = shift, false = remap
+    pub date_adjust_from: String,
+    pub date_adjust_to: String,
     // AI Confirmation dialog state
-    pending_ai_confirmations: Vec<crate::engine::ai_confirm::AiConfirmation>,
+    pub pending_ai_confirmations: Vec<crate::engine::ai_confirm::AiConfirmation>,
     // Transfer Test dialog state
-    show_transfer_test_dialog: bool,
-    transfer_test_paths: Vec<String>,
-    transfer_test_report: Option<crate::engine::transfer_test_harness::TestHarnessReport>,
+    pub show_transfer_test_dialog: bool,
+    pub transfer_test_paths: Vec<String>,
+    pub transfer_test_report: Option<crate::engine::transfer_test_harness::TestHarnessReport>,
     /// Stage 12 / Item #3: history of cascade invocations during the
     /// current workflow attempt. Reset on a new workflow start; appended
     /// to whenever the runtime reports `JobResult::FontCascadeUsed`.
@@ -461,40 +461,40 @@ pub struct MyApp {
         std::collections::HashMap<(usize, usize, crate::engine::workflow::EditField), String>,
 
     // Config (read-only)
-    config: std::sync::Arc<crate::app::config::AppConfig>,
+    pub config: std::sync::Arc<crate::app::config::AppConfig>,
 
     // --- In-app API key / credentials editor (Settings -> API keys) ---
     /// Editable buffers, seeded from the current environment. Persisted to
     /// `.env` and hot-reloaded into the runtime via `Job::ReloadConfig`.
-    edit_gemini_api_key: String,
-    edit_docai_project_id: String,
-    edit_docai_location: String,
-    edit_docai_processor_id: String,
+    pub edit_gemini_api_key: String,
+    pub edit_docai_project_id: String,
+    pub edit_docai_location: String,
+    pub edit_docai_processor_id: String,
     /// Path to a Document AI service-account JSON key (best-practice auth).
-    edit_docai_service_account: String,
+    pub edit_docai_service_account: String,
     /// Optional Document AI API key (Beta), takes precedence over OAuth/SA.
-    edit_docai_api_key: String,
-    edit_pymupdf_pro_key: String,
-    edit_mindee_api_key: String,
-    edit_llamaparse_api_key: String,
-    edit_pdfrest_api_key: String,
-    edit_applitools_api_key: String,
-    edit_groq_api_key: String,
-    edit_openrouter_api_key: String,
+    pub edit_docai_api_key: String,
+    pub edit_pymupdf_pro_key: String,
+    pub edit_mindee_api_key: String,
+    pub edit_llamaparse_api_key: String,
+    pub edit_pdfrest_api_key: String,
+    pub edit_applitools_api_key: String,
+    pub edit_groq_api_key: String,
+    pub edit_openrouter_api_key: String,
     /// Gemini auth mode buffer: false = API key (default), true = Vertex AI
     /// (service-account / ADC). Persisted as `GEMINI_AUTH_MODE`.
-    edit_gemini_use_vertex: bool,
+    pub edit_gemini_use_vertex: bool,
     /// Which PDF engine backend the user wants to force (or Auto)
-    edit_engine_mode: crate::app::config::PdfEngineMode,
+    pub edit_engine_mode: crate::app::config::PdfEngineMode,
     /// Latest credential/AI status reported by the runtime after a
     /// `Job::ReloadConfig` (document_ai_configured, gemini_configured,
     /// pro_editing_available). `None` until the first reload this session.
     config_status: Option<(bool, bool, bool)>,
     /// Boot-time (and reload-time) API availability snapshot. Drives the
     /// UI auto-exclusion of unavailable backends with explanatory messages.
-    api_availability: crate::app::config::ApiAvailability,
+    pub api_availability: crate::app::config::ApiAvailability,
     /// Result of the last `Job::ValidateCredentials` run. (Gemini, DocAI).
-    credential_validation_status: Option<(Result<(), String>, Result<(), String>)>,
+    pub credential_validation_status: Option<(Result<(), String>, Result<(), String>)>,
     /// True once the buffers have been seeded from the environment.
     #[allow(dead_code)]
     api_keys_seeded: bool,
@@ -656,7 +656,7 @@ impl MyApp {
     /// Keys are upserted into `.env` (existing lines replaced in place,
     /// missing ones appended). Empty buffers remove the override from the live
     /// environment so a cleared field truly disables that credential.
-    fn save_credentials(&mut self) {
+    pub fn save_credentials(&mut self) {
         // (env var name, value) pairs to upsert.
         let pairs: Vec<(&str, String)> = vec![
             (
@@ -753,7 +753,7 @@ impl MyApp {
         self.toast(ToastKind::Info, "Saving credentials and reloading...");
     }
 
-    fn toast(&mut self, kind: ToastKind, msg: impl Into<String>) {
+    pub fn toast(&mut self, kind: ToastKind, msg: impl Into<String>) {
         self.toasts.push_back(Toast {
             kind,
             text: msg.into(),
@@ -882,7 +882,7 @@ impl MyApp {
         Some(ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR))
     }
 
-    fn export_to_excel(&mut self) {
+    pub fn export_to_excel(&mut self) {
         let result: Result<(), Box<dyn std::error::Error>> = (|| {
             let mut workbook = rust_xlsxwriter::Workbook::new();
             let worksheet = workbook.add_worksheet();
@@ -921,7 +921,7 @@ impl MyApp {
         self.pan_offset = egui::Vec2::ZERO;
     }
 
-    fn balance_trend_points(&self) -> PlotPoints {
+    pub fn balance_trend_points(&self) -> PlotPoints {
         // Real running-balance trend (no fake data).
         let pts: Vec<[f64; 2]> = self
             .history_state
@@ -2582,7 +2582,7 @@ impl MyApp {
     }
 
     /// Generate a safe output path that never overwrites the input.
-    fn safe_output_path(input: &std::path::Path, suffix: &str) -> std::path::PathBuf {
+    pub fn safe_output_path(input: &std::path::Path, suffix: &str) -> std::path::PathBuf {
         let stem = input.file_stem().unwrap_or_default().to_string_lossy();
         let ext = input.extension().unwrap_or_default().to_string_lossy();
         let parent = input.parent().unwrap_or(std::path::Path::new("."));
@@ -3463,7 +3463,7 @@ impl MyApp {
     /// Stage 8.5: per-font breakdown for the loaded PDF. Shows the user which
     /// fonts can be edited freely and which would need glyph creation, with
     /// an exact list of missing characters per font and the creation scope.
-    fn draw_font_analysis_section(&mut self, ui: &mut egui::Ui) {
+    pub fn draw_font_analysis_section(&mut self, ui: &mut egui::Ui) {
         let palette = self.settings.theme.palette();
         let analysis = match &self.font_analysis {
             Some(a) => a.clone(),
@@ -3621,7 +3621,7 @@ impl MyApp {
         });
     }
 
-    fn draw_workflow_section(&mut self, ui: &mut egui::Ui) {
+    pub fn draw_workflow_section(&mut self, ui: &mut egui::Ui) {
         ui.collapsing("ðŸ¤– Workflow (AI parse -> preview -> render -> verify)", |ui| {
             let stage = self.workflow_stage.clone();
             let p = self.settings.theme.palette();
@@ -4773,7 +4773,7 @@ impl MyApp {
     /// Delete the on-disk draft if it exists. Used after a successful
     /// `WorkflowComplete` and from the "Discard draft" menu. Errors are
     /// logged but never surfaced - the file may legitimately be missing.
-    fn discard_workflow_draft_quiet() {
+    pub fn discard_workflow_draft_quiet() {
         let path = Self::workflow_draft_path();
         if path.exists() {
             if let Err(e) = std::fs::remove_file(&path) {

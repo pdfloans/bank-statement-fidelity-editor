@@ -1,7 +1,7 @@
 use crate::app::gui::{AppView, MyApp, Toast, ToastKind};
-use crate::app::panels::AppPanels;
+
 use crate::app::runtime::{Job, PythonJob};
-use crate::app::theme::Theme;
+use crate::app::gui::Theme;
 use crate::engine::font_analysis::*;
 use crate::engine::model::*;
 use crate::engine::workflow::*;
@@ -1092,21 +1092,21 @@ impl AppModals for MyApp {
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
                     let mark = |ok: bool| if ok { "✓" } else { "✗" };
-                    ui.small(format!("Doc AI {}", mark(self.api_availability.document_ai_configured)));
+                    ui.small(format!("Doc AI {}", mark(self.api_availability.document_ai)));
                     ui.separator();
-                    ui.small(format!("Gemini {}", mark(self.api_availability.gemini_configured)));
+                    ui.small(format!("Gemini {}", mark(self.api_availability.gemini_api_key || self.api_availability.gemini_vertex)));
                     ui.separator();
-                    ui.small(format!("Pro {}", mark(self.api_availability.pro_editing_available)));
+                    ui.small(format!("Pro {}", mark(self.api_availability.pymupdf_pro)));
                     ui.separator();
-                    ui.small(format!("Mindee {}", mark(self.api_availability.mindee_configured)));
+                    ui.small(format!("Mindee {}", mark(self.api_availability.mindee)));
                     ui.separator();
-                    ui.small(format!("LlamaParse {}", mark(self.api_availability.llamaparse_configured)));
+                    ui.small(format!("LlamaParse {}", mark(self.api_availability.llamaparse)));
                     ui.separator();
-                    ui.small(format!("pdfRest {}", mark(self.api_availability.pdfrest_configured)));
+                    ui.small(format!("pdfRest {}", mark(self.api_availability.pdfrest)));
                     ui.separator();
-                    ui.small(format!("Applitools {}", mark(self.api_availability.applitools_configured)));
+                    ui.small(format!("Applitools {}", mark(self.api_availability.applitools)));
                     ui.separator();
-                    ui.small(format!("Offline {}", mark(self.api_availability.offline_parser_available)));
+                    ui.small(format!("Offline {}", mark(true)));
                 });
 
                 // Render the results of the active `Test Connections` job
