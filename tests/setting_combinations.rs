@@ -111,7 +111,7 @@ fn default_settings_are_expected() {
     assert_eq!(PdfEngineMode::default(), PdfEngineMode::Auto);
     assert_eq!(
         DocumentParserMode::default(),
-        DocumentParserMode::MindeeFinDoc
+        DocumentParserMode::LlamaParse
     );
     assert_eq!(AiProviderMode::default(), AiProviderMode::ManualOnly);
     assert_eq!(VerificationMode::default(), VerificationMode::LocalPdfium);
