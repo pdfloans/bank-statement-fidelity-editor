@@ -956,7 +956,7 @@ impl Runtime {
                             }
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Source analyzed âœ“".to_string(),
+                                label: "Source analyzed ✓".to_string(),
                                 fraction: 0.10,
                             });
 
@@ -986,7 +986,7 @@ impl Runtime {
                             }
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Target analyzed âœ“".to_string(),
+                                label: "Target analyzed ✓".to_string(),
                                 fraction: 0.20,
                             });
 
@@ -1031,7 +1031,7 @@ impl Runtime {
                                 );
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: "Format mapping complete âœ“".to_string(),
+                                    label: "Format mapping complete ✓".to_string(),
                                     fraction: 0.30,
                                 });
 
@@ -1074,7 +1074,7 @@ impl Runtime {
                                 tracing::info!("[TRANSFER] Balances computed for {} transactions", mapped.len());
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: "Balances computed âœ“".to_string(),
+                                    label: "Balances computed ✓".to_string(),
                                     fraction: 0.35,
                                 });
 
@@ -1412,7 +1412,7 @@ impl Runtime {
                                 }
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("PDF changes applied âœ“ ({edits_applied}/{total_edits})"),
+                                    label: format!("PDF changes applied ✓ ({edits_applied}/{total_edits})"),
                                     fraction: 0.55,
                                 });
 
@@ -1487,7 +1487,7 @@ impl Runtime {
                                 };
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Visual check âœ“ (score: {visual_score:.4})"),
+                                    label: format!("Visual check ✓ (score: {visual_score:.4})"),
                                     fraction: 0.75,
                                 });
 
@@ -1574,7 +1574,7 @@ impl Runtime {
                                 }
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Math (engine) {} ", if math_verified { "âœ“" } else { "âš " }),
+                                    label: format!("Math (engine) {} ", if math_verified { "✓" } else { "⚠" }),
                                     fraction: 0.85,
                                 });
 
@@ -1594,7 +1594,7 @@ impl Runtime {
                                 };
 
                                 let _ = res_tx.send(JobResult::Progress {
-                                    label: format!("Math (Gemini) {} ", if gemini_math_ok { "âœ“" } else { "âš " }),
+                                    label: format!("Math (Gemini) {} ", if gemini_math_ok { "✓" } else { "⚠" }),
                                     fraction: 0.95,
                                 });
 
@@ -1662,14 +1662,14 @@ impl Runtime {
                             }
 
                             tracing::info!(
-                                "[TRANSFER] âœ... Complete in {:.1}s - math: {}, visual: {}",
+                                "[TRANSFER] ✅ Complete in {:.1}s - math: {}, visual: {}",
                                 final_result.total_duration_secs,
-                                if final_result.math_verified { "âœ“" } else { "âœ-" },
-                                if final_result.visual_verified { "âœ“" } else { "âœ-" },
+                                if final_result.math_verified { "✓" } else { "✗" },
+                                if final_result.visual_verified { "✓" } else { "✗" },
                             );
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Transfer complete âœ“".to_string(),
+                                label: "Transfer complete ✓".to_string(),
                                 fraction: 1.0,
                             });
 
@@ -1762,7 +1762,7 @@ impl Runtime {
                             }
 
                             let _ = res_tx.send(JobResult::Progress {
-                                label: "Dates adjusted âœ“".to_string(),
+                                label: "Dates adjusted ✓".to_string(),
                                 fraction: 1.0,
                             });
 

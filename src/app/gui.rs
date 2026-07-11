@@ -1139,7 +1139,7 @@ impl MyApp {
             painter.text(
                 screen.center(),
                 egui::Align2::CENTER_CENTER,
-                "ðŸ“¥ Drop PDF to open",
+                "📥 Drop PDF to open",
                 egui::FontId::proportional(28.0),
                 p.accent,
             );
@@ -1156,7 +1156,7 @@ impl MyApp {
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.status = "â Œ Runtime worker disconnected".into();
+                    self.status = "❌ Runtime worker disconnected".into();
                     self.in_flight = 0; // Bulletproof fix: reset on disconnect
                     break;
                 }
@@ -1416,25 +1416,25 @@ impl MyApp {
                 parts.push(format!(
                     "Document AI {}",
                     if document_ai_configured {
-                        "âœ“"
+                        "✓"
                     } else {
-                        "âœ-"
+                        "✗"
                     }
                 ));
                 parts.push(format!(
                     "Gemini {}",
                     if gemini_configured {
-                        "âœ“"
+                        "✓"
                     } else {
-                        "âœ-"
+                        "✗"
                     }
                 ));
                 parts.push(format!(
                     "Pro editing {}",
                     if pro_editing_available {
-                        "âœ“"
+                        "✓"
                     } else {
-                        "âœ-"
+                        "✗"
                     }
                 ));
                 let summary = parts.join(" Â· ");
@@ -1502,7 +1502,7 @@ impl MyApp {
             }
             JobResult::Error { job_label, message } => {
                 self.progress = None;
-                self.status = format!("â Œ [{job_label}] {message}");
+                self.status = format!("❌ [{job_label}] {message}");
                 self.toast(ToastKind::Error, format!("[{job_label}] {message}"));
 
                 // Autofix interception
@@ -1587,7 +1587,7 @@ impl MyApp {
                         ToastKind::Warn
                     },
                     format!(
-                        "Parsed {count} transactions â€¢ completeness {:.0}%",
+                        "Parsed {count} transactions • completeness {:.0}%",
                         score * 100.0
                     ),
                 );
@@ -1601,7 +1601,7 @@ impl MyApp {
                 self.toast(
                     kind,
                     format!(
-                        "Preview ready â€¢ {} rows will change â€¢ imbalance ${:.2}",
+                        "Preview ready • {} rows will change • imbalance ${:.2}",
                         preview.rows.iter().filter(|r| r.will_change).count(),
                         preview.final_imbalance
                     ),
@@ -1616,7 +1616,7 @@ impl MyApp {
                         ToastKind::Info
                     },
                     format!(
-                        "Visual attempt {}/{} â€¢ diff {:.4}",
+                        "Visual attempt {}/{} • diff {:.4}",
                         attempt.attempt, attempt.max_attempts, attempt.diff_score
                     ),
                 );
@@ -1696,17 +1696,17 @@ impl MyApp {
                 self.progress = None;
                 self.in_flight = self.in_flight.saturating_sub(1);
                 let msg = format!(
-                    "âœ... Transfer complete: {} txns -> output, math: {}, visual: {} ({:.1}s)",
+                    "✅ Transfer complete: {} txns -> output, math: {}, visual: {} ({:.1}s)",
                     result.source_tx_count,
                     if result.math_verified {
-                        "âœ“"
+                        "✓"
                     } else {
-                        "âœ-"
+                        "✗"
                     },
                     if result.visual_verified {
-                        "âœ“"
+                        "✓"
                     } else {
-                        "âœ-"
+                        "✗"
                     },
                     result.total_duration_secs,
                 );
@@ -1768,7 +1768,7 @@ impl MyApp {
             } => {
                 self.progress = None;
                 let msg = format!(
-                    "ðŸ“... Adjusted {} dates -> {}",
+                    "📅 Adjusted {} dates -> {}",
                     records.len(),
                     output_path.display()
                 );
@@ -1813,7 +1813,7 @@ impl MyApp {
             }
             JobResult::DocAiVersionError(msg) => {
                 self.docai_versions_loading = false;
-                self.docai_training_status = Some(format!("â Œ {msg}"));
+                self.docai_training_status = Some(format!("❌ {msg}"));
                 self.toast(ToastKind::Error, &msg);
             }
             JobResult::NuclearFallbackRequired(msg) => {
@@ -1832,7 +1832,7 @@ impl MyApp {
             .show(ctx, |ui| {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui.button(if self.sidebar_expanded { "â‰¡ Hide" } else { "â‰¡" }).clicked() {
+                    if ui.button(if self.sidebar_expanded { "≡ Hide" } else { "≡" }).clicked() {
                         self.sidebar_expanded = !self.sidebar_expanded;
                     }
                 });
@@ -1840,10 +1840,10 @@ impl MyApp {
 
                 let mut selected = self.active_workflow.clone();
                 let workflows = [
-                    (ActiveWorkflow::EditStatement, "ðŸ“„", "Edit Statement"),
-                    (ActiveWorkflow::TransferTransactions, "â‡„", "Transfer Txns"),
-                    (ActiveWorkflow::Settings, "âš™", "Settings"),
-                    (ActiveWorkflow::ApiKeys, "ðŸ”‘", "API Keys"),
+                    (ActiveWorkflow::EditStatement, "📄", "Edit Statement"),
+                    (ActiveWorkflow::TransferTransactions, "⇄", "Transfer Txns"),
+                    (ActiveWorkflow::Settings, "⚙", "Settings"),
+                    (ActiveWorkflow::ApiKeys, "🔑", "API Keys"),
                 ];
 
                 for (workflow, icon, text) in workflows {
@@ -1870,7 +1870,7 @@ impl MyApp {
                     // Upload Button/Dropzone
                     let upload_btn = ui.add_sized(
                         [150.0, 60.0],
-                        egui::Button::new("ðŸ“¥ Upload New\nStatement")
+                        egui::Button::new("📥 Upload New\nStatement")
                             .fill(egui::Color32::from_rgb(40, 80, 120)),
                     );
                     if upload_btn.clicked() {
@@ -1987,7 +1987,7 @@ impl MyApp {
 
     fn draw_transfer_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("â‡„ Transfer Transactions Workspace");
+            ui.heading("⇄ Transfer Transactions Workspace");
             ui.add_space(20.0);
 
             ui.horizontal(|ui| {
@@ -1998,7 +1998,7 @@ impl MyApp {
                         ui.heading("Source Statement");
                         ui.label("Transactions will be extracted from this document.");
                         ui.add_space(10.0);
-                        if ui.add_sized([200.0, 80.0], egui::Button::new("ðŸ“¥ Upload Source\n(PDF)")).clicked() {
+                        if ui.add_sized([200.0, 80.0], egui::Button::new("📥 Upload Source\n(PDF)")).clicked() {
                             if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
                                 self.transfer_source_path = path.to_string_lossy().to_string();
                             }
@@ -2017,7 +2017,7 @@ impl MyApp {
                         ui.heading("Target Statement");
                         ui.label("Transactions will be injected into this document.");
                         ui.add_space(10.0);
-                        if ui.add_sized([200.0, 80.0], egui::Button::new("ðŸ“¥ Upload Target\n(PDF)")).clicked() {
+                        if ui.add_sized([200.0, 80.0], egui::Button::new("📥 Upload Target\n(PDF)")).clicked() {
                             if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
                                 self.input_path = path.to_string_lossy().to_string();
                             }
@@ -2036,7 +2036,7 @@ impl MyApp {
             ui.vertical_centered(|ui| {
                 let can_transfer = !self.transfer_source_path.is_empty() && !self.input_path.is_empty() && self.input_path != "examples/sample.pdf";
                 
-                let btn = egui::Button::new("âš¡ Execute Complete Transfer")
+                let btn = egui::Button::new("⚡ Execute Complete Transfer")
                     .min_size(egui::vec2(400.0, 60.0))
                     .fill(if can_transfer { egui::Color32::from_rgb(0, 120, 0) } else { egui::Color32::DARK_GRAY });
 
@@ -2079,7 +2079,7 @@ impl MyApp {
 
     fn draw_settings_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("âš™ï¸  Global Application Settings");
+            ui.heading("⚙ï¸  Global Application Settings");
             ui.separator();
             ui.add_space(10.0);
 
@@ -2105,7 +2105,7 @@ impl MyApp {
 
     fn draw_api_keys_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("ðŸ”‘ API Keys & Integration Management");
+            ui.heading("🔑 API Keys & Integration Management");
             ui.separator();
             ui.add_space(10.0);
 
@@ -2141,11 +2141,11 @@ impl MyApp {
             }
             ui.horizontal(|ui| {
                 if self.settings.remote_engine_url.is_empty() {
-                    ui.colored_label(egui::Color32::LIGHT_GREEN, "ðŸŸ¢ Local");
+                    ui.colored_label(egui::Color32::LIGHT_GREEN, "🟢 Local");
                 } else {
                     ui.colored_label(
                         egui::Color32::LIGHT_BLUE,
-                        format!("ðŸ”µ Remote ({})", self.settings.remote_engine_url),
+                        format!("🔵 Remote ({})", self.settings.remote_engine_url),
                     );
                 }
                 ui.separator();
@@ -2164,7 +2164,7 @@ impl MyApp {
                 ui.small(format!("Zoom: {:.0}%", self.zoom_factor * 100.0));
                 if let Some(w) = &self.last_warning {
                     ui.separator();
-                    ui.colored_label(egui::Color32::YELLOW, format!("âš  {w}"));
+                    ui.colored_label(egui::Color32::YELLOW, format!("⚠ {w}"));
                 }
             });
         });
@@ -2185,7 +2185,7 @@ impl MyApp {
                         self.current_page + 1,
                         self.total_pages.max(1)
                     ));
-                    if ui.button("â–¶").clicked() && self.current_page + 1 < self.total_pages {
+                    if ui.button("▶").clicked() && self.current_page + 1 < self.total_pages {
                         self.current_page += 1;
                         self.request_render("current");
                     }
@@ -2237,7 +2237,7 @@ impl MyApp {
 
     fn draw_settings_modal(&mut self, ctx: &egui::Context) {
         let mut open = self.show_settings_modal;
-        egui::Window::new("âš™ï¸  Settings & Tools")
+        egui::Window::new("⚙ï¸  Settings & Tools")
             .open(&mut open)
             .default_size(egui::vec2(380.0, 500.0))
             .vscroll(true)
@@ -2245,7 +2245,7 @@ impl MyApp {
                     self.draw_font_analysis_section(ui);
                     self.draw_workflow_section(ui);
 
-                    ui.collapsing("âš– Smart Balance Engine", |ui| {
+                    ui.collapsing("⚖ Smart Balance Engine", |ui| {
                         if ui.button("Analyze Document")
                             .on_hover_text("Run Document AI + Gemini to find math errors and propose minimal adjustments")
                             .clicked()
@@ -2284,8 +2284,8 @@ impl MyApp {
                         }
                     });
 
-                    ui.collapsing("ðŸ“Š Advanced Analytics & History", |ui| {
-                        ui.collapsing("ðŸ“ˆ Edit Trend", |ui| {
+                    ui.collapsing("📊 Advanced Analytics & History", |ui| {
+                        ui.collapsing("📈 Edit Trend", |ui| {
                             let pts = self.balance_trend_points();
                             let line = Line::new(pts).name("Edits");
                             Plot::new("trend")
@@ -2294,7 +2294,7 @@ impl MyApp {
                                 .show(ui, |plot_ui| plot_ui.line(line));
                         });
 
-                        ui.collapsing("ðŸ”„ Edit History", |ui| {
+                        ui.collapsing("🔄 Edit History", |ui| {
                             ui.horizontal(|ui| {
                                 if ui.add_enabled(self.history_state.can_undo(), egui::Button::new("Undo")).clicked() {
                                     if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
@@ -2309,7 +2309,7 @@ impl MyApp {
                             }
                         });
 
-                        ui.collapsing("ðŸ”  Verification", |ui| {
+                        ui.collapsing("🔍 Verification", |ui| {
                             if self.settings.advanced_mode {
                                 ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
                             }
@@ -2337,27 +2337,27 @@ impl MyApp {
                             if let Some(report) = &self.last_verification {
                                 ui.label(format!(
                                     "Math {} / Visual {:.4}",
-                                    if report.math_valid { "âœ..." } else { "â Œ" },
+                                    if report.math_valid { "✅" } else { "❌" },
                                     report.visual_diff_score
                                 ));
                             }
                         });
 
-                        ui.collapsing("ðŸ“¤ Export Dashboard", |ui| {
+                        ui.collapsing("📤 Export Dashboard", |ui| {
                             ui.label("Generate complete reports for the final output.");
                             ui.add_space(8.0);
 
                             ui.horizontal(|ui| {
-                                if ui.button("ðŸ“Š Excel (.xlsx)").clicked() {
+                                if ui.button("📊 Excel (.xlsx)").clicked() {
                                     self.export_to_excel();
                                 }
-                                if ui.button("ðŸ“œ Audit JSON").clicked() {
+                                if ui.button("📜 Audit JSON").clicked() {
                                     if let Err(e) = self.job_tx.send(Job::ExportChangeHistory {
                                         output: PathBuf::from(&self.export_path),
                                     }) { tracing::error!("Runtime disconnected: {}", e); }
                                     self.in_flight += 1;
                                 }
-                                if ui.button("ðŸ“¦ Full Artifact Bundle (.zip)").clicked() {
+                                if ui.button("📦 Full Artifact Bundle (.zip)").clicked() {
                                     self.toast(ToastKind::Info, "Bundling artifacts into ZIP...");
                                 }
                             });
@@ -2368,7 +2368,7 @@ impl MyApp {
                         });
                     });
 
-                    ui.collapsing("âš™ Settings", |ui| {
+                    ui.collapsing("⚙ Settings", |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Theme:");
                             egui::ComboBox::from_id_salt("settings_theme")
@@ -2436,7 +2436,7 @@ impl MyApp {
                         self.draw_api_keys_editor(ui);
                     });
 
-                    ui.collapsing("âŒ¨ Keybinds", |ui| {
+                    ui.collapsing("⌨ Keybinds", |ui| {
                         ui.label("Ctrl+O : Open PDF");
                         ui.label("Ctrl+Z / Ctrl+Y : Undo / Redo");
                         ui.label("Ctrl+S : Export History");
@@ -2448,7 +2448,7 @@ impl MyApp {
                         }
                     });
 
-                    ui.collapsing("ðŸ”  Custom Fonts", |ui| {
+                    ui.collapsing("🔠 Custom Fonts", |ui| {
                         ui.label("Drag and drop .ttf or .otf files here to override Document AI.");
                         let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 60.0));
                         let response = ui.allocate_rect(rect, egui::Sense::hover());
@@ -2470,7 +2470,7 @@ impl MyApp {
 
     fn draw_transfer_dialog(&mut self, ctx: &egui::Context) {
         let mut open = self.show_transfer_dialog;
-        egui::Window::new("ðŸ”„ Transfer Transactions")
+        egui::Window::new("🔄 Transfer Transactions")
             .open(&mut open)
             .default_size(egui::vec2(440.0, 280.0))
             .collapsible(false)
@@ -2520,7 +2520,7 @@ impl MyApp {
 
                     let btn = ui.add_enabled(
                         can_start,
-                        egui::Button::new(egui::RichText::new("â–¶ Begin Transfer").color(
+                        egui::Button::new(egui::RichText::new("▶ Begin Transfer").color(
                             if can_start {
                                 self.settings.theme.palette().bg
                             } else {
@@ -2568,13 +2568,13 @@ impl MyApp {
                 if !source_ok && !self.transfer_source_path.is_empty() {
                     ui.colored_label(
                         self.settings.theme.palette().warn,
-                        "âš  Source file not found",
+                        "⚠ Source file not found",
                     );
                 }
                 if !target_ok {
                     ui.colored_label(
                         self.settings.theme.palette().warn,
-                        "âš  Load a target PDF first (File -> Open)",
+                        "⚠ Load a target PDF first (File -> Open)",
                     );
                 }
             });
@@ -2597,7 +2597,7 @@ impl MyApp {
 
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context) {
         let mut open = self.show_date_adjust_dialog;
-        egui::Window::new("ðŸ“... Adjust Date Periods")
+        egui::Window::new("📅 Adjust Date Periods")
             .open(&mut open)
             .default_size(egui::vec2(420.0, 320.0))
             .collapsible(false)
@@ -2644,7 +2644,7 @@ impl MyApp {
                 ui.horizontal(|ui| {
                     let btn = ui.add_enabled(
                         has_input,
-                        egui::Button::new("â–¶ Apply Date Adjustment").fill(if has_input {
+                        egui::Button::new("▶ Apply Date Adjustment").fill(if has_input {
                             self.settings.theme.palette().accent
                         } else {
                             self.settings.theme.palette().panel
@@ -2692,7 +2692,7 @@ impl MyApp {
                 });
 
                 if !has_input {
-                    ui.colored_label(self.settings.theme.palette().warn, "âš  Load a PDF first");
+                    ui.colored_label(self.settings.theme.palette().warn, "⚠ Load a PDF first");
                 }
             });
         self.show_date_adjust_dialog = open;
@@ -2704,7 +2704,7 @@ impl MyApp {
             let mut responded = false;
             let mut selected = 0usize;
 
-            egui::Window::new("ðŸ¤– AI Needs Your Input")
+            egui::Window::new("🤖 AI Needs Your Input")
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -2763,7 +2763,7 @@ impl MyApp {
 
     fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context) {
         let mut open = self.show_transfer_test_dialog;
-        egui::Window::new("ðŸ§ª Transfer Test Harness")
+        egui::Window::new("🧪 Transfer Test Harness")
             .open(&mut open)
             .default_size(egui::vec2(520.0, 420.0))
             .collapsible(false)
@@ -2785,7 +2785,7 @@ impl MyApp {
                                 .monospace()
                                 .color(self.settings.theme.palette().text),
                         );
-                        if ui.small_button("âœ•").clicked() {
+                        if ui.small_button("✕").clicked() {
                             to_remove = Some(i);
                         }
                     });
@@ -2794,7 +2794,7 @@ impl MyApp {
                     self.transfer_test_paths.remove(idx);
                 }
 
-                if ui.button("âž• Add PDF...").clicked() {
+                if ui.button("➕ Add PDF...").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("PDF", &["pdf"])
                         .pick_file()
@@ -2815,7 +2815,7 @@ impl MyApp {
                     let can_run = n >= 2;
                     let btn = ui.add_enabled(
                         can_run,
-                        egui::Button::new("â–¶ Run All Tests").fill(if can_run {
+                        egui::Button::new("▶ Run All Tests").fill(if can_run {
                             self.settings.theme.palette().accent
                         } else {
                             self.settings.theme.palette().panel
@@ -2863,9 +2863,9 @@ impl MyApp {
                         .show(ui, |ui| {
                             for r in &report.results {
                                 let icon = if r.converged && r.final_math_ok {
-                                    "âœ..."
+                                    "✅"
                                 } else {
-                                    "â Œ"
+                                    "❌"
                                 };
                                 let src =
                                     r.source.file_stem().unwrap_or_default().to_string_lossy();
@@ -3102,7 +3102,7 @@ impl MyApp {
     
     /// Stage 5 / Item #6 + #8: inline editable table of parsed transactions.
     /// Each numeric cell becomes a `TextEdit`; on change we upsert the
-    /// matching `UserEdit` in `self.workflow_edits`. The "â†¶" button on each
+    /// matching `UserEdit` in `self.workflow_edits`. The "↶" button on each
     /// row reverts every queued edit on that row at once.
     ///
     /// Validation: an unparseable amount (anything `parse_money` can't read)
@@ -3116,7 +3116,7 @@ impl MyApp {
         let palette = self.settings.theme.palette();
 
         ui.label(format!(
-            "ðŸ“‹ Inline edit ({} rows) - Tab to next field, â†¶ reverts row",
+            "📋 Inline edit ({} rows) - Tab to next field, ↶ reverts row",
             self.workflow_transactions.len()
         ));
 
@@ -3247,7 +3247,7 @@ impl MyApp {
 
                                 // Revert column
                                 row.col(|ui| {
-                                    let label = if has_edit { "â†¶" } else { " " };
+                                    let label = if has_edit { "↶" } else { " " };
                                     if ui
                                         .add_enabled(
                                             has_edit,
@@ -3468,7 +3468,7 @@ impl MyApp {
         let analysis = match &self.font_analysis {
             Some(a) => a.clone(),
             None => {
-                ui.collapsing("ðŸ”¤ Font analysis", |ui| {
+                ui.collapsing("🔤 Font analysis", |ui| {
                     ui.label("Loading...");
                     if ui.button("Re-analyze").clicked() {
                         if let Err(e) = self.job_tx.send(Job::AnalyzeFonts {
@@ -3483,12 +3483,12 @@ impl MyApp {
 
         let header = if analysis.summary.all_fonts_covered {
             format!(
-                "ðŸ”¤ Font analysis - âœ... {} font(s), all covered",
+                "🔤 Font analysis - ✅ {} font(s), all covered",
                 analysis.summary.total_fonts
             )
         } else {
             format!(
-                "ðŸ”¤ Font analysis - âš  {}/{} font(s) need attention",
+                "🔤 Font analysis - ⚠ {}/{} font(s) need attention",
                 analysis.summary.fonts_needing_action, analysis.summary.total_fonts
             )
         };
@@ -3527,7 +3527,7 @@ impl MyApp {
 
             ui.separator();
 
-            if ui.button("ðŸ”„ Re-analyze").clicked() {
+            if ui.button("🔄 Re-analyze").clicked() {
                 if let Err(e) = self.job_tx.send(Job::AnalyzeFonts {
                     path: PathBuf::from(&self.input_path),
                 }) { tracing::error!("Runtime disconnected: {}", e); }
@@ -3556,8 +3556,8 @@ impl MyApp {
                             crate::engine::font_analysis::UsageRole::Other => "other",
                         };
                         let header = format!(
-                            "{} {} â€¢ {} â€¢ {} use(s) on {} page(s)",
-                            if needs_action { "âš " } else { "âœ..." },
+                            "{} {} • {} • {} use(s) on {} page(s)",
+                            if needs_action { "⚠" } else { "✅" },
                             font.base_name,
                             role_label,
                             font.occurrences,
@@ -3576,7 +3576,7 @@ impl MyApp {
                             ui.label(font.fidelity_impact.as_str());
                             ui.label(font.creation_scope.as_str());
                             ui.small(format!(
-                                "Standard-14: {} â€¢ Subset: {}",
+                                "Standard-14: {} • Subset: {}",
                                 if font.is_standard_14 { "yes" } else { "no" },
                                 if font.is_subset { "yes" } else { "no" },
                             ));
@@ -3606,7 +3606,7 @@ impl MyApp {
                                 }
                             }
                             ui.small(format!(
-                                "Sizes: {:.1}â€“{:.1}pt â€¢ Pages: {}",
+                                "Sizes: {:.1}â€“{:.1}pt • Pages: {}",
                                 font.size_range[0],
                                 font.size_range[1],
                                 font.pages_used_on
@@ -3622,7 +3622,7 @@ impl MyApp {
     }
 
     pub fn draw_workflow_section(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing("ðŸ¤– Workflow (AI parse -> preview -> render -> verify)", |ui| {
+        ui.collapsing("🤖 Workflow (AI parse -> preview -> render -> verify)", |ui| {
             let stage = self.workflow_stage.clone();
             let p = self.settings.theme.palette();
 
@@ -3648,9 +3648,9 @@ impl MyApp {
                 {
                     let active_step = (i + 1) as u8;
                     let (color, label) = if active_step < step {
-                        (p.success, format!("âœ“ {}. {name}", i + 1))
+                        (p.success, format!("✓ {}. {name}", i + 1))
                     } else if active_step == step.min(6) {
-                        (p.accent, format!("â–º {}. {name}", i + 1))
+                        (p.accent, format!("► {}. {name}", i + 1))
                     } else {
                         (p.weak, format!("{}. {name}", i + 1))
                     };
@@ -3672,7 +3672,7 @@ impl MyApp {
                         ui.selectable_value(&mut self.selected_parser_version, "pretrained-bankstatement-v2.0-2021-12-10".to_string(), "v2.0");
                         ui.selectable_value(&mut self.selected_parser_version, "pretrained-bankstatement-v1.1-2021-08-13".to_string(), "v1.1");
                     });
-                if ui.button("ðŸ”„ Parse").on_hover_text("Re-parse document with selected parser version").clicked() && !self.input_path.is_empty() {
+                if ui.button("🔄 Parse").on_hover_text("Re-parse document with selected parser version").clicked() && !self.input_path.is_empty() {
                     if let Err(e) = self.job_tx.send(Job::WorkflowParseAndValidate {
                         input: PathBuf::from(&self.input_path),
                         version: Some(self.selected_parser_version.clone()),
@@ -3696,7 +3696,7 @@ impl MyApp {
 
             if let Some(v) = &self.workflow_validation {
                 ui.label(format!(
-                    "Found {} txs â€¢ opening ${:.2} â€¢ closing ${:.2}",
+                    "Found {} txs • opening ${:.2} • closing ${:.2}",
                     v.transactions_found, v.opening_balance, v.closing_balance
                 ));
                 let bar_color = if v.is_acceptable() { p.success } else { p.warn };
@@ -3710,7 +3710,7 @@ impl MyApp {
                 if !v.missing_rows.is_empty() {
                     ui.colored_label(p.warn, format!("Possibly missing rows: {}", v.missing_rows.len()));
                     for m in v.missing_rows.iter().take(3) {
-                        ui.small(format!("  â€¢ {m}"));
+                        ui.small(format!("  • {m}"));
                     }
                 }
             }
@@ -3726,7 +3726,7 @@ impl MyApp {
             let preview_enabled = self.workflow_validation.is_some();
             ui.label(format!("Pending edits queued: {}", self.workflow_edits.len()));
             if ui
-                .add_enabled(preview_enabled, egui::Button::new("â‘¡ Balance Out Preview"))
+                .add_enabled(preview_enabled, egui::Button::new("② Balance Out Preview"))
                 .on_hover_text("Recompute every running balance with your edits and show the diff")
                 .clicked()
             {
@@ -3751,7 +3751,7 @@ impl MyApp {
                 ui.colored_label(
                     kind_color,
                     format!(
-                        "{} row(s) will change â€¢ final imbalance ${:.2}",
+                        "{} row(s) will change • final imbalance ${:.2}",
                         changed, p.final_imbalance
                     ),
                 );
@@ -3770,7 +3770,7 @@ impl MyApp {
                             r.description.clone()
                         };
                         ui.small(format!(
-                            "P{} L{} {} â€¢ bal {:?} -> {:?}",
+                            "P{} L{} {} • bal {:?} -> {:?}",
                             r.page + 1,
                             r.line_on_page + 1,
                             desc_short,
@@ -3799,7 +3799,7 @@ impl MyApp {
                 if ui
                     .add_enabled(
                         confirm_enabled,
-                        egui::Button::new(format!("âš¡ Quick (Native) â€¢ ~{quick_eta}s")),
+                        egui::Button::new(format!("⚡ Quick (Native) • ~{quick_eta}s")),
                     )
                     .on_hover_text(
                         "Fast native-engine apply. Best when the native result already matches - you can still run Deep afterwards if it doesn't suffice.",
@@ -3811,7 +3811,7 @@ impl MyApp {
                 if ui
                     .add_enabled(
                         confirm_enabled,
-                        egui::Button::new(format!("ðŸŽ¯ Deep (PyMuPDF) â€¢ ~{deep_eta}s")),
+                        egui::Button::new(format!("🎯 Deep (PyMuPDF) • ~{deep_eta}s")),
                     )
                     .on_hover_text(
                         "High-fidelity PyMuPDF Pro apply with deep font replication. Slower, maximum visual fidelity.",
@@ -3832,11 +3832,11 @@ impl MyApp {
                 ui.colored_label(
                     c,
                     format!(
-                        "Visual {}/{} â€¢ diff {:.4} â€¢ intended-only {}",
+                        "Visual {}/{} • diff {:.4} • intended-only {}",
                         va.attempt,
                         va.max_attempts,
                         va.diff_score,
-                        if va.only_intended { "âœ“" } else { "âœ-" }
+                        if va.only_intended { "✓" } else { "✗" }
                     ),
                 );
             }
@@ -3844,7 +3844,7 @@ impl MyApp {
                 ui.colored_label(self.settings.theme.palette().success, &o.completion_summary);
                 ui.small(format!("Final PDF: {}", o.final_pdf.display()));
                 ui.small(format!(
-                    "Re-parsed transactions: {} â€¢ final imbalance ${:.2}",
+                    "Re-parsed transactions: {} • final imbalance ${:.2}",
                     o.transactions_re_parsed, o.final_imbalance
                 ));
             }
@@ -3853,7 +3853,7 @@ impl MyApp {
             // see exactly which tier(s) closed any font-coverage gap.
             if !self.font_cascade_reports.is_empty() {
                 ui.separator();
-                ui.label("ðŸ”§ Font cascade history:");
+                ui.label("🔧 Font cascade history:");
                 let palette = self.settings.theme.palette();
                 for report in &self.font_cascade_reports {
                     let color = if report.success { palette.success } else { palette.warn };
@@ -3948,7 +3948,7 @@ impl MyApp {
             ui.add_space(10.0);
 
             ui.horizontal(|ui| {
-                if ui.button("ðŸ“‚ Select Directory").clicked() {
+                if ui.button("📂 Select Directory").clicked() {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                         self.batch_folder_path = Some(path.clone());
                         self.batch_files.clear();
@@ -4048,11 +4048,11 @@ impl MyApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Toolbar above canvas
             ui.horizontal(|ui| {
-                if ui.button("ðŸ”-").clicked() {
+                if ui.button("🔍-").clicked() {
                     self.zoom_factor = (self.zoom_factor * 0.85).clamp(0.1, 5.0);
                     self.fit_to_view = false;
                 }
-                if ui.button("ðŸ”+").clicked() {
+                if ui.button("🔍+").clicked() {
                     self.zoom_factor = (self.zoom_factor * 1.15).clamp(0.1, 5.0);
                     self.fit_to_view = false;
                 }
@@ -4311,7 +4311,7 @@ impl MyApp {
                                     ui.horizontal(|ui| {
                                         let apply_btn = ui.add(
                                             egui::Button::new(
-                                                egui::RichText::new("ðŸŽ¯ Apply Single Edit")
+                                                egui::RichText::new("🎯 Apply Single Edit")
                                                     .color(self.settings.theme.palette().bg)
                                             )
                                             .fill(self.settings.theme.palette().accent)
@@ -4360,7 +4360,7 @@ impl MyApp {
 
                                         let adjust_btn = ui.add(
                                             egui::Button::new(
-                                                egui::RichText::new("âš– Auto-Balance Entire Statement")
+                                                egui::RichText::new("⚖ Auto-Balance Entire Statement")
                                                     .color(self.settings.theme.palette().panel)
                                             )
                                             .fill(self.settings.theme.palette().success)
@@ -4408,19 +4408,19 @@ impl MyApp {
 
                                         ui.add_space(8.0);
 
-                                        if ui.button("ðŸ“... Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
+                                        if ui.button("📅 Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
                                             self.show_date_adjust_dialog = true;
                                         }
 
                                         ui.add_space(8.0);
 
-                                        if ui.button("ðŸ”„ Transfer Transactions").on_hover_text("Transfer transactions from another bank statement PDF into this one").clicked() {
+                                        if ui.button("🔄 Transfer Transactions").on_hover_text("Transfer transactions from another bank statement PDF into this one").clicked() {
                                             self.show_transfer_dialog = true;
                                         }
 
                                         ui.add_space(8.0);
 
-                                        if ui.button("ðŸ§ª Test Transfers").on_hover_text("Cross-test transfers between multiple statements").clicked() {
+                                        if ui.button("🧪 Test Transfers").on_hover_text("Cross-test transfers between multiple statements").clicked() {
                                             self.show_transfer_test_dialog = true;
                                         }
                                     });
@@ -4459,7 +4459,7 @@ impl MyApp {
         painter.text(
             center - egui::vec2(0.0, 60.0),
             egui::Align2::CENTER_CENTER,
-            "ðŸ“‘",
+            "📑",
             egui::FontId::proportional(64.0),
             p.accent,
         );
@@ -4504,7 +4504,7 @@ impl MyApp {
             );
             resp.on_hover_text(hint).clicked()
         };
-        if button(ui, "ðŸ“‚ Open PDF...", "Browse for a bank statement PDF") {
+        if button(ui, "📂 Open PDF...", "Browse for a bank statement PDF") {
             if let Some(path) = rfd::FileDialog::new()
                 .add_filter("PDF", &["pdf"])
                 .pick_file()
@@ -4530,7 +4530,7 @@ impl MyApp {
         }
         if button(
             ui,
-            "ðŸ“‹ Resume workflow draft",
+            "📋 Resume workflow draft",
             "Reload audit/workflow.json - restores parse, queued edits and stage",
         ) {
             self.resume_workflow_draft();
@@ -4538,7 +4538,7 @@ impl MyApp {
         if !self.settings.recent_files.is_empty()
             && button(
                 ui,
-                "ðŸ“œ Open most recent",
+                "📜 Open most recent",
                 &format!("Open {}", self.settings.recent_files[0]),
             )
         {
@@ -4625,9 +4625,9 @@ impl MyApp {
                         };
                         let icon = match toast.kind {
                             ToastKind::Info => "â„¹",
-                            ToastKind::Warn => "âš ",
-                            ToastKind::Error => "âœ-",
-                            ToastKind::Success => "âœ“",
+                            ToastKind::Warn => "⚠",
+                            ToastKind::Error => "✗",
+                            ToastKind::Success => "✓",
                         };
                         // fade based on remaining lifetime
                         let remaining = toast.expires_at.saturating_duration_since(now);

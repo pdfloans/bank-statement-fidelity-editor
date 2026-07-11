@@ -22,26 +22,26 @@ fn test_bank_statement_modifier_ui() {
     harness.step();
 
     // Simulate clicking the "Transfer Transactions" workflow in the sidebar via its icon
-    harness.get_by_label_contains("â‡„").click();
+    harness.get_by_label_contains("⇄").click();
     harness.step();
     
     // Check that "Source Statement" dropzone appears
     let _source_dropzone = harness.get_by_label_contains("Source Statement");
 
     // Click back to "Edit Statement" via its icon
-    harness.get_by_label_contains("ðŸ“„").click();
+    harness.get_by_label_contains("📄").click();
     harness.step();
 
     // Verify the "Editing Toolbox" appears
     let _toolbox = harness.get_by_label_contains("Editing Toolbox");
 
     // Test Settings Workflow
-    harness.get_by_label_contains("âš™").click();
+    harness.get_by_label_contains("⚙").click();
     harness.step();
     let _settings_header = harness.get_by_label_contains("App Settings");
 
     // Test API Keys Workflow
-    harness.get_by_label_contains("ðŸ”‘").click();
+    harness.get_by_label_contains("🔑").click();
     harness.step();
     let _api_keys_header = harness.get_by_label_contains("API & Engine Preferences");
     
