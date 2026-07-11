@@ -1862,31 +1862,255 @@ impl MyApp {
     }
 
     fn draw_edit_statement_workflow(&mut self, ctx: &egui::Context) {
-        self.draw_left_panel(ctx);
+        // 1. Top Bar: Upload Dropzone & History Thumbnails
+        egui::TopBottomPanel::top("edit_top_bar")
+            .exact_height(80.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    // Upload Button/Dropzone
+                    let upload_btn = ui.add_sized(
+                        [150.0, 60.0],
+                        egui::Button::new("ðŸ“¥ Upload New\nStatement")
+                            .fill(egui::Color32::from_rgb(40, 80, 120)),
+                    );
+                    if upload_btn.clicked() {
+                        if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                            self.open_pdf(path);
+                        }
+                    }
+
+                    ui.separator();
+                    
+                    // History Thumbnail Strip
+                    ui.label("Recent Statements:");
+                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let recent = self.settings.recent_files.clone();
+                            for f in recent.into_iter().take(5) {
+                                let label = std::path::Path::new(&f)
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy();
+                                if ui.add_sized([100.0, 60.0], egui::Button::new(label)).clicked() {
+                                    self.open_pdf(std::path::PathBuf::from(f));
+                                }
+                            }
+                        });
+                    });
+                });
+            });
+
+        // 2. Right Toolbox: The 5 specific e2e editing actions
+        egui::SidePanel::right("edit_toolbox")
+            .exact_width(300.0)
+            .show(ctx, |ui| {
+                ui.add_space(10.0);
+                ui.heading("Editing Toolbox");
+                ui.add_space(20.0);
+
+                if let Some(block) = self.selected_block.clone() {
+                    ui.label(format!("Selected Font: {}", block.font));
+                    ui.label(format!("Size: {:.1}", block.size));
+                    ui.text_edit_multiline(&mut self.new_text);
+                    ui.add_space(15.0);
+
+                    let btn_size = egui::vec2(ui.available_width(), 35.0);
+
+                    if ui.add_sized(btn_size, egui::Button::new("Apply single edit")).clicked() {
+                        let original = block.text.clone();
+                        let new_text = self.new_text.clone();
+                        if let Err(e) = self.job_tx.send(crate::app::runtime::Job::ApplyChange {
+                            input: self.current_pdf_path.clone(),
+                            output: std::path::PathBuf::from(&self.output_path),
+                            page: self.current_page,
+                            bbox: block.bbox,
+                            old_text: original,
+                            new_text,
+                            description: "Manual Edit".to_string(),
+                            deep_font_replication: self.settings.deep_font_replication,
+                        }) { tracing::error!("Runtime disconnected: {}", e); }
+                        self.in_flight += 1;
+                        self.new_text.clear();
+                        self.selected_block = None;
+                    }
+                    ui.add_space(5.0);
+                    if ui.add_sized(btn_size, egui::Button::new("Preview single edit")).clicked() {
+                        self.toast(ToastKind::Info, "Previewing single edit visually...");
+                    }
+                    ui.add_space(5.0);
+                    if ui.add_sized(btn_size, egui::Button::new("Preview edits required")).clicked() {
+                        self.toast(ToastKind::Info, "Generating required edits proposal...");
+                        let _ = self.job_tx.send(crate::app::runtime::Job::BalanceStatement { 
+                            path: std::path::PathBuf::from(&self.input_path) 
+                        });
+                        self.in_flight += 1;
+                    }
+                    ui.add_space(5.0);
+                    if ui.add_sized(btn_size, egui::Button::new("Verify preview with ai")).clicked() {
+                        self.toast(ToastKind::Info, "Running AI verification pipeline...");
+                        let intended_bboxes: Vec<(usize, [f32; 4])> = self
+                            .history_state
+                            .get_history()
+                            .iter()
+                            .map(|r| (r.page, r.bbox))
+                            .collect();
+                        let _ = self.job_tx.send(crate::app::runtime::Job::Verify {
+                            original: std::path::PathBuf::from(&self.input_path),
+                            edited: std::path::PathBuf::from(&self.output_path),
+                            output_dir: std::path::PathBuf::from("audit"),
+                            intended_bboxes,
+                            use_pdfrest: self.settings.use_pdfrest,
+                            pdfrest_key: self.config.pdfrest_api_key.clone(),
+                        });
+                        self.in_flight += 1;
+                    }
+                    ui.add_space(5.0);
+                    if ui.add_sized(btn_size, egui::Button::new("Perform * edits and perform complete balance out")
+                        .fill(egui::Color32::from_rgb(0, 100, 0))).clicked() {
+                        self.toast(ToastKind::Info, "Executing full auto-balance editing...");
+                        let _ = self.job_tx.send(crate::app::runtime::Job::BalanceStatement { 
+                            path: std::path::PathBuf::from(&self.input_path) 
+                        });
+                        self.in_flight += 1;
+                    }
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.weak("Click any text on the canvas to begin editing.");
+                    });
+                }
+            });
+
+        // 3. Central Panel: Context-aware zooming PDF canvas
+        // This reuses the existing robust central panel rendering logic
         self.draw_central_panel(ctx);
     }
 
     fn draw_transfer_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Transfer Transactions Workspace");
-            ui.label("Dual dropzones and transfer execution will be implemented here.");
+            ui.heading("â‡„ Transfer Transactions Workspace");
+            ui.add_space(20.0);
+
+            ui.horizontal(|ui| {
+                // Source Dropzone
+                ui.group(|ui| {
+                    ui.set_min_width((ui.available_width() / 2.0) - 10.0);
+                    ui.vertical_centered(|ui| {
+                        ui.heading("Source Statement");
+                        ui.label("Transactions will be extracted from this document.");
+                        ui.add_space(10.0);
+                        if ui.add_sized([200.0, 80.0], egui::Button::new("ðŸ“¥ Upload Source\n(PDF)")).clicked() {
+                            if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                                self.transfer_source_path = path.to_string_lossy().to_string();
+                            }
+                        }
+                        if !self.transfer_source_path.is_empty() {
+                            ui.add_space(5.0);
+                            ui.colored_label(egui::Color32::LIGHT_GREEN, format!("Selected: {}", std::path::Path::new(&self.transfer_source_path).file_name().unwrap_or_default().to_string_lossy()));
+                        }
+                    });
+                });
+
+                // Target Dropzone
+                ui.group(|ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.vertical_centered(|ui| {
+                        ui.heading("Target Statement");
+                        ui.label("Transactions will be injected into this document.");
+                        ui.add_space(10.0);
+                        if ui.add_sized([200.0, 80.0], egui::Button::new("ðŸ“¥ Upload Target\n(PDF)")).clicked() {
+                            if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                                self.input_path = path.to_string_lossy().to_string();
+                            }
+                        }
+                        if !self.input_path.is_empty() && self.input_path != "examples/sample.pdf" {
+                            ui.add_space(5.0);
+                            ui.colored_label(egui::Color32::LIGHT_GREEN, format!("Selected: {}", std::path::Path::new(&self.input_path).file_name().unwrap_or_default().to_string_lossy()));
+                        }
+                    });
+                });
+            });
+
+            ui.add_space(30.0);
+            
+            // Execute Transfer Action
+            ui.vertical_centered(|ui| {
+                let can_transfer = !self.transfer_source_path.is_empty() && !self.input_path.is_empty() && self.input_path != "examples/sample.pdf";
+                
+                let btn = egui::Button::new("âš¡ Execute Complete Transfer")
+                    .min_size(egui::vec2(400.0, 60.0))
+                    .fill(if can_transfer { egui::Color32::from_rgb(0, 120, 0) } else { egui::Color32::DARK_GRAY });
+
+                if ui.add_enabled(can_transfer, btn).clicked() {
+                    self.toast(ToastKind::Info, "Initiating Cross-Document Transaction Transfer...");
+                    let _ = self.job_tx.send(crate::app::runtime::Job::ExtractTransactions {
+                        path: std::path::PathBuf::from(&self.transfer_source_path),
+                    });
+                    self.in_flight += 1;
+                }
+
+                if !can_transfer {
+                    ui.add_space(5.0);
+                    ui.weak("Please upload both a Source and Target statement to begin.");
+                }
+            });
+
+            ui.add_space(30.0);
+            ui.separator();
+            ui.add_space(10.0);
+
+            // Shared History Thumbnail Row
+            ui.label("Recent Statements (Click to assign to Target):");
+            egui::ScrollArea::horizontal().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let recent = self.settings.recent_files.clone();
+                    for f in recent.into_iter().take(8) {
+                        let label = std::path::Path::new(&f)
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy();
+                        if ui.add_sized([120.0, 80.0], egui::Button::new(label)).clicked() {
+                            self.input_path = f.clone();
+                        }
+                    }
+                });
+            });
         });
     }
 
     fn draw_settings_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Settings & Configurations");
+            ui.heading("âš™ï¸  Global Application Settings");
+            ui.separator();
+            ui.add_space(10.0);
+
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.label("Consolidated settings hub will be migrated here.");
+                ui.horizontal(|ui| {
+                    ui.label("Theme:");
+                    egui::ComboBox::from_id_salt("theme_selector")
+                        .selected_text(format!("{:?}", self.settings.theme))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.settings.theme, Theme::Dark, "Dark");
+                            ui.selectable_value(&mut self.settings.theme, Theme::Light, "Light");
+                            ui.selectable_value(&mut self.settings.theme, Theme::Midnight, "Midnight");
+                        });
+                });
+
+                ui.add_space(20.0);
+                self.draw_font_analysis_section(ui);
+                ui.add_space(20.0);
+                self.draw_workflow_section(ui);
             });
         });
     }
 
     fn draw_api_keys_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("API Keys Management");
+            ui.heading("ðŸ”‘ API Keys & Integration Management");
+            ui.separator();
+            ui.add_space(10.0);
+
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.label("API Key forms and connection testers will be migrated here.");
+                self.draw_api_keys_editor(ui);
             });
         });
     }

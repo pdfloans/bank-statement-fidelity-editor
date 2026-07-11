@@ -21,13 +21,17 @@ fn test_bank_statement_modifier_ui() {
 
     harness.step();
 
-    // Verify basic rendering
+    // Simulate clicking the "Transfer Transactions" workflow in the sidebar via its icon
+    harness.get_by_label_contains("â‡„").click();
     harness.step();
     
-    // Simulate clicking the "File" menu
-    harness.get_by_label("File").click();
+    // Check that "Source Statement" dropzone appears
+    let _source_dropzone = harness.get_by_label_contains("Source Statement");
+
+    // Click back to "Edit Statement" via its icon
+    harness.get_by_label_contains("ðŸ“„").click();
     harness.step();
-    
-    // Check that "Open PDF..." appears after clicking File (get_by_label_contains panics if not found)
-    let _open_pdf = harness.get_by_label_contains("Open PDF...");
+
+    // Verify the "Editing Toolbox" appears
+    let _toolbox = harness.get_by_label_contains("Editing Toolbox");
 }
