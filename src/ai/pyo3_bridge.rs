@@ -449,3 +449,37 @@ impl PyEngine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_python_exception_safely_mapped_to_rust_error() {
+        pyo3::prepare_freethreaded_python();
+        let res: Result<(), String> = PyEngine::safe_python_with_gil(|py| {
+            // Trigger a Python exception deliberately
+            let _ = py.run(c"raise ValueError('Intentional Python Exception')", None, None)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        });
+        
+        assert!(res.is_err(), "Python exception should be caught and returned as an Err");
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("ValueError: Intentional Python Exception") || err_msg.contains("Intentional Python Exception"), "Error message should contain Python exception details");
+    }
+
+    #[test]
+    fn test_python_panic_safely_caught() {
+        pyo3::prepare_freethreaded_python();
+        let res: Result<(), String> = PyEngine::safe_python_with_gil(|_py| {
+            // Simulate a raw Rust panic inside the GIL closure
+            panic!("Raw Rust panic inside python worker thread");
+        });
+        
+        assert!(res.is_err(), "Rust panic should be caught by catch_unwind and returned as an Err");
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("Python panic"), "Should correctly wrap the panic into a Python panic error");
+        assert!(err_msg.contains("Raw Rust panic"), "Should contain the inner panic message");
+    }
+}

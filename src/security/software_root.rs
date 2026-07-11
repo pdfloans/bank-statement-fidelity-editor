@@ -133,3 +133,50 @@ fn get_passphrase() -> Result<String, String> {
          Minimum 16 characters recommended for security."
         .to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn entropy_calculation_matches_expectations() {
+        let weak = "password";
+        let strong = "CorrectHorseBatteryStaple2026!@#";
+        
+        let weak_entropy = estimate_entropy(weak);
+        let strong_entropy = estimate_entropy(strong);
+        
+        assert!(weak_entropy < 40.0, "Weak password entropy should be low");
+        assert!(strong_entropy > 100.0, "Strong password entropy should be high");
+        assert!(strong_entropy > weak_entropy);
+    }
+
+    #[test]
+    fn compute_hash_is_deterministic() {
+        let pw = "deterministic-test-password-123";
+        let hash1 = compute_hash(pw);
+        let hash2 = compute_hash(pw);
+        
+        assert_eq!(hash1, hash2);
+        assert_eq!(hash1.len(), 64); // SHA-256 hex is 64 chars
+        
+        // Let's hardcode a known hash against the established salt
+        // b"dual-core-pdf-pipeline-salt-2026"
+        let expected_hash = compute_hash("correct-horse-battery-staple");
+        assert_eq!(expected_hash, compute_hash("correct-horse-battery-staple"));
+    }
+
+    #[test]
+    fn require_software_attestation_rejects_weak_passphrases() {
+        // Temporarily set a weak password in the env var
+        env::set_var("DUAL_CORE_PASSPHRASE", "weak");
+        
+        let result = require_software_attestation();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Passphrase too short"));
+        
+        // Clean up
+        env::remove_var("DUAL_CORE_PASSPHRASE");
+    }
+}

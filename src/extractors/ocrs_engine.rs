@@ -171,6 +171,26 @@ mod tests {
 
         let result = engine.extract_text_from_image(&buf);
         assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("OCRS model files not found"));
         Ok(())
+    }
+
+    #[test]
+    fn extract_fails_gracefully_on_invalid_image() {
+        let engine = OcrsEngine::new(OcrsConfig::default());
+        let result = engine.extract_text_from_image(b"not an image");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Failed to decode image"));
+    }
+
+    #[test]
+    fn geometry_provider_returns_unsupported_error() {
+        let engine = OcrsEngine::new(OcrsConfig::default());
+        let result = engine.extract_line_geometry(Path::new("dummy.pdf"));
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("OCRS PDF extraction requires page rendering"));
     }
 }
