@@ -375,32 +375,63 @@ impl MindeeClient {
             .to_string_lossy()
             .into_owned();
 
-        let part = reqwest::multipart::Part::bytes(pdf_bytes)
-            .file_name(filename)
-            .mime_str("application/pdf")
-            .unwrap_or_else(|_| reqwest::multipart::Part::bytes(Vec::new()));
-        let form = reqwest::multipart::Form::new().part("document", part);
+        let mut attempts = 0;
+        let max_attempts = 4;
+        loop {
+            attempts += 1;
+            let part = reqwest::multipart::Part::bytes(pdf_bytes.clone())
+                .file_name(filename.clone())
+                .mime_str("application/pdf")
+                .unwrap_or_else(|_| reqwest::multipart::Part::bytes(Vec::new()));
+            let form = reqwest::multipart::Form::new().part("document", part);
 
-        let resp = self
-            .http
-            .post(&url)
-            .header("Authorization", format!("Token {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(MindeeError::Api(status, text));
+            match self
+                .http
+                .post(&url)
+                .header("Authorization", format!("Token {}", self.api_key))
+                .multipart(form)
+                .send()
+                .await 
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_server_error() || status == 429 {
+                        if attempts < max_attempts {
+                            let jitter = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.subsec_millis() as u64 % 500)
+                                .unwrap_or(250);
+                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
+                            tracing::warn!("[mindee] enqueue got {}, retrying in {:?}", status, delay);
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                    }
+                    if !status.is_success() {
+                        let text = resp.text().await.unwrap_or_default();
+                        return Err(MindeeError::Api(status, text));
+                    }
+                    let enqueue_resp: MindeeEnqueueResponse = resp.json().await?;
+                    let job = enqueue_resp.job.ok_or(MindeeError::ExtractionFailed(
+                        "No job in enqueue response".into(),
+                    ))?;
+                    return Ok(job.id);
+                }
+                Err(e) => {
+                    if attempts < max_attempts {
+                        let jitter = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.subsec_millis() as u64 % 500)
+                            .unwrap_or(250);
+                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
+                        tracing::warn!("[mindee] network error {}, retrying in {:?}", e, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    return Err(e.into());
+                }
+            }
         }
-
-        let enqueue_resp: MindeeEnqueueResponse = resp.json().await?;
-        let job = enqueue_resp.job.ok_or(MindeeError::ExtractionFailed(
-            "No job in enqueue response".into(),
-        ))?;
-
-        Ok(job.id)
     }
 
     /// Poll the queue endpoint until the job completes or fails.
@@ -411,22 +442,38 @@ impl MindeeClient {
         for attempt in 1..=MAX_POLL_ATTEMPTS {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
 
-            let resp = self
+            let resp = match self
                 .http
                 .get(&url)
                 .header("Authorization", format!("Token {}", self.api_key))
                 .send()
-                .await?;
+                .await 
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("[mindee] poll network error: {}", e);
+                    let jitter = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.subsec_millis() as u64 % 250)
+                        .unwrap_or(100);
+                    delay_ms = (delay_ms * 3 / 2 + jitter).min(MAX_POLL_DELAY_MS);
+                    continue;
+                }
+            };
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                if status.is_server_error() && attempt < MAX_POLL_ATTEMPTS {
+                if (status.is_server_error() || status == 429) && attempt < MAX_POLL_ATTEMPTS {
+                    let jitter = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.subsec_millis() as u64 % 250)
+                        .unwrap_or(100);
                     tracing::warn!(
                         "[mindee] poll attempt {} got {}, retrying...",
                         attempt,
                         status
                     );
-                    delay_ms = (delay_ms * 2).min(MAX_POLL_DELAY_MS);
+                    delay_ms = (delay_ms * 2 + jitter).min(MAX_POLL_DELAY_MS);
                     continue;
                 }
                 let text = resp.text().await.unwrap_or_default();
@@ -460,8 +507,11 @@ impl MindeeClient {
                 }
             }
 
-            // Exponential backoff capped at MAX_POLL_DELAY_MS
-            delay_ms = (delay_ms * 3 / 2).min(MAX_POLL_DELAY_MS);
+            let jitter = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_millis() as u64 % 250)
+                .unwrap_or(100);
+            delay_ms = (delay_ms * 3 / 2 + jitter).min(MAX_POLL_DELAY_MS);
         }
 
         Err(MindeeError::PollTimeout(MAX_POLL_ATTEMPTS))

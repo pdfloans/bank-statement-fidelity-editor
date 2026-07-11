@@ -325,8 +325,11 @@ mod tests {
         // Tx0: +20 = 120
         // Tx1: -30 = 90
         // But say OCR captured Tx1 as -50.
+        let mut tx0 = make_tx(Some(dec!(20)), None);
+        tx0.running_balance = Some(dec!(120)); // Provide hint so solver knows Tx0 is mathematically sound
+        
         let txs = vec![
-            make_tx(Some(dec!(20)), None),
+            tx0,
             make_tx(None, Some(dec!(50))), // error
         ];
         // We know final should be 90 (if it was 30).

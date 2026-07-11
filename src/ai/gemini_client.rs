@@ -328,14 +328,24 @@ impl GeminiClient {
     ) -> Result<reqwest::Response, GeminiError> {
         let (url, bearer) = self.endpoint(model);
 
+        // Dynamic timeout based on body size (rough estimate)
+        let body_size = serde_json::to_string(body).map(|s| s.len()).unwrap_or(0);
+        let dynamic_timeout = if body_size > 5_000_000 {
+            120 // 120s for very large payloads
+        } else if body_size > 1_000_000 {
+            90
+        } else {
+            60
+        };
+
         let mut attempts = 0;
-        let max_attempts = 4; // 1 initial + 3 retries
+        let max_attempts = 5; // 1 initial + 4 retries for extreme resilience
         loop {
             attempts += 1;
-            let mut req = self.http.post(&url).json(body);
+            let mut req = self.http.post(&url).json(body).timeout(std::time::Duration::from_secs(dynamic_timeout));
+            
             match &self.auth {
                 GeminiAuth::ApiKey => {
-                    // Pass the API key in the header AND the URL query parameter
                     req = req.header("x-goog-api-key", self.api_key.trim());
                 }
                 GeminiAuth::Vertex { .. } => {
@@ -349,19 +359,17 @@ impl GeminiClient {
                 Ok(resp) => {
                     let status = resp.status();
                     if (status.is_server_error() || status == 429) && attempts < max_attempts {
-                        // If it's a 429 Quota/Rate Limit, don't sleep excessively, bail out after 1 retry
-                        // to let the fallback chain proceed to the next tier immediately.
-                        if status == 429 && attempts >= 2 {
-                            tracing::warn!("Gemini 429 Too Many Requests for {}, aborting retries to allow fallback.", model);
+                        if status == 429 && attempts >= 3 {
+                            tracing::warn!("Gemini 429 Too Many Requests for {}, aborting retries after 3 attempts.", model);
                             return Ok(resp);
                         }
-                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
-                        tracing::warn!(
-                            "Gemini {} error for model {}, retrying in {:?}...",
-                            status,
-                            model,
-                            delay
-                        );
+                        // Exponential backoff with jitter to prevent thundering herd
+                        let jitter = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.subsec_millis() as u64 % 500)
+                            .unwrap_or(250);
+                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)) + jitter);
+                        tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -375,7 +383,11 @@ impl GeminiClient {
                 }
                 Err(e) => {
                     if attempts < max_attempts {
-                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
+                        let jitter = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.subsec_millis() as u64 % 500)
+                            .unwrap_or(250);
+                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)) + jitter);
                         tracing::warn!("Gemini network error {}, retrying in {:?}...", e, delay);
                         tokio::time::sleep(delay).await;
                         continue;

@@ -54,17 +54,36 @@ impl PyEngine {
         })
     }
 
-    /// Safely executes a Python closure. If called from within a Tokio async
-    /// task, it wraps the execution in `tokio::task::block_in_place` to prevent
-    /// thread starvation. If called from an OS thread, it runs directly.
-    fn safe_python_with_gil<F, R>(f: F) -> R
+    /// Safely executes a Python closure in a dedicated OS thread to prevent Tokio reactor starvation.
+    /// It uses a scoped thread and `catch_unwind` to ensure Python exceptions or panics never crash the app.
+    fn safe_python_with_gil<F, T>(f: F) -> Result<T, String>
     where
-        F: FnOnce(Python<'_>) -> R,
+        F: FnOnce(Python<'_>) -> Result<T, String> + Send,
+        T: Send,
     {
-        if tokio::runtime::Handle::try_current().is_ok() {
-            tokio::task::block_in_place(|| pyo3::Python::attach(f))
-        } else {
-            pyo3::Python::attach(f)
+        let result = std::thread::scope(|s| {
+            let handle = s.spawn(move || {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    pyo3::Python::try_attach(f).unwrap()
+                }))
+            });
+            handle.join()
+        });
+
+        match result {
+            Ok(Ok(Ok(res))) => Ok(res), // Inner Python execution succeeded
+            Ok(Ok(Err(py_err))) => Err(py_err), // Inner Python execution failed gracefully
+            Ok(Err(panic_err)) => { // Python execution panicked
+                let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_err.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown panic type".to_string()
+                };
+                Err(format!("Python panic: {}", msg))
+            },
+            Err(join_err) => Err(format!("Python thread join error: {:?}", join_err)),
         }
     }
 

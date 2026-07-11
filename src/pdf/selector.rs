@@ -87,15 +87,33 @@ impl PdfEngineSelector {
     where
         F: Fn(&dyn PdfEngine) -> Result<T, EngineError>,
     {
+        // Universal panic guard to achieve Zero-Defect reliability
+        let run_safe = |engine: &dyn PdfEngine| -> Result<T, EngineError> {
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| operation(engine)));
+            match res {
+                Ok(r) => r,
+                Err(panic_err) => {
+                    let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
+                        s.to_string()
+                    } else if let Some(s) = panic_err.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "Unknown panic".to_string()
+                    };
+                    Err(EngineError::ApplyFailed(format!("Engine thread panicked: {}", msg)))
+                }
+            }
+        };
+
         match self.current_mode() {
-            crate::app::config::PdfEngineMode::NativeOnly => operation(&*self.fallback),
-            crate::app::config::PdfEngineMode::PyMuPdfOnly => operation(&*self.primary),
+            crate::app::config::PdfEngineMode::NativeOnly => run_safe(&*self.fallback),
+            crate::app::config::PdfEngineMode::PyMuPdfOnly => run_safe(&*self.primary),
             crate::app::config::PdfEngineMode::Auto
             | crate::app::config::PdfEngineMode::TypstReconstruct
             | crate::app::config::PdfEngineMode::DualConcurrent => {
                 // SOTA Robust Plan: Try PyMuPDF (primary) first for maximum fidelity editing.
                 // If the python bridge fails or throws an exception, seamlessly fallback to Native.
-                match operation(&*self.primary) {
+                match run_safe(&*self.primary) {
                     Ok(result) => Ok(result),
                     Err(EngineError::Unsupported) => {
                         tracing::warn!(
@@ -103,7 +121,7 @@ impl PdfEngineSelector {
                             primary_error = "Unsupported",
                             "PyMuPDF engine unsupported, falling back to Native engine"
                         );
-                        operation(&*self.fallback)
+                        run_safe(&*self.fallback)
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -111,7 +129,7 @@ impl PdfEngineSelector {
                             primary_error = %e,
                             "PyMuPDF engine failed, falling back to Native engine"
                         );
-                        let fallback_res = operation(&*self.fallback);
+                        let fallback_res = run_safe(&*self.fallback);
                         match fallback_res {
                             Ok(res) => Ok(res),
                             Err(EngineError::ApplyFailed(ref msg))

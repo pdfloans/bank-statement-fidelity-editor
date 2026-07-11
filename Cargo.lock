@@ -2044,6 +2044,7 @@ dependencies = [
  "tracing-subscriber",
  "ttf-parser",
  "typst",
+ "uiautomation",
  "urlencoding",
  "uuid",
  "winnow 0.7.15",
@@ -9432,6 +9433,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "uiautomation"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd9c6b64e0cb9c2e6996284b20605039e8365129a80223d3ca02d0e67090716c"
+dependencies = [
+ "chrono",
+ "phf 0.11.3",
+ "uiautomation_derive",
+ "windows 0.48.0",
+]
+
+[[package]]
+name = "uiautomation_derive"
+version = "0.2.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a81931d789a3aa0e03f6938102f1557a42d512853d6067b61fe62555505a7be8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10308,6 +10332,15 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "windows"
+version = "0.48.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e686886bc078bc1b0b600cac0147aadb815089b6e4da64016cbd754b6342700f"
+dependencies = [
+ "windows-targets 0.48.5",
+]
 
 [[package]]
 name = "windows"
