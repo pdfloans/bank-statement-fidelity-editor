@@ -208,6 +208,8 @@ pub struct AppSettings {
     pub auto_save: bool,
     pub default_dpi: f32,
     pub use_pdfrest: bool,
+    #[serde(default = "default_true")]
+    pub use_applitools: bool,
     pub deep_font_replication: bool,
     #[serde(default)]
     pub show_welcome: bool,
@@ -269,6 +271,7 @@ impl Default for AppSettings {
             auto_save: true,
             default_dpi: 300.0,
             use_pdfrest: false,
+            use_applitools: true,
             deep_font_replication: false,
             show_welcome: true,
             webhook_url: String::new(),
@@ -643,6 +646,12 @@ impl MyApp {
         };
         // Log which API backends were detected at boot for diagnostics.
         app.api_availability.log_summary();
+        
+        // Seed USE_APPLITOOLS environment variable from the loaded AppSettings
+        // so that the verification engine (running on the tokio runtime) respects
+        // the GUI toggle on startup.
+        std::env::set_var("USE_APPLITOOLS", if app.settings.use_applitools { "1" } else { "0" });
+        
         app
     }
 
@@ -728,6 +737,10 @@ impl MyApp {
                     crate::app::config::PdfEngineMode::PyMuPdfOnly => "pymupdf".to_string(),
                     crate::app::config::PdfEngineMode::TypstReconstruct => "typst".to_string(),
                 },
+            ),
+            (
+                "USE_APPLITOOLS",
+                if self.settings.use_applitools { "1".to_string() } else { "0".to_string() }
             ),
         ];
 

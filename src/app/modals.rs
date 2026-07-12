@@ -430,23 +430,38 @@ impl AppModals for MyApp {
 
                         // ── 4. Verification Renderer ──
                         ui.label("\u{1f50d} Verification:");
-                        egui::ComboBox::from_id_source("bp_verification")
-                            .selected_text(self.settings.verification_renderer.label())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::LocalPdfium, "Local (Pdfium) \u{2705}")
-                                    .on_hover_text("Default. Renders PDFs locally via Pdfium for visual diff comparison. Fast, always available.");
-                                let pdfrest_label = if avail.pdfrest {
-                                    "pdfRest (Cloud)"
-                                } else {
-                                    "pdfRest (Cloud) \u{26d4} No API Key"
-                                };
-                                let r = ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::PdfRestCloud, pdfrest_label);
-                                if !avail.pdfrest {
-                                    r.on_hover_text("\u{26a0} PDFREST_API_KEY not configured. Falls back to local Pdfium. Set it in .env for Adobe-tier cloud rendering.");
-                                } else {
-                                    r.on_hover_text("Adobe-tier rendering via pdfRest API. Highest fidelity verification.");
-                                }
-                            });
+                        ui.vertical(|ui| {
+                            egui::ComboBox::from_id_source("bp_verification")
+                                .selected_text(self.settings.verification_renderer.label())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::LocalPdfium, "Local (Pdfium) \u{2705}")
+                                        .on_hover_text("Default. Renders PDFs locally via Pdfium for visual diff comparison. Fast, always available.");
+                                    let pdfrest_label = if avail.pdfrest {
+                                        "pdfRest (Cloud)"
+                                    } else {
+                                        "pdfRest (Cloud) \u{26d4} No API Key"
+                                    };
+                                    let r = ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::PdfRestCloud, pdfrest_label);
+                                    if !avail.pdfrest {
+                                        r.on_hover_text("\u{26a0} PDFREST_API_KEY not configured. Falls back to local Pdfium. Set it in .env for Adobe-tier cloud rendering.");
+                                    } else {
+                                        r.on_hover_text("Adobe-tier rendering via pdfRest API. Highest fidelity verification.");
+                                    }
+                                });
+                                
+                            ui.add_space(4.0);
+                            let applitools_label = if avail.applitools {
+                                "Additive: Applitools Visual AI"
+                            } else {
+                                "Additive: Applitools \u{26d4} No API Key"
+                            };
+                            let cb = egui::Checkbox::new(&mut self.settings.use_applitools, applitools_label);
+                            if !avail.applitools {
+                                ui.add_enabled(false, cb).on_hover_text("\u{26a0} APPLITOOLS_API_KEY not configured. Set it in Settings \u{2192} API Keys.");
+                            } else {
+                                ui.add(cb).on_hover_text("Sends screenshots to Applitools Eyes for AI-based visual difference analysis.");
+                            }
+                        });
                         ui.end_row();
 
                         // ── 5. Font Handling ──

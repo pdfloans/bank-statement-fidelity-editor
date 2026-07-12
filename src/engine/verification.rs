@@ -549,11 +549,13 @@ pub async fn verify_edit_pages_with_padding(
         min_ssim = min_ssim.min(page_ssim);
 
         // Multi-Verificational System: Applitools Eyes API (Node Bridge)
-        // If the API key is present, we invoke the bridge. If the bridge fails to execute,
-        // we continue without it (falling back to SSIM).
+        // If the API key is present and enabled in settings, we invoke the bridge. 
+        // If the bridge fails to execute, we continue without it (falling back to SSIM).
         let mut applitools_passed = true;
-        if let Ok(applitools_key) = std::env::var("APPLITOOLS_API_KEY") {
-            if !applitools_key.is_empty() {
+        let use_applitools = std::env::var("USE_APPLITOOLS").map(|v| v == "1").unwrap_or(true);
+        if use_applitools {
+            if let Ok(applitools_key) = std::env::var("APPLITOOLS_API_KEY") {
+                if !applitools_key.is_empty() {
                 let ignore_regions: Vec<_> = exclude_rects
                     .iter()
                     .map(|&(x0, y0, x1, y1)| {
@@ -599,6 +601,7 @@ pub async fn verify_edit_pages_with_padding(
                     tracing::warn!("[verification] Applitools bridge failed to execute. Falling back to local SSIM only.");
                 }
             }
+        }
         }
         all_applitools_passed = all_applitools_passed && applitools_passed;
 
