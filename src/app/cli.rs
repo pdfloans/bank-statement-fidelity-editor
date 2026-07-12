@@ -1132,7 +1132,7 @@ pub fn run(
         Commands::Doctor => run_doctor(&config, &job_tx, &job_rx),
         Commands::VerifyApiKeys { json } => {
             // Run verification on a fresh tokio runtime
-            let rt = match tokio::runtime::Builder::new_current_thread()
+            let rt = match tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
             {
