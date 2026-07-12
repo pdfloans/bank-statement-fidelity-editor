@@ -15,7 +15,7 @@ filesystem, network, or runtime requirements. They must always pass.
 | `segment_map_unit.rs` | Unit tests for `SegmentMap` page mapping (resolve, to_global, group_edits, ordered_merge_paths) |
 | `segment_map_props.rs` | Property-based tests (proptest) for bidirectional page mapping roundtrip |
 | `segment_mapping.rs` | Additional proptest coverage for segment resolve/to_global |
-| `setting_combinations.rs` | 150-combination JSON roundtrip for all setting enum axes |
+| `setting_combinations.rs` | 250-combination JSON roundtrip for all setting enum axes |
 | `static_analysis.rs` | Verifies `pdf_split_merge.rs` contains no PyMuPDF/PyO3 references |
 
 ```bash

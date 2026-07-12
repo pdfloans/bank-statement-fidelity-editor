@@ -36,6 +36,8 @@ DOCAI_LOCATION = os.environ.get("DOCUMENT_AI_LOCATION", "")
 DOCAI_PROCESSOR = os.environ.get("DOCUMENT_AI_PROCESSOR_ID", "")
 DOCAI_API_KEY = os.environ.get("DOCUMENT_AI_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 PDFREST_API_KEY = os.environ.get("PDFREST_API_KEY", "")
 APPLITOOLS_API_KEY = os.environ.get("APPLITOOLS_API_KEY", "")
 PYMUPDF_PRO_KEY = os.environ.get("PYMUPDF_PRO_KEY", "")
@@ -51,6 +53,8 @@ apis = {
     "LlamaParse": api_available(LLAMAPARSE_API_KEY),
     "Document AI": api_available(DOCAI_PROJECT) and api_available(DOCAI_PROCESSOR),
     "Gemini": api_available(GEMINI_API_KEY),
+    "Groq": api_available(GROQ_API_KEY),
+    "OpenRouter": api_available(OPENROUTER_API_KEY),
     "pdfRest": api_available(PDFREST_API_KEY),
     "Applitools": api_available(APPLITOOLS_API_KEY),
     "PyMuPDF Pro": api_available(PYMUPDF_PRO_KEY),
@@ -703,6 +707,163 @@ Respond as JSON with this schema:
     except Exception as e:
         return {"tool": "Gemini AI", "correctness": 0, "fidelity": 0, "avg": 0, "details": f"CRASH: {e}", "elapsed_ms": int((time.time() - start) * 1000)}
 
+
+def test3_groq(pdf_path, gt):
+    """Groq AI math reconciliation."""
+    import time
+    start = time.time()
+    if not api_available(GROQ_API_KEY):
+        return {"tool": "Groq AI", "correctness": 0, "fidelity": 0, "avg": 0, "details": "API key not configured", "elapsed_ms": 0}
+    
+    try:
+        import requests
+        import pymupdf
+        import json
+        
+        doc = pymupdf.open(pdf_path)
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text("text") + "\n"
+        doc.close()
+        
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        body = {
+            "model": "llama3-70b-8192",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"Analyze this bank statement text.\n1. Extract all transaction amounts and running balances.\n2. Verify that each running balance is mathematically consistent.\n3. Identify any discrepancy.\n4. Propose a minimal adjustment plan.\n\nRespond as JSON with this schema:\n{{\"discrepancy_found\": bool, \"discrepancy_amount\": float, \"error_line\": int, \"proposed_fix\": string, \"transaction_count\": int}}\n\nText:\n{full_text[:3000]}"
+                }
+            ],
+            "response_format": {"type": "json_object"}
+        }
+        
+        resp = requests.post(url, json=body, headers=headers, timeout=90)
+        
+        if resp.status_code != 200:
+            return {"tool": "Groq AI", "correctness": 0, "fidelity": 0, "avg": 0,
+                    "details": f"HTTP {resp.status_code}", "elapsed_ms": int((time.time() - start) * 1000)}
+        
+        result = resp.json()
+        text_content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        
+        try:
+            ai_result = json.loads(text_content)
+        except json.JSONDecodeError:
+            ai_result = {"discrepancy_found": False}
+        
+        expected_disc = gt["discrepancy"]
+        expected_line = gt["error_introduced_at_line"]
+        
+        found = ai_result.get("discrepancy_found", False)
+        found_amount = ai_result.get("discrepancy_amount", 0)
+        found_line = ai_result.get("error_line", 0)
+        
+        correctness = 0
+        if found:
+            correctness += 40
+            if abs(float(found_amount) - expected_disc) < 1.0:
+                correctness += 35
+            if abs(int(found_line) - expected_line) <= 1:
+                correctness += 25
+        
+        fidelity = 100
+        elapsed = time.time() - start
+        
+        return {
+            "tool": "Groq AI",
+            "correctness": min(100, correctness),
+            "fidelity": fidelity,
+            "avg": (min(100, correctness) + fidelity) / 2,
+            "details": f"Found={'Y' if found else 'N'}, amount=${found_amount}, line={found_line}",
+            "elapsed_ms": int(elapsed * 1000),
+        }
+    except Exception as e:
+        return {"tool": "Groq AI", "correctness": 0, "fidelity": 0, "avg": 0, "details": f"CRASH: {e}", "elapsed_ms": int((time.time() - start) * 1000)}
+
+def test3_openrouter(pdf_path, gt):
+    """OpenRouter AI math reconciliation."""
+    import time
+    start = time.time()
+    if not api_available(OPENROUTER_API_KEY):
+        return {"tool": "OpenRouter AI", "correctness": 0, "fidelity": 0, "avg": 0, "details": "API key not configured", "elapsed_ms": 0}
+    
+    try:
+        import requests
+        import pymupdf
+        import json
+        
+        doc = pymupdf.open(pdf_path)
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text("text") + "\n"
+        doc.close()
+        
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        body = {
+            "model": "deepseek/deepseek-chat",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"Analyze this bank statement text.\n1. Extract all transaction amounts and running balances.\n2. Verify that each running balance is mathematically consistent.\n3. Identify any discrepancy.\n4. Propose a minimal adjustment plan.\n\nRespond as JSON with this schema:\n{{\"discrepancy_found\": bool, \"discrepancy_amount\": float, \"error_line\": int, \"proposed_fix\": string, \"transaction_count\": int}}\n\nText:\n{full_text[:3000]}"
+                }
+            ],
+            "response_format": {"type": "json_object"}
+        }
+        
+        resp = requests.post(url, json=body, headers=headers, timeout=90)
+        
+        if resp.status_code != 200:
+            return {"tool": "OpenRouter AI", "correctness": 0, "fidelity": 0, "avg": 0,
+                    "details": f"HTTP {resp.status_code}", "elapsed_ms": int((time.time() - start) * 1000)}
+        
+        result = resp.json()
+        text_content = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        
+        try:
+            ai_result = json.loads(text_content)
+        except json.JSONDecodeError:
+            ai_result = {"discrepancy_found": False}
+        
+        expected_disc = gt["discrepancy"]
+        expected_line = gt["error_introduced_at_line"]
+        
+        found = ai_result.get("discrepancy_found", False)
+        found_amount = ai_result.get("discrepancy_amount", 0)
+        found_line = ai_result.get("error_line", 0)
+        
+        correctness = 0
+        if found:
+            correctness += 40
+            if abs(float(found_amount) - expected_disc) < 1.0:
+                correctness += 35
+            if abs(int(found_line) - expected_line) <= 1:
+                correctness += 25
+        
+        fidelity = 100
+        elapsed = time.time() - start
+        
+        return {
+            "tool": "OpenRouter AI",
+            "correctness": min(100, correctness),
+            "fidelity": fidelity,
+            "avg": (min(100, correctness) + fidelity) / 2,
+            "details": f"Found={'Y' if found else 'N'}, amount=${found_amount}, line={found_line}",
+            "elapsed_ms": int(elapsed * 1000),
+        }
+    except Exception as e:
+        return {"tool": "OpenRouter AI", "correctness": 0, "fidelity": 0, "avg": 0, "details": f"CRASH: {e}", "elapsed_ms": int((time.time() - start) * 1000)}
+
 def test3_docai(pdf_path, gt):
     """Document AI extraction for math verification."""
     start = time.time()
@@ -1065,6 +1226,8 @@ def run_all_tests():
         ],
         "Test 3: Math Balance": [
             (test3_gemini, pdf3, gt3),
+            (test3_groq, pdf3, gt3),
+            (test3_openrouter, pdf3, gt3),
             (test3_docai, pdf3, gt3),
             (test3_local_math, pdf3, gt3),
         ],

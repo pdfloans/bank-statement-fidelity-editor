@@ -103,6 +103,8 @@ The **Backend Preferences** panel (Settings → Backend Preferences) lets you ch
 | **Manual Only** (default) | No AI calls | Nothing |
 | Gemini (API Key) | AI Studio key | `GEMINI_API_KEY` |
 | Gemini (Vertex AI) | Enterprise SA/ADC | Service account + ADC |
+| Groq (Llama 3) | Fast math reasoning | `GROQ_API_KEY` |
+| OpenRouter (DeepSeek) | Double-check reasoning | `OPENROUTER_API_KEY` |
 
 ### Document Parser
 | Mode | Description | Requires | Fallback |
@@ -118,6 +120,7 @@ The **Backend Preferences** panel (Settings → Backend Preferences) lets you ch
 |---|---|---|---|
 | **Local Pdfium** ✅ (default) | Local rendering | Always available | — |
 | pdfRest (Cloud) | Adobe-tier rendering | `PDFREST_API_KEY` | → Local Pdfium |
+| Applitools Eyes (Additive) | Visual AI testing | `APPLITOOLS_API_KEY` | → Skips if missing |
 
 ### Visual Validation Thresholds
 | Setting | Default | Range | Description |

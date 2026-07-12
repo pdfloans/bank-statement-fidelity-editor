@@ -43,6 +43,8 @@ const AI_PROVIDERS: &[AiProviderMode] = &[
     AiProviderMode::ManualOnly,
     AiProviderMode::GeminiApiKey,
     AiProviderMode::GeminiVertex,
+    AiProviderMode::GroqApiKey,
+    AiProviderMode::OpenRouterApiKey,
 ];
 
 const VERIFIERS: &[VerificationMode] = &[
@@ -76,7 +78,7 @@ fn all_150_setting_combinations_roundtrip_json() {
             }
         }
     }
-    assert_eq!(count, 150, "Expected 150 combinations, got {count}");
+    assert_eq!(count, 250, "Expected 250 combinations, got {count}");
 }
 
 /// Verify every enum variant has a non-empty human-readable label.
