@@ -111,6 +111,18 @@ pub async fn verify_all_api_keys(config: &AppConfig, json_output: bool) -> Verif
     // 3. Verify Gemini (recommended, with fallback chain)
     results.push(verify_gemini(config).await);
 
+    // 4. Verify Mindee (default parser)
+    results.push(verify_mindee(config).await);
+
+    // 5. Verify LlamaParse (alternative LLM parser)
+    results.push(verify_llamaparse(config).await);
+
+    // 6. Verify pdfRest (cloud rendering)
+    results.push(verify_pdfrest(config).await);
+
+    // 7. Verify Applitools (visual AI testing)
+    results.push(verify_applitools(config).await);
+
     let report = VerificationReport::new(results);
 
     if json_output {
@@ -314,6 +326,118 @@ async fn verify_gemini(config: &AppConfig) -> VerificationResult {
             guidance: Some("Check Gemini API key or Vertex AI configuration".to_string()),
             method_used: None,
         },
+    }
+}
+
+async fn verify_mindee(config: &AppConfig) -> VerificationResult {
+    let start = Instant::now();
+    let key = config.mindee_api_key.as_ref();
+    
+    if key.is_none() || key.is_some_and(|k| k.is_empty()) {
+        return VerificationResult {
+            service: "Mindee".to_string(),
+            status: VerificationStatus::Skipped,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error_message: Some("MINDEE_API_KEY not configured".to_string()),
+            guidance: Some("Set MINDEE_API_KEY to use the default Mindee Financial Document parser. Get a key at https://platform.mindee.com/".to_string()),
+            method_used: None,
+        };
+    }
+    
+    VerificationResult {
+        service: "Mindee".to_string(),
+        status: VerificationStatus::Success,
+        latency_ms: start.elapsed().as_millis() as u64,
+        error_message: None,
+        guidance: None,
+        method_used: Some("API Key Configured".to_string()),
+    }
+}
+
+async fn verify_llamaparse(config: &AppConfig) -> VerificationResult {
+    let start = Instant::now();
+    let key = config.llamaparse_api_key.as_ref();
+    
+    if key.is_none() || key.is_some_and(|k| k.is_empty()) {
+        return VerificationResult {
+            service: "LlamaParse".to_string(),
+            status: VerificationStatus::Skipped,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error_message: Some("LLAMAPARSE_API_KEY not configured".to_string()),
+            guidance: Some("Set LLAMAPARSE_API_KEY to use the alternative LLM parser. Get a key at https://cloud.llamaindex.ai/".to_string()),
+            method_used: None,
+        };
+    }
+    
+    let key_str = key.unwrap();
+    if !key_str.starts_with("llx-") {
+        return VerificationResult {
+            service: "LlamaParse".to_string(),
+            status: VerificationStatus::Failed,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error_message: Some("Invalid key format".to_string()),
+            guidance: Some("LlamaParse keys usually start with 'llx-'".to_string()),
+            method_used: None,
+        };
+    }
+
+    VerificationResult {
+        service: "LlamaParse".to_string(),
+        status: VerificationStatus::Success,
+        latency_ms: start.elapsed().as_millis() as u64,
+        error_message: None,
+        guidance: None,
+        method_used: Some("Format validation".to_string()),
+    }
+}
+
+async fn verify_pdfrest(config: &AppConfig) -> VerificationResult {
+    let start = Instant::now();
+    let key = config.pdfrest_api_key.as_ref();
+    
+    if key.is_none() || key.is_some_and(|k| k.is_empty()) {
+        return VerificationResult {
+            service: "pdfRest".to_string(),
+            status: VerificationStatus::Skipped,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error_message: Some("PDFREST_API_KEY not configured".to_string()),
+            guidance: Some("Set PDFREST_API_KEY to enable Adobe-tier cloud rendering for verification.".to_string()),
+            method_used: None,
+        };
+    }
+    
+    VerificationResult {
+        service: "pdfRest".to_string(),
+        status: VerificationStatus::Success,
+        latency_ms: start.elapsed().as_millis() as u64,
+        error_message: None,
+        guidance: None,
+        method_used: Some("API Key Configured".to_string()),
+    }
+}
+
+async fn verify_applitools(config: &AppConfig) -> VerificationResult {
+    let start = Instant::now();
+    let key = config.applitools_api_key.as_ref();
+    
+    if key.is_none() || key.is_some_and(|k| k.is_empty()) {
+        return VerificationResult {
+            service: "Applitools".to_string(),
+            status: VerificationStatus::Skipped,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error_message: Some("APPLITOOLS_API_KEY not configured".to_string()),
+            guidance: Some("Set APPLITOOLS_API_KEY to enable visual AI testing verification layer.".to_string()),
+            method_used: None,
+        };
+    }
+    
+    VerificationResult {
+        service: "Applitools".to_string(),
+        status: VerificationStatus::Success,
+        latency_ms: start.elapsed().as_millis() as u64,
+        error_message: None,
+        guidance: None,
+        method_used: Some("API Key Configured".to_string()),
     }
 }
 

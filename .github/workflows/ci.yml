@@ -168,6 +168,20 @@ jobs:
         # on cold cache.
         timeout-minutes: 10
 
+      - name: Verify API Keys
+        run: cargo run --bin dual-core-pdf-pipeline -- verify-api-keys --json
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MINDEE_API_KEY: ${{ secrets.MINDEE_API_KEY }}
+          LLAMAPARSE_API_KEY: ${{ secrets.LLAMAPARSE_API_KEY }}
+          PDFREST_API_KEY: ${{ secrets.PDFREST_API_KEY }}
+          APPLITOOLS_API_KEY: ${{ secrets.APPLITOOLS_API_KEY }}
+          PYMUPDF_PRO_KEY: ${{ secrets.PYMUPDF_PRO_KEY }}
+          DOCUMENT_AI_PROJECT_ID: ${{ secrets.DOCUMENT_AI_PROJECT_ID }}
+          DOCUMENT_AI_LOCATION: ${{ secrets.DOCUMENT_AI_LOCATION }}
+          DOCUMENT_AI_PROCESSOR_ID: ${{ secrets.DOCUMENT_AI_PROCESSOR_ID }}
+          DOCUMENT_AI_API_KEY: ${{ secrets.DOCUMENT_AI_API_KEY }}
+
   # ------------------------------------------------------------------
   # Security audit. Soft fail — flags advisories without blocking the
   # build. Tighten to hard-fail once the repo is stable.
