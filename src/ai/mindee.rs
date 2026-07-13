@@ -400,14 +400,9 @@ impl MindeeClient {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.subsec_millis() as u64 % 500)
                             .unwrap_or(250);
-                        let delay = std::time::Duration::from_millis(
-                            500 * (1 << (attempts - 1)) + jitter,
-                        );
-                        tracing::warn!(
-                            "[mindee] enqueue got {}, retrying in {:?}",
-                            status,
-                            delay
-                        );
+                        let delay =
+                            std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
+                        tracing::warn!("[mindee] enqueue got {}, retrying in {:?}", status, delay);
                         tokio::time::sleep(delay).await;
                         continue;
                     }

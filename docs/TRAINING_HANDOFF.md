@@ -5,7 +5,7 @@
 ## What's already done
 
 - **GCS buckets**
-  - `gs://docai-training-1006635704194/` — bucket bound to the existing dataset
+  - `gs://docai-training-1056864635772/` — bucket bound to the existing dataset
   - `gs://esoteric-energy-495909-t7-docai-hns/` — backup HNS bucket (in case we need to re-init)
 - **PDFs uploaded** (split where needed to fit Document AI's 15-page training cap):
   ```
@@ -35,7 +35,7 @@ API-driven import keeps hitting `storage.folders.create` permission denial becau
 
 1. Open **https://console.cloud.google.com/ai/document-ai/locations/us/processors/27af46e84ea84975/train**
 2. Click **Import documents** → **Cloud Storage**
-3. Source: `gs://docai-training-1006635704194/au-bank-statements-split/`
+3. Source: `gs://docai-training-1056864635772/au-bank-statements-split/`
 4. Auto-split: train 80% / test 20%
 5. Click Import. The Console picks up where the API failed because it has different internal IAM bindings.
 6. Once imported, click any document → **Label** → draw boxes around each:

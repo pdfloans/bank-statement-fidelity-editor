@@ -14,7 +14,7 @@ def get_token():
 token = get_token()
 
 # 1. Create the Processor
-create_url = "https://us-documentai.googleapis.com/v1/projects/1006635704194/locations/us/processors"
+create_url = "https://us-documentai.googleapis.com/v1/projects/1056864635772/locations/us/processors"
 create_payload = {
     "type": "CUSTOM_EXTRACTION_PROCESSOR",
     "displayName": "AU Bank Statements Extractor"

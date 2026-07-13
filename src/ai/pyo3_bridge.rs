@@ -465,13 +465,12 @@ mod tests {
         pyo3::Python::initialize();
         let res: Result<(), String> = PyEngine::safe_python_with_gil(|py| {
             // Trigger a Python exception deliberately
-            py
-                .run(
-                    c"raise ValueError('Intentional Python Exception')",
-                    None,
-                    None,
-                )
-                .map_err(|e| e.to_string())?;
+            py.run(
+                c"raise ValueError('Intentional Python Exception')",
+                None,
+                None,
+            )
+            .map_err(|e| e.to_string())?;
             Ok(())
         });
 

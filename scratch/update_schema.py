@@ -11,7 +11,7 @@ def get_token():
 token = get_token()
 processor_id = "773734d4360df8c"
 
-url = f"https://us-documentai.googleapis.com/v1beta3/projects/1006635704194/locations/us/processors/{processor_id}/dataset/datasetSchema"
+url = f"https://us-documentai.googleapis.com/v1beta3/projects/1056864635772/locations/us/processors/{processor_id}/dataset/datasetSchema"
 
 payload = {
     "documentSchema": {

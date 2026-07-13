@@ -15,12 +15,12 @@ token = get_token()
 processor_id = "773734d4360df8c"
 
 # Initialize Dataset using GCS-managed storage
-url = f"https://us-documentai.googleapis.com/v1beta3/projects/1006635704194/locations/us/processors/{processor_id}/dataset"
+url = f"https://us-documentai.googleapis.com/v1beta3/projects/1056864635772/locations/us/processors/{processor_id}/dataset"
 payload = {
-    "name": f"projects/1006635704194/locations/us/processors/{processor_id}/dataset",
+    "name": f"projects/1056864635772/locations/us/processors/{processor_id}/dataset",
     "gcsManagedConfig": {
          "gcsPrefix": {
-             "gcsUriPrefix": "gs://docai-training-1006635704194/dataset_storage/"
+             "gcsUriPrefix": "gs://docai-training-1056864635772/dataset_storage/"
          }
      }
 }
@@ -47,10 +47,10 @@ except urllib.error.HTTPError as e:
     # If it fails, maybe DocumentWarehouseConfig isn't right, fallback to gcsManagedConfig
     print("Trying gcsManagedConfig...")
     payload = {
-        "name": f"projects/1006635704194/locations/us/processors/{processor_id}/dataset",
+        "name": f"projects/1056864635772/locations/us/processors/{processor_id}/dataset",
         "gcsManagedConfig": {
              "gcsPrefix": {
-                 "gcsUriPrefix": "gs://docai-training-1006635704194/au_custom_dataset/"
+                 "gcsUriPrefix": "gs://docai-training-1056864635772/au_custom_dataset/"
              }
          }
     }

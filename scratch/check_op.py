@@ -9,7 +9,7 @@ def get_token():
     return result.stdout.strip()
 
 token = get_token()
-op_name = "projects/1006635704194/locations/us/operations/12501342148320633079"
+op_name = "projects/1056864635772/locations/us/operations/12501342148320633079"
 
 url = f"https://us-documentai.googleapis.com/v1beta3/{op_name}"
 
