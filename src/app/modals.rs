@@ -321,12 +321,14 @@ impl AppModals for MyApp {
                                 } else {
                                     "Gemini (API Key) \u{26d4} No API Key"
                                 };
-                                let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiApiKey, gemini_label);
-                                if !avail.gemini_api_key {
-                                    r.on_hover_text("\u{26a0} GEMINI_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
-                                } else {
-                                    r.on_hover_text("Uses Google Gemini via AI Studio API key for balance analysis, completeness checks, and visual validation.");
-                                }
+                                ui.add_enabled_ui(avail.gemini_api_key, |ui| {
+                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiApiKey, gemini_label);
+                                    if !avail.gemini_api_key {
+                                        r.on_hover_text("\u{26a0} GEMINI_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
+                                    } else {
+                                        r.on_hover_text("Uses Google Gemini via AI Studio API key for balance analysis, completeness checks, and visual validation.");
+                                    }
+                                });
 
                                 // Gemini Vertex
                                 let vertex_label = if avail.gemini_vertex {
@@ -334,24 +336,28 @@ impl AppModals for MyApp {
                                 } else {
                                     "Gemini (Vertex AI) \u{26d4} No Credentials"
                                 };
-                                let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiVertex, vertex_label);
-                                if !avail.gemini_vertex {
-                                    r.on_hover_text("\u{26a0} Vertex AI requires a service account or ADC credentials. Configure in Settings \u{2192} API Keys.");
-                                } else {
-                                    r.on_hover_text("Enterprise. Authenticates via Google Cloud service account / ADC. Data stays in your GCP project.");
-                                }
+                                ui.add_enabled_ui(avail.gemini_vertex, |ui| {
+                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiVertex, vertex_label);
+                                    if !avail.gemini_vertex {
+                                        r.on_hover_text("\u{26a0} Vertex AI requires a service account or ADC credentials. Configure in Settings \u{2192} API Keys.");
+                                    } else {
+                                        r.on_hover_text("Enterprise. Authenticates via Google Cloud service account / ADC. Data stays in your GCP project.");
+                                    }
+                                });
                                 // Groq API Key
                                 let groq_label = if avail.groq_api_key {
                                     "Groq (Llama 3 / Fast)"
                                 } else {
                                     "Groq (Llama 3) \u{26d4} No API Key"
                                 };
-                                let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GroqApiKey, groq_label);
-                                if !avail.groq_api_key {
-                                    r.on_hover_text("\u{26a0} GROQ_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
-                                } else {
-                                    r.on_hover_text("Uses Groq API (Llama 3) for fast math reasoning and verification.");
-                                }
+                                ui.add_enabled_ui(avail.groq_api_key, |ui| {
+                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GroqApiKey, groq_label);
+                                    if !avail.groq_api_key {
+                                        r.on_hover_text("\u{26a0} GROQ_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
+                                    } else {
+                                        r.on_hover_text("Uses Groq API (Llama 3) for fast math reasoning and verification.");
+                                    }
+                                });
 
                                 // OpenRouter API Key
                                 let or_label = if avail.openrouter_api_key {
@@ -359,12 +365,14 @@ impl AppModals for MyApp {
                                 } else {
                                     "OpenRouter \u{26d4} No API Key"
                                 };
-                                let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::OpenRouterApiKey, or_label);
-                                if !avail.openrouter_api_key {
-                                    r.on_hover_text("\u{26a0} OPENROUTER_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
-                                } else {
-                                    r.on_hover_text("Uses OpenRouter (DeepSeek) for double-check reasoning.");
-                                }
+                                ui.add_enabled_ui(avail.openrouter_api_key, |ui| {
+                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::OpenRouterApiKey, or_label);
+                                    if !avail.openrouter_api_key {
+                                        r.on_hover_text("\u{26a0} OPENROUTER_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
+                                    } else {
+                                        r.on_hover_text("Uses OpenRouter (DeepSeek) for double-check reasoning.");
+                                    }
+                                });
                             });
                         ui.end_row();
 
@@ -380,12 +388,14 @@ impl AppModals for MyApp {
                                     } else {
                                         "Mindee (Financial Doc) \u{26d4} No API Key"
                                     };
-                                    let mr = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::MindeeFinDoc, mindee_label);
-                                    if !avail.mindee {
-                                        mr.on_hover_text("\u{26a0} MINDEE_API_KEY not configured. Workflow will auto-fallback to offline parser. Get a key at https://platform.mindee.com/");
-                                    } else {
-                                        mr.on_hover_text("Default. Cloud-based ML parsing via Mindee. Simple API key, excellent accuracy, per-field bounding boxes.");
-                                    }
+                                    ui.add_enabled_ui(avail.mindee, |ui| {
+                                        let mr = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::MindeeFinDoc, mindee_label);
+                                        if !avail.mindee {
+                                            mr.on_hover_text("\u{26a0} MINDEE_API_KEY not configured. Workflow will auto-fallback to offline parser. Get a key at https://platform.mindee.com/");
+                                        } else {
+                                            mr.on_hover_text("Default. Cloud-based ML parsing via Mindee. Simple API key, excellent accuracy, per-field bounding boxes.");
+                                        }
+                                    });
                                 }
 
                                 // LlamaParse
@@ -395,12 +405,14 @@ impl AppModals for MyApp {
                                     } else {
                                         "LlamaParse \u{26d4} No API Key"
                                     };
-                                    let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LlamaParse, llama_label);
-                                    if !avail.llamaparse {
-                                        r.on_hover_text("\u{26a0} LLAMAPARSE_API_KEY not configured. Workflow will auto-fallback to offline parser. Set it in Settings or .env.");
-                                    } else {
-                                        r.on_hover_text("API-based document parser using LLMs. Excellent for unstructured PDFs.");
-                                    }
+                                    ui.add_enabled_ui(avail.llamaparse, |ui| {
+                                        let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LlamaParse, llama_label);
+                                        if !avail.llamaparse {
+                                            r.on_hover_text("\u{26a0} LLAMAPARSE_API_KEY not configured. Workflow will auto-fallback to offline parser. Set it in Settings or .env.");
+                                        } else {
+                                            r.on_hover_text("API-based document parser using LLMs. Excellent for unstructured PDFs.");
+                                        }
+                                    });
                                 }
 
                                 // PyMuPDF (always available)
@@ -418,12 +430,14 @@ impl AppModals for MyApp {
                                     } else {
                                         "Google Document AI \u{26d4} No Credentials"
                                     };
-                                    let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::DocumentAi, docai_label);
-                                    if !avail.document_ai {
-                                        r.on_hover_text("\u{26a0} Requires Document AI project, processor, and auth credentials. Configure in Settings \u{2192} API Keys.");
-                                    } else {
-                                        r.on_hover_text("Uses Google's ML-powered Document AI. Highest accuracy on trained layouts.");
-                                    }
+                                    ui.add_enabled_ui(avail.document_ai, |ui| {
+                                        let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::DocumentAi, docai_label);
+                                        if !avail.document_ai {
+                                            r.on_hover_text("\u{26a0} Requires Document AI project, processor, and auth credentials. Configure in Settings \u{2192} API Keys.");
+                                        } else {
+                                            r.on_hover_text("Uses Google's ML-powered Document AI. Highest accuracy on trained layouts.");
+                                        }
+                                    });
                                 }
                             });
                         ui.end_row();
@@ -441,12 +455,14 @@ impl AppModals for MyApp {
                                     } else {
                                         "pdfRest (Cloud) \u{26d4} No API Key"
                                     };
-                                    let r = ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::PdfRestCloud, pdfrest_label);
-                                    if !avail.pdfrest {
-                                        r.on_hover_text("\u{26a0} PDFREST_API_KEY not configured. Falls back to local Pdfium. Set it in .env for Adobe-tier cloud rendering.");
-                                    } else {
-                                        r.on_hover_text("Adobe-tier rendering via pdfRest API. Highest fidelity verification.");
-                                    }
+                                    ui.add_enabled_ui(avail.pdfrest, |ui| {
+                                        let r = ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::PdfRestCloud, pdfrest_label);
+                                        if !avail.pdfrest {
+                                            r.on_hover_text("\u{26a0} PDFREST_API_KEY not configured. Falls back to local Pdfium. Set it in .env for Adobe-tier cloud rendering.");
+                                        } else {
+                                            r.on_hover_text("Adobe-tier rendering via pdfRest API. Highest fidelity verification.");
+                                        }
+                                    });
                                 });
                                 
                             ui.add_space(4.0);
