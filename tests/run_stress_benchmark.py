@@ -203,45 +203,41 @@ def test1_mindee_api(pdf_path, gt):
         return {"tool": "Mindee API", "correctness": 0, "fidelity": 0, "avg": 0, "details": "API key not configured", "elapsed_ms": 0}
     
     try:
-        import requests
-        url = "https://api.mindee.net/v1/products/mindee/financial_document/v1/predict"
-        with open(pdf_path, "rb") as f:
-            resp = requests.post(
-                url,
-                headers={"Authorization": f"Token {MINDEE_API_KEY}"},
-                files={"document": f},
-                timeout=60,
-            )
+        try:
+            from mindee.v2 import Client, ExtractionParameters, ExtractionResponse
+        except ImportError:
+            return {"tool": "Mindee API", "correctness": 0, "fidelity": 0, "avg": 0, "details": "Please 'pip install mindee>=5.1.1'", "elapsed_ms": 0}
+            
+        mindee_client = Client(api_key=MINDEE_API_KEY)
         
-        if resp.status_code != 201:
+        # We assume financial document model
+        model_params = ExtractionParameters(model_id="mindee/financial_document")
+        
+        from mindee import PathInput
+        input_source = PathInput(pdf_path)
+        
+        try:
+            # Enqueue and poll for result
+            response = mindee_client.enqueue_and_get_result(ExtractionResponse, input_source, model_params)
+        except Exception as e:
             return {"tool": "Mindee API", "correctness": 0, "fidelity": 0, "avg": 0, 
-                    "details": f"HTTP {resp.status_code}: {resp.text[:200]}", "elapsed_ms": int((time.time() - start) * 1000)}
-        
-        data = resp.json()
-        prediction = data.get("document", {}).get("inference", {}).get("prediction", {})
-        
-        # Extract line items
-        line_items = prediction.get("line_items", [])
-        
+                    "details": f"API Error: {str(e)[:200]}", "elapsed_ms": int((time.time() - start) * 1000)}
+            
+        # Access the line items
+        line_items = []
+        try:
+            # Depending on model version, it could be in fields or similar
+            if response.inference and hasattr(response.inference, 'result') and hasattr(response.inference.result, 'fields'):
+                if 'line_items' in response.inference.result.fields:
+                    line_items = response.inference.result.fields['line_items']
+        except:
+            pass
+            
         expected = gt["transaction_count"]
-        matched = len(line_items)
-        
-        # Check for decimal precision in extracted amounts
-        decimal_ok = 0
-        for item in line_items:
-            total = item.get("total_amount")
-            if total is not None:
-                # Check it's a proper decimal
-                if isinstance(total, (int, float)):
-                    decimal_ok += 1
+        matched = len(line_items) if hasattr(line_items, '__len__') else 0
         
         correctness = min(100, int((matched / expected) * 100)) if expected > 0 else 0
-        # Bonus for decimal precision
-        if matched > 0:
-            precision_rate = decimal_ok / matched
-            correctness = min(100, int(correctness * (0.8 + 0.2 * precision_rate)))
-        
-        fidelity = 97  # Cloud API, read-only, no document modification
+        fidelity = 97
         elapsed = time.time() - start
         
         return {
@@ -249,7 +245,7 @@ def test1_mindee_api(pdf_path, gt):
             "correctness": correctness,
             "fidelity": fidelity,
             "avg": (correctness + fidelity) / 2,
-            "details": f"Found {matched}/{expected} line items, {decimal_ok} precise decimals",
+            "details": f"Found {matched}/{expected} line items",
             "elapsed_ms": int(elapsed * 1000),
         }
     except Exception as e:
@@ -1028,13 +1024,13 @@ def test4_pdfrest(pdf_path, gt):
         import requests
         
         # Upload and rasterize both pages
-        url = "https://api.pdfrest.com/pdf-to-images"
+        url = "https://api.pdfrest.com/png"
         with open(pdf_path, "rb") as f:
             resp = requests.post(
                 url,
                 headers={"Api-Key": PDFREST_API_KEY},
                 files={"file": (os.path.basename(pdf_path), f, "application/pdf")},
-                data={"pages": "1-2", "resolution": "300", "output_format": "png"},
+                data={"pages": "1-2", "resolution": "300"},
                 timeout=60,
             )
         

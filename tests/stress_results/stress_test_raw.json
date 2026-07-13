@@ -6,7 +6,7 @@
       "fidelity": 96,
       "avg": 98.0,
       "details": "Found 30/30 txn lines in markdown",
-      "elapsed_ms": 9812
+      "elapsed_ms": 10472
     },
     {
       "tool": "Offline Heuristic",
@@ -14,7 +14,7 @@
       "fidelity": 98,
       "avg": 93.0,
       "details": "Found 25/30 txns, closing=Y",
-      "elapsed_ms": 94
+      "elapsed_ms": 35
     },
     {
       "tool": "PyMuPDF Built-in",
@@ -22,15 +22,7 @@
       "fidelity": 95,
       "avg": 47.5,
       "details": "Found 0/30 txns, 0 decimal errors",
-      "elapsed_ms": 127
-    },
-    {
-      "tool": "Mindee API",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "HTTP 401: {\"api_request\": {\"error\": {\"code\": \"Unauthorized\", \"details\": \"The token provided is for the v2 API. Please check the documentation here: https://docs.mindee.com/integrations/\", \"message\": \"Authorizat",
-      "elapsed_ms": 3020
+      "elapsed_ms": 49
     },
     {
       "tool": "Document AI",
@@ -38,7 +30,15 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 401: {\n  \"error\": {\n    \"code\": 401,\n    \"message\": \"API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.goog",
-      "elapsed_ms": 3287
+      "elapsed_ms": 3173
+    },
+    {
+      "tool": "Mindee API",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API Error: HTTP 422 - Invalid fields in form :: 422-009 - One or more fields failed validation.",
+      "elapsed_ms": 5064
     }
   ],
   "Test 2: Fidelity Edit": [
@@ -48,7 +48,7 @@
       "fidelity": 85,
       "avg": 87.5,
       "details": "Found 18 '7' glyphs, 18 successful edits, restored=Y",
-      "elapsed_ms": 119
+      "elapsed_ms": 117
     },
     {
       "tool": "Pdfium",
@@ -56,7 +56,7 @@
       "fidelity": 92,
       "avg": 76.0,
       "details": "Rendered 2480x3509px @ 300DPI, content=Y",
-      "elapsed_ms": 718
+      "elapsed_ms": 573
     },
     {
       "tool": "Typst Reconstruct",
@@ -64,7 +64,7 @@
       "fidelity": 65,
       "avg": 70.0,
       "details": "26/26 spans extractable, 1 fonts: {'Helvetica'}",
-      "elapsed_ms": 35
+      "elapsed_ms": 43
     }
   ],
   "Test 3: Math Balance": [
@@ -74,7 +74,7 @@
       "fidelity": 100,
       "avg": 92.5,
       "details": "Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21",
-      "elapsed_ms": 13
+      "elapsed_ms": 22
     },
     {
       "tool": "Groq AI",
@@ -98,7 +98,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400: {\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/googl",
-      "elapsed_ms": 1333
+      "elapsed_ms": 2093
     },
     {
       "tool": "Document AI",
@@ -106,7 +106,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 401",
-      "elapsed_ms": 2059
+      "elapsed_ms": 3030
     }
   ],
   "Test 4: Visual QA": [
@@ -116,7 +116,15 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "SSIM\u22480.997970, max_tile=0.583347, diff_px=72852, region_detect=Y",
-      "elapsed_ms": 15544
+      "elapsed_ms": 30237
+    },
+    {
+      "tool": "pdfRest Cloud",
+      "correctness": 75,
+      "fidelity": 98,
+      "avg": 86.5,
+      "details": "Adobe-tier render at 300DPI, manual diff required",
+      "elapsed_ms": 8405
     },
     {
       "tool": "Applitools Eyes",
@@ -124,15 +132,7 @@
       "fidelity": 100,
       "avg": 70.0,
       "details": "Visual AI diff=MISSED, output_len=111",
-      "elapsed_ms": 2546
-    },
-    {
-      "tool": "pdfRest Cloud",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "HTTP 404: { \"error\":\"Invalid endpoint. Please refer to documentation at https://pdfrest.com/documentation/\" }",
-      "elapsed_ms": 3144
+      "elapsed_ms": 6560
     },
     {
       "tool": "Gemini Vision",
@@ -140,7 +140,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400",
-      "elapsed_ms": 3419
+      "elapsed_ms": 7110
     }
   ]
 }
