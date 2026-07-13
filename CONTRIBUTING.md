@@ -54,6 +54,17 @@ cargo clippy --all-targets --all-features -- -D warnings
 - **Error handling:** Prefer typed errors with context. No silent failures or unchecked unwraps in production paths.
 - **Secrets:** Never log, print, or commit API key values. Use `.env.example` for templates.
 
+## Documentation Parity
+
+Before merging, verify documentation matches code:
+
+- [ ] Version strings in `README.md`, `docs/TECH_STACK.md`, `AGENTS.md`, `CHANGELOG.md`, and `Cargo.toml` are consistent.
+- [ ] Default backend/parser mentions match the `#[default]` attributes in `src/app/config.rs`.
+- [ ] Dependency version numbers in `docs/TECH_STACK.md` match `Cargo.toml`.
+- [ ] Engine descriptions match the actual implementations in `src/pdf/`.
+- [ ] OCR / Typst / Feature-gated capabilities documented with correct prerequisites.
+- [ ] Comments in `src/pdf/selector.rs` accurately describe engine priority and fallback behavior.
+
 ## Files
 
 - **`.env.example`** — Template with all configurable keys (safe to commit)

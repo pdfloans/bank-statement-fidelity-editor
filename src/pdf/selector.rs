@@ -151,9 +151,9 @@ impl PdfEngineSelector {
     }
 
     /// Read-path dispatch. In `DualConcurrent` mode the native and PyMuPDF
-    /// engines run the operation **concurrently**; the native (Quick) result is
-    /// preferred when both succeed, and the PyMuPDF (Deep) result is used as an
-    /// automatic fallback when native fails (and vice-versa). All other modes
+    /// engines run the operation **concurrently**; the primary (PyMuPDF/Deep)
+    /// result is preferred when both succeed, and the native (Quick) result is
+    /// used as an automatic fallback when PyMuPDF fails. All other modes
     /// reuse the sequential [`Self::try_primary_or_fallback`] path.
     fn dispatch_read<T, F>(&self, operation: F) -> Result<T, EngineError>
     where

@@ -1,4 +1,4 @@
-# Bank Statement Fidelity Editor v0.5.0
+# Bank Statement Fidelity Editor v0.5.1
 
 A high-fidelity PDF text editor focused on bank statements: replace text and numbers in-place with the original kerning, font, size, color, and position preserved, then keep all transactions and running balances mathematically consistent.
 
@@ -57,8 +57,8 @@ All configuration is via environment variables (or a `.env` file). Copy `.env.ex
 |---|---|---|
 | `GEMINI_API_KEY` | Smart Balance, AI Completeness, Vision Validation | → Manual-only mode (local balance engine) |
 | `GEMINI_AUTH_MODE` | Auth method: `api_key` (default) or `vertex` (enterprise SA/ADC) | Defaults to `api_key` |
-| `MINDEE_API_KEY` | **Default parser** — Mindee Financial Document API | → offline parser (PyMuPDF built-in) |
-| `LLAMAPARSE_API_KEY` | LlamaParse LLM-based document parser | → offline parser |
+| `MINDEE_API_KEY` | Mindee Financial Document API | → offline parser (PyMuPDF built-in) |
+| `LLAMAPARSE_API_KEY` | **Default parser** — LlamaParse LLM-based parser | → offline parser |
 | `DOCUMENT_AI_PROJECT_ID` | Google Document AI parser | → offline parser |
 | `DOCUMENT_AI_LOCATION` | e.g. `us` | |
 | `DOCUMENT_AI_PROCESSOR_ID` | Processor ID | |
@@ -109,8 +109,8 @@ The **Backend Preferences** panel (Settings → Backend Preferences) lets you ch
 ### Document Parser
 | Mode | Description | Requires | Fallback |
 |---|---|---|---|
-| **Mindee** (default) | Cloud ML parsing | `MINDEE_API_KEY` | → offline parser |
-| LlamaParse | LLM-based parsing | `LLAMAPARSE_API_KEY` | → offline parser |
+| Mindee | Cloud ML parsing | `MINDEE_API_KEY` | → offline parser |
+| **LlamaParse** (default) | LLM-based parsing | `LLAMAPARSE_API_KEY` | → offline parser |
 | PyMuPDF Built-in ✅ | Local text extraction | Always available | — |
 | Local OCR ✅ | Pure Rust OCR | `--features ocr` | — |
 | Document AI | Google ML parsing | GCP credentials | → offline parser |

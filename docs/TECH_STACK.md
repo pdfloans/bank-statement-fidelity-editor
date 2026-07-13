@@ -10,8 +10,8 @@ This document provides a detailed overview of the specific technologies, framewo
 
 ## GUI Framework (Native Desktop)
 
-- **`egui` (0.28):** A highly performant, immediate-mode GUI framework built purely in Rust. Chosen for its simplicity, speed, and seamless integration with Rust data structures, making it perfect for rapid data-driven UI development.
-- **`eframe` (0.28):** The official framework wrapper around `egui` to run it as a native desktop application (handling the OS windowing, WebGL/WGPU rendering contexts).
+- **`egui` (0.30):** A highly performant, immediate-mode GUI framework built purely in Rust. Chosen for its simplicity, speed, and seamless integration with Rust data structures, making it perfect for rapid data-driven UI development.
+- **`eframe` (0.30):** The official framework wrapper around `egui` to run it as a native desktop application (handling the OS windowing, WebGL/WGPU rendering contexts).
 - **`egui_extras`:** Extended widgets including `TableBuilder` for the editable transaction table, and image loading for rendered PDF pages.
 
 ## PDF Processing Engines
@@ -38,9 +38,9 @@ PdfEngineSelector:
 
 Each parser auto-falls back to the offline parser if its API key is missing or the call fails:
 
-- **Mindee Financial Document API (default):** Cloud-based ML parser with per-field bounding boxes. Requires `MINDEE_API_KEY`. Best balance of accuracy, ease of setup, and cost.
+- **Mindee Financial Document API:** Cloud-based ML parser with per-field bounding boxes. Requires `MINDEE_API_KEY`. Best balance of accuracy, ease of setup, and cost.
 - **Google Cloud Document AI (v1beta3):** Highest accuracy on trained layouts. Supports custom-trained processor versions with in-app admin (train, deploy, undeploy). Requires GCP credentials.
-- **LlamaParse:** LLM-based document parser via LlamaCloud. Requires `LLAMAPARSE_API_KEY`.
+- **LlamaParse (default):** LLM-based document parser via LlamaCloud. Requires `LLAMAPARSE_API_KEY`.
 - **PyMuPDF Built-in:** Local text extraction using pymupdf's native layout parser. No external dependencies. Always available.
 - **Local OCR (`ocrs` + `rten`):** Pure Rust OCR for scanned documents. Requires `--features ocr` at compile time.
 - **Offline Parser (`offline_parser.rs`):** Deterministic heuristic parser using regex patterns and structural analysis. The universal fallback for all cloud parsers.
@@ -84,7 +84,7 @@ Configurable thresholds: `visual_diff_threshold` (default 0.02) and `max_visual_
 
 ## Python Interoperability (FFI)
 
-- **`pyo3` (0.24):** The Rust/Python bridge. Embeds a Python interpreter directly inside the Rust process, allowing Rust to execute Python scripts with near-zero overhead. Work is constrained to a single dedicated actor thread to avoid Python GIL deadlocks. Panics inside the actor are caught and surfaced as structured errors.
+- **`pyo3` (0.29):** The Rust/Python bridge. Embeds a Python interpreter directly inside the Rust process, allowing Rust to execute Python scripts with near-zero overhead. Work is constrained to a single dedicated actor thread to avoid Python GIL deadlocks. Panics inside the actor are caught and surfaced as structured errors.
 
 ## Node.js Interoperability
 
@@ -93,7 +93,7 @@ Configurable thresholds: `visual_diff_threshold` (default 0.02) and `max_visual_
 ## Observability and Logging
 
 - **`tracing` / `tracing-subscriber`:** Structured, event-driven logging framework for Rust with daily file rotation.
-- **`opentelemetry` (0.21):** OpenTelemetry SDK for distributed tracing, allowing the application to export metrics and traces to an OTLP-compatible endpoint for deep debugging.
+- **`opentelemetry` (0.27):** OpenTelemetry SDK for distributed tracing, allowing the application to export metrics and traces to an OTLP-compatible endpoint for deep debugging.
 - **Boot-Time API Summary:** `ApiAvailability::log_summary()` logs the availability status of all backends on startup for instant diagnostics.
 
 ## Serialization and State Management

@@ -597,19 +597,35 @@ impl PdfEngine for OxidizePdfEngine {
                 "Tj" if in_text && !replaced => {
                     let x = tm[4];
                     let y = tm[5];
+                    let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
+                    let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
+                    let coords_ok = x_matches && y_matches;
+
+                    // T2: Tightened span selection.
+                    // When text IS extractable, require both text AND coordinates to match.
+                    // Coordinate-only matching is only allowed for opaque/undecodable operators.
+                    let mut text_extractable = false;
                     let mut text_matches = false;
                     if let Some(text) = extract_string_operand(&op.operands) {
+                        text_extractable = true;
                         if !text.trim().is_empty() && text.trim() == old_text.trim() {
                             text_matches = true;
                         }
                     }
-                    let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
-                    if x_matches {
-                        tracing::debug!(x, "found text matching x-coordinate bounds");
-                    }
-                    let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
 
-                    if text_matches || (x_matches && y_matches) {
+                    let should_replace = if text_extractable {
+                        // Require both text match AND coordinate match
+                        text_matches && coords_ok
+                    } else {
+                        // Opaque operator: coordinate-only fallback
+                        coords_ok
+                    };
+
+                    if coords_ok {
+                        tracing::debug!(x, y, text_matches, text_extractable, "Tj span candidate");
+                    }
+
+                    if should_replace {
                         // Replace the string operand
                         if !op.operands.is_empty() {
                             op.operands[0] = lopdf::Object::String(
@@ -623,6 +639,12 @@ impl PdfEngine for OxidizePdfEngine {
                 "TJ" if in_text && !replaced => {
                     let x = tm[4];
                     let y = tm[5];
+                    let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
+                    let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
+                    let coords_ok = x_matches && y_matches;
+
+                    // T2: Tightened span selection (TJ variant).
+                    let mut text_extractable = false;
                     let mut text_matches = false;
                     if let Some(lopdf::Object::Array(ref arr)) = op.operands.first() {
                         let mut combined = String::new();
@@ -631,17 +653,23 @@ impl PdfEngine for OxidizePdfEngine {
                                 combined.push_str(&String::from_utf8_lossy(bytes));
                             }
                         }
+                        text_extractable = true;
                         if !combined.trim().is_empty() && combined.trim() == old_text.trim() {
                             text_matches = true;
                         }
                     }
-                    let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
-                    if x_matches {
-                        tracing::debug!(x, "found text matching x-coordinate bounds");
-                    }
-                    let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
 
-                    if text_matches || (x_matches && y_matches) {
+                    let should_replace = if text_extractable {
+                        text_matches && coords_ok
+                    } else {
+                        coords_ok
+                    };
+
+                    if coords_ok {
+                        tracing::debug!(x, y, text_matches, text_extractable, "TJ span candidate");
+                    }
+
+                    if should_replace {
                         // Replace the entire TJ array with a single Tj string
                         op.operator = "Tj".to_string();
                         op.operands = vec![lopdf::Object::String(

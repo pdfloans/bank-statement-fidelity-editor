@@ -1,2 +1,0 @@
-replace it with:AGENTS.md
-toml [toolchain] channel = "1.88.0" components = ["rustfmt", "clippy"]

@@ -373,7 +373,6 @@ impl AppModals for MyApp {
                             });
                         // G5: Persist engine-mode on change and flow to runtime config
                         if self.edit_engine_mode != self.config.engine_mode {
-                            self.config.engine_mode = self.edit_engine_mode;
                             let mode_str = match self.edit_engine_mode {
                                 PdfEngineMode::Auto => "auto",
                                 PdfEngineMode::DualConcurrent => "dual_concurrent",
@@ -462,6 +461,7 @@ impl AppModals for MyApp {
 
                         // ── 3. Document Parser ──
                         ui.label("\u{1f4dd} Document Parser:");
+                        let old_doc_parser = self.settings.document_parser;
                         egui::ComboBox::from_id_salt("bp_doc_parser")
                             .selected_text(self.settings.document_parser.label())
                             .show_ui(ui, |ui| {
@@ -537,10 +537,16 @@ impl AppModals for MyApp {
                                     });
                                 }
                             });
+                        // G5: Persist document_parser on change
+                        if old_doc_parser != self.settings.document_parser {
+                            let _ = confy::store("bank-statement-modifier", None, &self.settings);
+                            let _ = self.job_tx.send(crate::app::runtime::Job::ReloadConfig);
+                        }
                         ui.end_row();
 
                         // ── 4. Verification Renderer ──
                         ui.label("\u{1f50d} Verification:");
+                        let old_verification = self.settings.verification_renderer;
                         ui.vertical(|ui| {
                             egui::ComboBox::from_id_salt("bp_verification")
                                 .selected_text(self.settings.verification_renderer.label())
@@ -575,6 +581,11 @@ impl AppModals for MyApp {
                                 ui.add(cb).on_hover_text("Sends screenshots to Applitools Eyes for AI-based visual difference analysis.");
                             }
                         });
+                        // G5: Persist verification_renderer on change
+                        if old_verification != self.settings.verification_renderer {
+                            let _ = confy::store("bank-statement-modifier", None, &self.settings);
+                            let _ = self.job_tx.send(crate::app::runtime::Job::ReloadConfig);
+                        }
                         ui.end_row();
 
                         // ── 5. Font Handling ──

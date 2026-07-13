@@ -381,7 +381,7 @@ fn extract_text_via_ocr(
         "[offline_parser] Attempting to render page {} for OCR fallback...",
         page
     );
-    let _rendered = match engine.render_page(pdf_path, page, 300.0) {
+    let rendered = match engine.render_page(pdf_path, page, 300.0) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("[offline_parser] Failed to render page for OCR: {}", e);
@@ -389,8 +389,35 @@ fn extract_text_via_ocr(
         }
     };
 
-    tracing::warn!("[offline_parser] OCR models not bundled in this environment. Scanned PDF fallback aborted.");
-    vec![]
+    // T4: Run real OCR via OcrsEngine
+    let ocr_config = crate::extractors::ocrs_engine::OcrsConfig::default();
+    let ocr_engine = crate::extractors::ocrs_engine::OcrsEngine::new(ocr_config);
+    match ocr_engine.extract_text_from_image(&rendered.png_bytes) {
+        Ok(text) => {
+            if text.trim().is_empty() {
+                tracing::warn!("[offline_parser] OCR returned empty text for page {}", page);
+                return vec![];
+            }
+            tracing::info!(
+                "[offline_parser] OCR extracted {} chars from page {}",
+                text.len(),
+                page
+            );
+            // Convert OCR text into a single TextBlock covering the full page.
+            // Individual line geometries are not available from the basic text API,
+            // so we treat the entire page as one block for the offline parser to
+            // split into rows.
+            vec![crate::pdf::TextBlock {
+                page,
+                bbox: [0.0, 0.0, rendered.width_pts, rendered.height_pts],
+                text,
+            }]
+        }
+        Err(e) => {
+            tracing::warn!("[offline_parser] OCR extraction failed for page {}: {}", page, e);
+            vec![]
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-//! Bank Statement Fidelity Editor v0.5.0
+//! Bank Statement Fidelity Editor v0.5.1
 //! High-fidelity text & number editing with automatic balance reconciliation + smart targeted selection
 
 use clap::Parser;
@@ -33,7 +33,7 @@ fn main() {
     let cli = app::cli::Cli::parse();
 
     println!("╔════════════════════════════════════════════════════════════╗");
-    println!("║   Bank Statement Fidelity Editor v0.5.0                   ║");
+    println!("║   Bank Statement Fidelity Editor v0.5.1                   ║");
     println!("║   100% Visual Fidelity • Smart Targeted Editing           ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 

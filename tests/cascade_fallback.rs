@@ -1,5 +1,4 @@
-use dual_core_pdf_pipeline::app::config::AppConfig;
-use dual_core_pdf_pipeline::app::runtime::{Job, JobResult, PythonJob, PythonJobResult};
+use dual_core_pdf_pipeline::app::runtime::{Job, JobResult};
 use dual_core_pdf_pipeline::engine::model::ProposedChange;
 use dual_core_pdf_pipeline::pdf::engine::PdfEngine;
 use dual_core_pdf_pipeline::pdf::native_engine::OxidizePdfEngine;
@@ -7,7 +6,6 @@ use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, Stream, StringFormat};
 use std::path::Path;
 use std::sync::Arc;
-use tokio;
 
 fn create_four_page_pdf(path: &Path) {
     let mut doc = Document::with_version("1.5");
