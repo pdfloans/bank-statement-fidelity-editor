@@ -454,6 +454,8 @@ pub struct MyApp {
     /// (title, body, on_confirm action).
     pub show_discard_draft_confirm: bool,
     pub show_settings_modal: bool,
+    pub show_command_palette: bool,
+    pub command_query: String,
     pub show_transfer_dialog: bool,
     pub transfer_source_path: String,
     // Date Adjust dialog state
@@ -598,6 +600,8 @@ impl MyApp {
             job_rx,
             pending_python: None,
             last_render_request: None,
+            show_command_palette: false,
+            command_query: String::new(),
             workflow_stage: crate::engine::workflow::WorkflowStage::Idle,
             workflow_transactions: Vec::new(),
             workflow_validation: None,
@@ -4645,34 +4649,31 @@ impl MyApp {
                                         .map(|v| format!("{v:.2}"))
                                         .unwrap_or_else(|| "-".into());
                                     
-                                    egui::show_tooltip_at_pointer(
-                                        ctx,
-                                        egui::Id::new(("diff-tooltip", prow.page, prow.line_on_page)),
-                                        |ui| {
-                                            let p = self.settings.theme.palette();
-                                            egui::Frame::none()
-                                                .inner_margin(egui::vec2(12.0, 10.0))
-                                                .show(ui, |ui| {
-                                                    ui.horizontal(|ui| {
-                                                        ui.label(egui::RichText::new("🔍 Math Correction").color(p.accent).strong());
-                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                            ui.label(egui::RichText::new(format!("P{} L{}", prow.page + 1, prow.line_on_page + 1)).weak().size(10.0));
-                                                        });
+                                    let cell_resp = ui.allocate_rect(cell, egui::Sense::hover());
+                                    cell_resp.on_hover_ui(|ui| {
+                                        let p = self.settings.theme.palette();
+                                        egui::Frame::none()
+                                            .inner_margin(egui::vec2(12.0, 10.0))
+                                            .show(ui, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(egui::RichText::new("🔍 Math Correction").color(p.accent).strong());
+                                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                        ui.label(egui::RichText::new(format!("P{} L{}", prow.page + 1, prow.line_on_page + 1)).weak().size(12.0));
                                                     });
-                                                    ui.add_space(6.0);
-                                                    
-                                                    // Display old vs new with clear coloring
-                                                    ui.horizontal(|ui| {
-                                                        ui.label(egui::RichText::new(old_str).color(p.warn).strikethrough());
-                                                        ui.label(egui::RichText::new(" ➔ ").color(p.weak));
-                                                        ui.label(egui::RichText::new(new_str).color(p.success).strong());
-                                                    });
-                                                    
-                                                    ui.add_space(6.0);
-                                                    ui.small(egui::RichText::new("Balance automatically re-calculated by Engine").color(p.text.linear_multiply(0.7)));
                                                 });
-                                        },
-                                    );
+                                                ui.add_space(6.0);
+                                                
+                                                // Display old vs new with clear coloring
+                                                ui.horizontal(|ui| {
+                                                    ui.label(egui::RichText::new(old_str).color(p.warn).strikethrough());
+                                                    ui.label(egui::RichText::new(" ➔ ").color(p.weak));
+                                                    ui.label(egui::RichText::new(new_str).color(p.success).strong());
+                                                });
+                                                
+                                                ui.add_space(6.0);
+                                                ui.small(egui::RichText::new("Balance automatically re-calculated by Engine").color(p.text.linear_multiply(0.7)));
+                                            });
+                                    });
                                 }
                             }
                         }

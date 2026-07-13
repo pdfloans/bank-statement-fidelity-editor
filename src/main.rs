@@ -18,7 +18,6 @@ fn main() {
             ..Default::default()
         },
     ));
-    sentry_log::init(None);
 
     let config = Arc::new(app::config::AppConfig::from_env().unwrap_or_else(|e| {
         eprintln!("\n❌ Configuration Error\n");
