@@ -160,35 +160,34 @@ impl SmartDocumentEngine {
             .await;
 
         let changes: Vec<ProposedChange> = match plan_result {
-            Ok(plan) => {
-                plan.adjustments
-                    .into_iter()
-                    .map(|adj| {
-                        let resolved_bbox = self
-                            .all_transactions
-                            .iter()
-                            .find(|t| t.page == adj.page && t.line_on_page == adj.line_on_page)
-                            .and_then(|t| t.field_bboxes.running_balance.or(t.bbox));
-                        if resolved_bbox.is_none() {
-                            tracing::warn!(
-                                "[DOCUMENT ENGINE] no bbox for adjustment on page {} line {}; \
+            Ok(plan) => plan
+                .adjustments
+                .into_iter()
+                .map(|adj| {
+                    let resolved_bbox = self
+                        .all_transactions
+                        .iter()
+                        .find(|t| t.page == adj.page && t.line_on_page == adj.line_on_page)
+                        .and_then(|t| t.field_bboxes.running_balance.or(t.bbox));
+                    if resolved_bbox.is_none() {
+                        tracing::warn!(
+                            "[DOCUMENT ENGINE] no bbox for adjustment on page {} line {}; \
                                  it will be reported but cannot be auto-applied",
-                                adj.page,
-                                adj.line_on_page
-                            );
-                        }
-                        ProposedChange {
-                            page: adj.page,
-                            old_text: format!("{}", f64_to_dec(adj.old_running_balance)),
-                            new_text: format!("{}", f64_to_dec(adj.new_running_balance)),
-                            reason: adj.reason,
-                            confidence: adj.confidence,
-                            affects_subsequent_balances: true,
-                            bbox: resolved_bbox,
-                        }
-                    })
-                    .collect()
-            }
+                            adj.page,
+                            adj.line_on_page
+                        );
+                    }
+                    ProposedChange {
+                        page: adj.page,
+                        old_text: format!("{}", f64_to_dec(adj.old_running_balance)),
+                        new_text: format!("{}", f64_to_dec(adj.new_running_balance)),
+                        reason: adj.reason,
+                        confidence: adj.confidence,
+                        affects_subsequent_balances: true,
+                        bbox: resolved_bbox,
+                    }
+                })
+                .collect(),
             Err(e) => {
                 tracing::warn!("[DOCUMENT ENGINE] AI balance failed ({e}); falling back to local balance engine");
                 let expected_closing = Some(closing_balance);
@@ -204,8 +203,13 @@ impl SmartDocumentEngine {
                                 local_changes.push(ProposedChange {
                                     page: orig.page,
                                     old_text: orig.debit.map(|d| d.to_string()).unwrap_or_default(),
-                                    new_text: fixed.debit.map(|d| d.to_string()).unwrap_or_default(),
-                                    reason: msg.clone().unwrap_or_else(|| "Local balance engine (debit)".into()),
+                                    new_text: fixed
+                                        .debit
+                                        .map(|d| d.to_string())
+                                        .unwrap_or_default(),
+                                    reason: msg
+                                        .clone()
+                                        .unwrap_or_else(|| "Local balance engine (debit)".into()),
                                     confidence: 1.0,
                                     affects_subsequent_balances: true,
                                     bbox: orig.field_bboxes.debit.or(orig.bbox),
@@ -214,9 +218,17 @@ impl SmartDocumentEngine {
                             if orig.credit != fixed.credit {
                                 local_changes.push(ProposedChange {
                                     page: orig.page,
-                                    old_text: orig.credit.map(|d| d.to_string()).unwrap_or_default(),
-                                    new_text: fixed.credit.map(|d| d.to_string()).unwrap_or_default(),
-                                    reason: msg.clone().unwrap_or_else(|| "Local balance engine (credit)".into()),
+                                    old_text: orig
+                                        .credit
+                                        .map(|d| d.to_string())
+                                        .unwrap_or_default(),
+                                    new_text: fixed
+                                        .credit
+                                        .map(|d| d.to_string())
+                                        .unwrap_or_default(),
+                                    reason: msg
+                                        .clone()
+                                        .unwrap_or_else(|| "Local balance engine (credit)".into()),
                                     confidence: 1.0,
                                     affects_subsequent_balances: true,
                                     bbox: orig.field_bboxes.credit.or(orig.bbox),

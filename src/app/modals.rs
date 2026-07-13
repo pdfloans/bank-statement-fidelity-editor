@@ -1019,7 +1019,8 @@ impl AppModals for MyApp {
                     };
                     ui.colored_label(color, report.summary());
 
-                    egui::ScrollArea::vertical().auto_shrink([false, false])
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
                         .max_height(200.0)
                         .show(ui, |ui| {
                             for r in &report.results {

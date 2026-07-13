@@ -120,8 +120,8 @@ impl Theme {
                 weak: egui::Color32::from_rgb(200, 200, 200),
                 accent: egui::Color32::from_rgb(255, 255, 0), // High contrast yellow
                 success: egui::Color32::from_rgb(0, 255, 255), // Cyan
-                warn: egui::Color32::from_rgb(255, 255, 0), // Yellow
-                error: egui::Color32::from_rgb(255, 50, 50), // Bright red
+                warn: egui::Color32::from_rgb(255, 255, 0),   // Yellow
+                error: egui::Color32::from_rgb(255, 50, 50),  // Bright red
                 info: egui::Color32::from_rgb(255, 255, 255), // White
             },
             Theme::Protanopia => Palette {
@@ -132,8 +132,8 @@ impl Theme {
                 weak: egui::Color32::from_rgb(140, 140, 160),
                 accent: egui::Color32::from_rgb(100, 140, 255), // Blue (distinguishable)
                 success: egui::Color32::from_rgb(200, 200, 50), // Yellow-ish
-                warn: egui::Color32::from_rgb(255, 200, 50), // Orange/Yellow
-                error: egui::Color32::from_rgb(150, 100, 255), // Purple-ish instead of red
+                warn: egui::Color32::from_rgb(255, 200, 50),    // Orange/Yellow
+                error: egui::Color32::from_rgb(150, 100, 255),  // Purple-ish instead of red
                 info: egui::Color32::from_rgb(100, 140, 255),
             },
             Theme::Deuteranopia => Palette {
@@ -208,7 +208,7 @@ impl Theme {
         visuals.widgets.noninteractive.bg_fill = p.surface;
         visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
         visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, p.text);
-        
+
         visuals.widgets.inactive.bg_fill = p.surface;
         visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
         visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, p.text);
@@ -231,7 +231,7 @@ impl Theme {
         visuals.selection.stroke.color = p.accent;
         visuals.warn_fg_color = p.warn;
         visuals.error_fg_color = p.error;
-        
+
         ctx.set_visuals(visuals);
 
         // Global style and premium typography tweaks
@@ -240,7 +240,7 @@ impl Theme {
         style.spacing.button_padding = egui::vec2(16.0, 8.0);
         style.spacing.window_margin = egui::Margin::same(16.0);
         style.spacing.menu_margin = egui::Margin::same(8.0);
-        
+
         // Slightly thicker scrollbars for better visibility
         style.spacing.scroll.bar_width = 10.0;
         style.spacing.scroll.bar_inner_margin = 2.0;
@@ -2252,31 +2252,37 @@ impl MyApp {
                                     .size(12.0),
                             );
                             ui.add_space(4.0);
-                            egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    let recent = self.settings.recent_files.clone();
-                                    if recent.is_empty() {
-                                        ui.label(
-                                            egui::RichText::new("No recent files").italics().color(
-                                                ui.visuals().text_color().linear_multiply(0.3),
-                                            ),
-                                        );
-                                    }
-                                    for f in recent.into_iter().take(5) {
-                                        let label = std::path::Path::new(&f)
-                                            .file_name()
-                                            .unwrap_or_default()
-                                            .to_string_lossy();
-
-                                        if ui
-                                            .add_sized([120.0, 36.0], egui::Button::new(label))
-                                            .clicked()
-                                        {
-                                            self.open_pdf(std::path::PathBuf::from(f));
+                            egui::ScrollArea::horizontal()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        let recent = self.settings.recent_files.clone();
+                                        if recent.is_empty() {
+                                            ui.label(
+                                                egui::RichText::new("No recent files")
+                                                    .italics()
+                                                    .color(
+                                                        ui.visuals()
+                                                            .text_color()
+                                                            .linear_multiply(0.3),
+                                                    ),
+                                            );
                                         }
-                                    }
+                                        for f in recent.into_iter().take(5) {
+                                            let label = std::path::Path::new(&f)
+                                                .file_name()
+                                                .unwrap_or_default()
+                                                .to_string_lossy();
+
+                                            if ui
+                                                .add_sized([120.0, 36.0], egui::Button::new(label))
+                                                .clicked()
+                                            {
+                                                self.open_pdf(std::path::PathBuf::from(f));
+                                            }
+                                        }
+                                    });
                                 });
-                            });
                         });
                     }
                 });
@@ -2551,23 +2557,25 @@ impl MyApp {
 
             // Shared History Thumbnail Row
             ui.label("Recent Statements (Click to assign to Target):");
-            egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let recent = self.settings.recent_files.clone();
-                    for f in recent.into_iter().take(8) {
-                        let label = std::path::Path::new(&f)
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy();
-                        if ui
-                            .add_sized([120.0, 80.0], egui::Button::new(label))
-                            .clicked()
-                        {
-                            self.input_path = f.clone();
+            egui::ScrollArea::horizontal()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let recent = self.settings.recent_files.clone();
+                        for f in recent.into_iter().take(8) {
+                            let label = std::path::Path::new(&f)
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy();
+                            if ui
+                                .add_sized([120.0, 80.0], egui::Button::new(label))
+                                .clicked()
+                            {
+                                self.input_path = f.clone();
+                            }
                         }
-                    }
+                    });
                 });
-            });
         });
     }
 
@@ -2577,27 +2585,33 @@ impl MyApp {
             ui.separator();
             ui.add_space(10.0);
 
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Theme:");
-                    egui::ComboBox::from_id_salt("theme_selector")
-                        .selected_text(format!("{:?}", self.settings.theme))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.settings.theme, Theme::Dark, "Dark");
-                            ui.selectable_value(&mut self.settings.theme, Theme::Light, "Light");
-                            ui.selectable_value(
-                                &mut self.settings.theme,
-                                Theme::Midnight,
-                                "Midnight",
-                            );
-                        });
-                });
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Theme:");
+                        egui::ComboBox::from_id_salt("theme_selector")
+                            .selected_text(format!("{:?}", self.settings.theme))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.settings.theme, Theme::Dark, "Dark");
+                                ui.selectable_value(
+                                    &mut self.settings.theme,
+                                    Theme::Light,
+                                    "Light",
+                                );
+                                ui.selectable_value(
+                                    &mut self.settings.theme,
+                                    Theme::Midnight,
+                                    "Midnight",
+                                );
+                            });
+                    });
 
-                ui.add_space(20.0);
-                self.draw_font_analysis_section(ui);
-                ui.add_space(20.0);
-                self.draw_workflow_section(ui);
-            });
+                    ui.add_space(20.0);
+                    self.draw_font_analysis_section(ui);
+                    ui.add_space(20.0);
+                    self.draw_workflow_section(ui);
+                });
         });
     }
 
@@ -2607,9 +2621,11 @@ impl MyApp {
             ui.separator();
             ui.add_space(10.0);
 
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                self.draw_api_keys_editor(ui);
-            });
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    self.draw_api_keys_editor(ui);
+                });
         });
     }
 
@@ -2689,7 +2705,8 @@ impl MyApp {
                     }
                 });
 
-                egui::ScrollArea::vertical().auto_shrink([false, false])
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
                     .max_height(200.0)
                     .show(ui, |ui| {
                         for i in 0..self.total_pages {
@@ -3454,7 +3471,8 @@ impl MyApp {
                     };
                     ui.colored_label(color, report.summary());
 
-                    egui::ScrollArea::vertical().auto_shrink([false, false])
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
                         .max_height(200.0)
                         .show(ui, |ui| {
                             for r in &report.results {
@@ -4136,7 +4154,8 @@ impl MyApp {
             ui.separator();
 
             // Per-font breakdown.
-            egui::ScrollArea::vertical().auto_shrink([false, false])
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
                 .id_salt("font-analysis-list")
                 .max_height(280.0)
                 .show(ui, |ui| {
