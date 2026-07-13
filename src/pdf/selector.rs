@@ -126,6 +126,36 @@ impl PdfEngineSelector {
                         );
                         run_safe(&*self.fallback)
                     }
+                    Err(EngineError::RowDrifted {
+                        x0,
+                        y0,
+                        x1,
+                        y1,
+                        required,
+                        best,
+                    }) => {
+                        // T2: RowDrifted means the target bbox doesn't overlap any
+                        // real text on the page — both engines would produce the same
+                        // verdict, so skip the fallback and surface immediately.
+                        tracing::warn!(
+                            x0,
+                            y0,
+                            x1,
+                            y1,
+                            required,
+                            best,
+                            "Edit target has drifted: the bbox no longer overlaps \
+                             the intended text cell by the required margin"
+                        );
+                        Err(EngineError::RowDrifted {
+                            x0,
+                            y0,
+                            x1,
+                            y1,
+                            required,
+                            best,
+                        })
+                    }
                     Err(e) => {
                         tracing::warn!(
                             engine.fallback_triggered = true,
@@ -288,7 +318,9 @@ impl PdfEngine for PdfEngineSelector {
         // T2: Route through apply_change_guarded with 50% overlap threshold
         // to prevent row-drift edits on introspectable pages.
         self.try_primary_or_fallback(|engine| {
-            engine.apply_change_guarded(input, output, page, bbox, new_text, old_text, font_path, 0.5)
+            engine.apply_change_guarded(
+                input, output, page, bbox, new_text, old_text, font_path, 0.5,
+            )
         })
     }
 
@@ -437,8 +469,10 @@ mod tests {
         fallback: Arc<dyn PdfEngine>,
         mode: PdfEngineMode,
     ) -> PdfEngineSelector {
-        let mut cfg = AppConfig::default();
-        cfg.engine_mode = mode;
+        let cfg = AppConfig {
+            engine_mode: mode,
+            ..AppConfig::default()
+        };
         PdfEngineSelector::new(
             primary,
             fallback,

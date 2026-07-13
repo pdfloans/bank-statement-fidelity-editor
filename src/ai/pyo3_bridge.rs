@@ -465,7 +465,7 @@ mod tests {
         pyo3::Python::initialize();
         let res: Result<(), String> = PyEngine::safe_python_with_gil(|py| {
             // Trigger a Python exception deliberately
-            let _ = py
+            py
                 .run(
                     c"raise ValueError('Intentional Python Exception')",
                     None,

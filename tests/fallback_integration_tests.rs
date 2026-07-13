@@ -90,7 +90,7 @@ async fn test_offline_fallback_can_be_triggered() {
     let engine_for_tokio = engine.clone();
 
     // Simulate Mindee returning an error
-    let fake_mindee_error = anyhow::anyhow!("Mindee API Error: 500 Internal Server Error");
+    let _fake_mindee_error = anyhow::anyhow!("Mindee API Error: 500 Internal Server Error");
 
     // Execute the exact fallback logic present in `runtime.rs:3342`
     let path = PathBuf::from("nonexistent.pdf");

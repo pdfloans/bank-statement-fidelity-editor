@@ -24,13 +24,13 @@ fn test_rust_uiautomation_e2e() {
 
     // 2. Initialize UIAutomation
     let automation = UIAutomation::new().expect("Failed to initialize UIAutomation");
-    let root = automation
+    let _root = automation
         .get_root_element()
         .expect("Failed to get root element");
 
     // 3. Find the application window
     // We use a tree walker to search for our window by name
-    let condition = automation
+    let _condition = automation
         .create_property_condition(
             UIProperty::Name,
             Variant::from("Bank Statement Fidelity Editor"),

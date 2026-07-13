@@ -395,23 +395,21 @@ impl MindeeClient {
             {
                 Ok(resp) => {
                     let status = resp.status();
-                    if status.is_server_error() || status == 429 {
-                        if attempts < max_attempts {
-                            let jitter = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.subsec_millis() as u64 % 500)
-                                .unwrap_or(250);
-                            let delay = std::time::Duration::from_millis(
-                                500 * (1 << (attempts - 1)) + jitter,
-                            );
-                            tracing::warn!(
-                                "[mindee] enqueue got {}, retrying in {:?}",
-                                status,
-                                delay
-                            );
-                            tokio::time::sleep(delay).await;
-                            continue;
-                        }
+                    if (status.is_server_error() || status == 429) && attempts < max_attempts {
+                        let jitter = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.subsec_millis() as u64 % 500)
+                            .unwrap_or(250);
+                        let delay = std::time::Duration::from_millis(
+                            500 * (1 << (attempts - 1)) + jitter,
+                        );
+                        tracing::warn!(
+                            "[mindee] enqueue got {}, retrying in {:?}",
+                            status,
+                            delay
+                        );
+                        tokio::time::sleep(delay).await;
+                        continue;
                     }
                     if !status.is_success() {
                         let text = resp.text().await.unwrap_or_default();

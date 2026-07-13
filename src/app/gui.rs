@@ -892,6 +892,7 @@ impl MyApp {
     /// Convention: an edited file is named `<base>_edited.pdf`. Its original is
     /// looked up as `<base>_original.pdf` first, falling back to a bare
     /// `<base>.pdf` in the same set. Returns `(original, edited)` pairs.
+    #[allow(dead_code)]
     fn pair_originals_and_edited(files: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
         use std::collections::HashMap;
         let by_stem: HashMap<String, PathBuf> = files
@@ -1022,12 +1023,27 @@ impl MyApp {
         // Add input PDF if it exists
         let input = std::path::Path::new(input_path);
         if input.exists() {
-            ar.append_path_with_name(input, format!("bundle/{}", input.file_name().unwrap_or_default().to_string_lossy()))?;
+            ar.append_path_with_name(
+                input,
+                format!(
+                    "bundle/{}",
+                    input.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            )?;
         }
 
         // Add edited output PDF if it exists
         if output_path.exists() {
-            ar.append_path_with_name(output_path, format!("bundle/{}", output_path.file_name().unwrap_or_default().to_string_lossy()))?;
+            ar.append_path_with_name(
+                output_path,
+                format!(
+                    "bundle/{}",
+                    output_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                ),
+            )?;
         }
 
         // Add audit log if it exists
@@ -1037,7 +1053,13 @@ impl MyApp {
                 let entry = entry?;
                 let path = entry.path();
                 if path.is_file() {
-                    ar.append_path_with_name(&path, format!("bundle/audit/{}", path.file_name().unwrap_or_default().to_string_lossy()))?;
+                    ar.append_path_with_name(
+                        &path,
+                        format!(
+                            "bundle/audit/{}",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        ),
+                    )?;
                 }
             }
         }
@@ -2454,7 +2476,8 @@ impl MyApp {
                             edited: std::path::PathBuf::from(&self.output_path),
                             output_dir: std::path::PathBuf::from("audit"),
                             intended_bboxes,
-                            use_pdfrest: self.settings.verification_renderer == crate::app::config::VerificationMode::PdfRestCloud,
+                            use_pdfrest: self.settings.verification_renderer
+                                == crate::app::config::VerificationMode::PdfRestCloud,
                             pdfrest_key: self.config.pdfrest_api_key.clone(),
                         });
                         self.in_flight += 1;
@@ -2731,6 +2754,7 @@ impl MyApp {
         });
     }
 
+    #[allow(dead_code)]
     fn draw_left_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("left_panel")
             .width_range(180.0..=300.0)
@@ -3077,13 +3101,13 @@ impl MyApp {
                                                 // G1: Filter dropped files to .ttf/.otf, scope to drop-zone rect
                                                 let dropped_in_zone = ctx.input(|i| {
                                                     i.raw.dropped_files.iter().filter_map(|f| {
-                                                        f.path.as_ref().map(|p| p.clone())
+                                                        f.path.as_ref().cloned()
                                                     }).collect::<Vec<_>>()
                                                 });
                                                 if !dropped_in_zone.is_empty() {
                                                     // Only process if the pointer is within the drop-zone rect
                                                     let pointer_in_zone = ctx.input(|i| {
-                                                        i.pointer.hover_pos().map_or(false, |pos| response.rect.contains(pos))
+                                                        i.pointer.hover_pos().is_some_and(|pos| response.rect.contains(pos))
                                                     });
                                                     if pointer_in_zone {
                                                         for path in &dropped_in_zone {
@@ -4663,6 +4687,7 @@ impl MyApp {
         self.in_flight += 1;
     }
 
+    #[allow(dead_code)]
     fn draw_batch_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Batch Processing Dashboard");
@@ -4751,6 +4776,7 @@ impl MyApp {
         });
     }
 
+    #[allow(dead_code)]
     fn draw_audit_explorer_view(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(self.settings.theme.palette().bg))

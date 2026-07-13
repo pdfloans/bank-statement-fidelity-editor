@@ -411,10 +411,17 @@ fn extract_text_via_ocr(
                 page,
                 bbox: [0.0, 0.0, rendered.width_pts, rendered.height_pts],
                 text,
+                font: String::new(), // OCR can't determine the original font
+                size: 12.0,          // Default — OCR has no font-size info
+                obj_id: None,        // No PDF object ID for OCR-derived blocks
             }]
         }
         Err(e) => {
-            tracing::warn!("[offline_parser] OCR extraction failed for page {}: {}", page, e);
+            tracing::warn!(
+                "[offline_parser] OCR extraction failed for page {}: {}",
+                page,
+                e
+            );
             vec![]
         }
     }

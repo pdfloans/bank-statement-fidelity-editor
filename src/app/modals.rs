@@ -77,6 +77,7 @@ impl CommandPalette for MyApp {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) trait AppModals {
     fn draw_settings_modal(&mut self, ctx: &egui::Context);
     fn draw_backend_preferences(&mut self, ui: &mut egui::Ui);
@@ -567,7 +568,7 @@ impl AppModals for MyApp {
                                         }
                                     });
                                 });
-                                
+
                             ui.add_space(4.0);
                             let applitools_label = if avail.applitools {
                                 "Additive: Applitools Visual AI"
@@ -1025,7 +1026,7 @@ impl AppModals for MyApp {
                         let statements: Vec<std::path::PathBuf> = self
                             .transfer_test_paths
                             .iter()
-                            .map(|p| std::path::PathBuf::from(p))
+                            .map(std::path::PathBuf::from)
                             .collect();
                         let _ = self.job_tx.send(Job::RunTransferTests {
                             statements,
@@ -1035,7 +1036,7 @@ impl AppModals for MyApp {
                         self.status = format!("Running {} transfer tests...", pairs);
                         self.toast(
                             ToastKind::Info,
-                            &format!("Running {} transfer test pairs...", pairs),
+                            format!("Running {} transfer test pairs...", pairs),
                         );
                     }
 

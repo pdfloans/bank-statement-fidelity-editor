@@ -560,10 +560,18 @@ impl Runtime {
         ));
 
         let _python_actor_thread = thread::spawn(move || {
-            let engine_result = crate::ai::pyo3_bridge::PyEngine::init();
+            // T2 test support: simulate a downed actor for cascade fallback testing
+            let engine_result = if std::env::var("TEST_CRASH_PYTHON_ACTOR").is_ok() {
+                tracing::warn!(
+                    "[PYTHON_ACTOR] TEST_CRASH_PYTHON_ACTOR set — simulating crashed actor"
+                );
+                Err("Simulated Python actor crash for testing".to_string())
+            } else {
+                crate::ai::pyo3_bridge::PyEngine::init()
+            };
 
             if let Err(e) = &engine_result {
-                tracing::error!("âŒ [PYTHON_ACTOR] Failed to initialize PyEngine: {}", e);
+                tracing::error!("❌ [PYTHON_ACTOR] Failed to initialize PyEngine: {}", e);
             }
 
             while let Ok((job, reply_tx)) = python_rx.recv() {
@@ -1647,7 +1655,7 @@ impl Runtime {
                                         crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
                                     }).await.unwrap_or_else(|e| Err(format!("Offline parser panicked: {e}")))
                                 };
-                                
+
                                 match reparsed_stmt {
                                     Ok(reparsed) => {
                                         let engine_txns: Vec<crate::engine::model::Transaction> = reparsed.transactions;
@@ -2044,7 +2052,7 @@ impl Runtime {
                                             }).await {
                                                 Ok(Ok(s)) => s,
                                                 _ => {
-                                                    corrections.push(format!("Source parse failed (DocAI + offline)"));
+                                                    corrections.push("Source parse failed (DocAI + offline)".to_string());
                                                     results.push(TransferTestResult {
                                                         source: source.clone(), target: target.clone(),
                                                         output: output.clone(), iterations: 0,

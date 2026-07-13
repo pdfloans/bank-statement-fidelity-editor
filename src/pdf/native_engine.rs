@@ -759,7 +759,10 @@ impl PdfEngine for OxidizePdfEngine {
     ) -> Result<usize, EngineError> {
         let edits: Vec<serde_json::Value> = serde_json::from_str(edits_json)
             .map_err(|e| EngineError::ApplyFailed(format!("Invalid edits JSON: {e}")))?;
-        tracing::debug!(edits_count = edits.len(), "native engine apply_many_edits called");
+        tracing::debug!(
+            edits_count = edits.len(),
+            "native engine apply_many_edits called"
+        );
 
         // Stage 1 Strict Font Guard for batch edits
         for edit in &edits {

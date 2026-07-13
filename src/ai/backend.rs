@@ -109,7 +109,7 @@ impl AiBackend {
     // Pass-through stubs for vision methods not supported by text-only OpenAI models.
     pub async fn validate_render_visually(
         &self,
-        _doc: &Vec<u8>,
+        _doc: &[u8],
         _bboxes: &[[f32; 4]],
     ) -> Result<crate::ai::gemini_client::GeminiVisionReport, AiBackendError> {
         match self {

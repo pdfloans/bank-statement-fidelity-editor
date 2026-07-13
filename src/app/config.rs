@@ -863,12 +863,12 @@ mod tests {
 
     #[test]
     fn test_has_ai_for_balancing() {
-        let mut cfg = super::AppConfig::default();
-
-        // Manual mode is always false
-        cfg.ai_provider = super::AiProviderMode::ManualOnly;
-        cfg.gemini_api_key = Some("test".into());
-        cfg.groq_api_key = Some("test".into());
+        let mut cfg = super::AppConfig {
+            ai_provider: super::AiProviderMode::ManualOnly,
+            gemini_api_key: Some("test".into()),
+            groq_api_key: Some("test".into()),
+            ..super::AppConfig::default()
+        };
         assert!(!cfg.has_ai_for_balancing());
 
         // Gemini API Key requires gemini_api_key
