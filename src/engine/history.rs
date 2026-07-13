@@ -53,6 +53,10 @@ impl ChangeHistory {
         }
     }
 
+    pub fn current_index(&self) -> usize {
+        self.current_index
+    }
+
     pub fn push_change(
         &mut self,
         page: usize,

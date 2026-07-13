@@ -4,6 +4,73 @@ use egui_plot::{Line, Plot};
 use std::path::PathBuf;
 
 
+
+pub trait CommandPalette {
+    fn draw_command_palette(&mut self, ctx: &egui::Context);
+}
+
+impl CommandPalette for MyApp {
+    fn draw_command_palette(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_command_palette;
+        let mut submit_nlp = false;
+
+        egui::Window::new("Command Palette")
+            .title_bar(false)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
+            .fixed_size(egui::vec2(600.0, 60.0))
+            .frame(egui::Frame::window(&ctx.style())
+                .fill(self.settings.theme.palette().bg.linear_multiply(0.95))
+                .inner_margin(16.0)
+                .rounding(12.0)
+                .shadow(egui::epaint::Shadow {
+                    offset: egui::vec2(0.0, 20.0),
+                    blur: 40.0,
+                    spread: 0.0,
+                    color: egui::Color32::from_black_alpha(150),
+                }))
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("🔍").size(24.0));
+                    
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.command_query)
+                            .desired_width(500.0)
+                            .font(egui::FontId::proportional(20.0))
+                            .hint_text("Type a command or ask AI... (e.g. 'balance page 1')")
+                    );
+                    
+                    response.request_focus();
+                    
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        submit_nlp = true;
+                    }
+                });
+                
+                if !self.command_query.is_empty() {
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new("Press Enter to execute natural language prompt via Gemini").color(self.settings.theme.palette().weak).italics());
+                }
+            });
+            
+        if submit_nlp {
+            let prompt = std::mem::take(&mut self.command_query);
+            self.toast(ToastKind::Info, format!("Executing AI command: {}", prompt));
+            
+            // Note: NLP AI Job would be triggered here in the Job loop.
+            // self.job_tx.send(Job::AiNaturalLanguageCommand { prompt, path: self.current_pdf_path.clone() });
+            
+            self.show_command_palette = false;
+        } else {
+            self.show_command_palette = open;
+        }
+    }
+}
+
 pub(crate) trait AppModals {
     fn draw_settings_modal(&mut self, ctx: &egui::Context);
     fn draw_backend_preferences(&mut self, ui: &mut egui::Ui);

@@ -326,6 +326,10 @@ pub enum Job {
         statements: Vec<PathBuf>,
         max_iterations: u32,
     },
+    AiCommand {
+        prompt: String,
+        path: PathBuf,
+    },
 
     // -- Document AI Version Management --
     /// Fetch list of available processor versions from the API.
