@@ -112,6 +112,42 @@ impl Theme {
                 error: egui::Color32::from_rgb(220, 50, 47),
                 info: egui::Color32::from_rgb(38, 139, 210),
             },
+            Theme::HighContrast => Palette {
+                bg: egui::Color32::from_rgb(0, 0, 0),
+                panel: egui::Color32::from_rgb(0, 0, 0),
+                surface: egui::Color32::from_rgb(0, 0, 0),
+                text: egui::Color32::from_rgb(255, 255, 255),
+                weak: egui::Color32::from_rgb(200, 200, 200),
+                accent: egui::Color32::from_rgb(255, 255, 0), // High contrast yellow
+                success: egui::Color32::from_rgb(0, 255, 255), // Cyan
+                warn: egui::Color32::from_rgb(255, 255, 0), // Yellow
+                error: egui::Color32::from_rgb(255, 50, 50), // Bright red
+                info: egui::Color32::from_rgb(255, 255, 255), // White
+            },
+            Theme::Protanopia => Palette {
+                bg: egui::Color32::from_rgb(22, 24, 30),
+                panel: egui::Color32::from_rgb(28, 30, 38),
+                surface: egui::Color32::from_rgb(36, 38, 46),
+                text: egui::Color32::from_rgb(220, 220, 230),
+                weak: egui::Color32::from_rgb(140, 140, 160),
+                accent: egui::Color32::from_rgb(100, 140, 255), // Blue (distinguishable)
+                success: egui::Color32::from_rgb(200, 200, 50), // Yellow-ish
+                warn: egui::Color32::from_rgb(255, 200, 50), // Orange/Yellow
+                error: egui::Color32::from_rgb(150, 100, 255), // Purple-ish instead of red
+                info: egui::Color32::from_rgb(100, 140, 255),
+            },
+            Theme::Deuteranopia => Palette {
+                bg: egui::Color32::from_rgb(22, 24, 30),
+                panel: egui::Color32::from_rgb(28, 30, 38),
+                surface: egui::Color32::from_rgb(36, 38, 46),
+                text: egui::Color32::from_rgb(220, 220, 230),
+                weak: egui::Color32::from_rgb(140, 140, 160),
+                accent: egui::Color32::from_rgb(100, 140, 255), // Blue
+                success: egui::Color32::from_rgb(200, 200, 50), // Yellow-ish
+                warn: egui::Color32::from_rgb(255, 200, 50),
+                error: egui::Color32::from_rgb(255, 100, 100), // Distinct red
+                info: egui::Color32::from_rgb(100, 140, 255),
+            },
         }
     }
 
@@ -122,6 +158,9 @@ impl Theme {
             Theme::Light => "Light",
             Theme::Midnight => "Midnight",
             Theme::Solarized => "Solarized",
+            Theme::HighContrast => "High Contrast",
+            Theme::Protanopia => "Protanopia",
+            Theme::Deuteranopia => "Deuteranopia",
         }
     }
 

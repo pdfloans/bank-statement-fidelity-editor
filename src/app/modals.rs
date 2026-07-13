@@ -1,4 +1,4 @@
-use crate::app::gui::{AppView, MyApp, Theme, ToastKind};
+use crate::app::gui::{MyApp, Theme, ToastKind};
 use crate::app::runtime::Job;
 use egui_plot::{Line, Plot};
 use std::path::PathBuf;

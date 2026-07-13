@@ -882,7 +882,7 @@ mod tests {
         cfg.ai_provider = super::AiProviderMode::GeminiVertex;
         cfg.document_ai = None;
         assert!(!cfg.has_ai_for_balancing());
-        cfg.document_ai = Some(crate::ai::document_ai::DocAiConfig {
+        cfg.document_ai = Some(DocumentAiConfig {
             project_id: "".into(),
             location: "".into(),
             processor_id: "".into(),
