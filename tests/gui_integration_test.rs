@@ -38,12 +38,12 @@ fn test_bank_statement_modifier_ui() {
     // Test Settings Workflow
     harness.get_by_label_contains("⚙").click();
     harness.step();
-    let _settings_header = harness.get_by_label_contains("App Settings");
+    let _settings_header = harness.get_by_label_contains("Global Application Settings");
 
     // Test API Keys Workflow
     harness.get_by_label_contains("🔑").click();
     harness.step();
-    let _api_keys_header = harness.get_by_label_contains("API & Engine Preferences");
+    let _api_keys_header = harness.get_by_label_contains("API Keys & Integration Management");
     
     // Test Modals (Trigger "Exit without saving" or something if applicable, 
     // but just checking the workflows gets us all the core screens).
