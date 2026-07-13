@@ -888,7 +888,9 @@ mod tests {
             processor_id: "".into(),
             service_account_path: "sa.json".into(),
             adc_path: "".into(),
-            api_key: None,
+            api_key: "".into(),
+            gcs_output_uri: "".into(),
+            passphrase: "".into(),
         });
         assert!(cfg.has_ai_for_balancing());
 
