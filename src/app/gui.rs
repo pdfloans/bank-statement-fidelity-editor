@@ -2137,6 +2137,7 @@ impl MyApp {
                         ),
                         egui::Sense::click(),
                     );
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &btn_text));
 
                     // Hover animation
                     let hover_factor =
