@@ -91,7 +91,6 @@ fn test_native_engine_apply_change_baseline() {
 }
 
 #[test]
-#[ignore] // TODO(T2): un-ignore once selector write path uses apply_change_guarded
 fn test_native_engine_repeated_value_target() {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("repeated_edit_in.pdf");
@@ -119,7 +118,6 @@ fn test_native_engine_repeated_value_target() {
 }
 
 #[test]
-#[ignore] // TODO(T2): un-ignore once selector write path uses apply_change_guarded
 fn test_selector_rejects_non_overlapping_bbox() {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("guard_in.pdf");
@@ -168,9 +166,12 @@ fn test_native_engine_apply_many_edits_baseline() {
             "old_text": "Second",
             "new_text": "Beta"
         }
-    ]).to_string();
+    ])
+    .to_string();
 
-    engine.apply_many_edits(&input, &output, &edits_json, None).unwrap();
+    engine
+        .apply_many_edits(&input, &output, &edits_json, None)
+        .unwrap();
 
     let out_blocks = engine.get_text_blocks(&output, 0).unwrap();
     assert_eq!(out_blocks.len(), 2);

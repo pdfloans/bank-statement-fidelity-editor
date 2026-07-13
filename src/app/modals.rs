@@ -371,6 +371,20 @@ impl AppModals for MyApp {
                                 ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::TypstReconstruct, "Reconstruct (Typst + Subsetter)")
                                     .on_hover_text("NEW: Rebuilds the PDF from scratch using Typst and font subsetting instead of editing the original.");
                             });
+                        // G5: Persist engine-mode on change and flow to runtime config
+                        if self.edit_engine_mode != self.config.engine_mode {
+                            self.config.engine_mode = self.edit_engine_mode;
+                            let mode_str = match self.edit_engine_mode {
+                                PdfEngineMode::Auto => "auto",
+                                PdfEngineMode::DualConcurrent => "dual_concurrent",
+                                PdfEngineMode::NativeOnly => "native_only",
+                                PdfEngineMode::PyMuPdfOnly => "pymupdf_only",
+                                PdfEngineMode::TypstReconstruct => "typst_reconstruct",
+                            };
+                            std::env::set_var("PDF_ENGINE_MODE", mode_str);
+                            let _ = confy::store("bank-statement-modifier", None, &self.settings);
+                            let _ = self.job_tx.send(crate::app::runtime::Job::ReloadConfig);
+                        }
                         ui.end_row();
 
                         // ── 2. AI Provider ──
@@ -489,9 +503,22 @@ impl AppModals for MyApp {
                                 ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::PyMuPdfBuiltin, "PyMuPDF (Built-in) \u{2705}")
                                     .on_hover_text("No external deps. Extracts text directly from PDF structure. Always available.");
 
-                                // Local OCR (always available)
-                                ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LocalOcrs, "Local OCR (ocrs) \u{2705}")
-                                    .on_hover_text("Pure Rust OCR. Works offline on scanned documents. Always available.");
+                                // Local OCR (availability-gated)
+                                {
+                                    let ocr_label = if avail.ocr {
+                                        "Local OCR (ocrs) \u{2705}"
+                                    } else {
+                                        "Local OCR (ocrs) \u{26d4} Unavailable"
+                                    };
+                                    ui.add_enabled_ui(avail.ocr, |ui| {
+                                        let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LocalOcrs, ocr_label);
+                                        if let Some(reason) = avail.unavailable_reason("ocr") {
+                                            r.on_hover_text(format!("\u{26a0} {reason}"));
+                                        } else {
+                                            r.on_hover_text("Pure Rust OCR. Works offline on scanned documents.");
+                                        }
+                                    });
+                                }
 
                                 // Document AI
                                 {

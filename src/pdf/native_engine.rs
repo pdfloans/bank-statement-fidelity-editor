@@ -598,18 +598,14 @@ impl PdfEngine for OxidizePdfEngine {
                     let x = tm[4];
                     let y = tm[5];
                     let mut text_matches = false;
-                    let mut found_text = String::new();
                     if let Some(text) = extract_string_operand(&op.operands) {
-                        found_text = text.clone();
                         if !text.trim().is_empty() && text.trim() == old_text.trim() {
                             text_matches = true;
                         }
                     }
                     let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
                     if x_matches {
-                        println!(
-                            "[DEBUG Tj] Found text '{found_text}' at x={x}, target='{old_text}'"
-                        );
+                        tracing::debug!(x, "found text matching x-coordinate bounds");
                     }
                     let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
 
@@ -628,7 +624,6 @@ impl PdfEngine for OxidizePdfEngine {
                     let x = tm[4];
                     let y = tm[5];
                     let mut text_matches = false;
-                    let mut found_text = String::new();
                     if let Some(lopdf::Object::Array(ref arr)) = op.operands.first() {
                         let mut combined = String::new();
                         for item in arr {
@@ -636,16 +631,13 @@ impl PdfEngine for OxidizePdfEngine {
                                 combined.push_str(&String::from_utf8_lossy(bytes));
                             }
                         }
-                        found_text = combined.clone();
                         if !combined.trim().is_empty() && combined.trim() == old_text.trim() {
                             text_matches = true;
                         }
                     }
                     let x_matches = x >= bbox[0] - 5.0 && x <= bbox[2] + 5.0;
                     if x_matches {
-                        println!(
-                            "[DEBUG TJ] Found text '{found_text}' at x={x}, target='{old_text}'"
-                        );
+                        tracing::debug!(x, "found text matching x-coordinate bounds");
                     }
                     let y_matches = y >= bbox[1] - 1.0 && y <= bbox[3] + 1.0;
 
@@ -739,6 +731,7 @@ impl PdfEngine for OxidizePdfEngine {
     ) -> Result<usize, EngineError> {
         let edits: Vec<serde_json::Value> = serde_json::from_str(edits_json)
             .map_err(|e| EngineError::ApplyFailed(format!("Invalid edits JSON: {e}")))?;
+        tracing::debug!(edits_count = edits.len(), "native engine apply_many_edits called");
 
         // Stage 1 Strict Font Guard for batch edits
         for edit in &edits {
@@ -833,6 +826,7 @@ impl PdfEngine for OxidizePdfEngine {
                         for edit in &page_edits {
                             if let Some(rect) = edit["rect"].as_array() {
                                 if rect.len() == 4 {
+                                    tracing::debug!("edit bbox match found");
                                     let bbox = [
                                         rect[0].as_f64().unwrap_or(0.0) as f32,
                                         rect[1].as_f64().unwrap_or(0.0) as f32,

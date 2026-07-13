@@ -2,6 +2,7 @@
 use crate::app::audit::AuditLog;
 use crate::engine::history::{ChangeHistory, ChangeRecord};
 use crate::engine::segments::{GlobalEdit, SegmentManager, SegmentMap};
+use crate::pdf::engine::PdfEngine;
 use crate::pdf::ReplaceOutcome;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -2911,6 +2912,7 @@ impl Runtime {
                                         }))
                                     }).collect();
                                     let json_str = serde_json::to_string(&edits_json).unwrap_or_else(|_| "[]".into());
+                                    let json_str_for_fallback = json_str.clone();
                                     let edited_out = tmp.path().join(format!("segment_{si:03}_edited.pdf"));
 
                                     let (rtx, rrx) = oneshot::channel();
@@ -2925,8 +2927,54 @@ impl Runtime {
                                             seg_paths[si] = edited_out;
                                             applied += edits.len();
                                         }
-                                        Ok(PythonJobResult::Error(e)) => failures.push(format!("segment {si} edit failed: {e}")),
-                                        other => failures.push(format!("segment {si} edit: unexpected result {other:?}")),
+                                        Ok(PythonJobResult::Error(e)) => {
+                                            // T2: Native fallback — try OxidizePdfEngine when Python fails.
+                                            tracing::warn!(segment = si, python_error = %e, "Python actor failed for segment, attempting native fallback");
+                                            let native_in = seg_paths[si].clone();
+                                            let native_out = tmp.path().join(format!("segment_{si:03}_native.pdf"));
+                                            let native_json = json_str_for_fallback.clone();
+                                            let native_result = tokio::task::spawn_blocking(move || {
+                                                let native_eng = crate::pdf::native_engine::OxidizePdfEngine::new();
+                                                native_eng.apply_many_edits(&native_in, &native_out, &native_json, None)
+                                            }).await;
+                                            match native_result {
+                                                Ok(Ok(count)) => {
+                                                    seg_paths[si] = tmp.path().join(format!("segment_{si:03}_native.pdf"));
+                                                    applied += count;
+                                                    tracing::info!(segment = si, edits_applied = count, "Native fallback succeeded");
+                                                }
+                                                Ok(Err(native_err)) => {
+                                                    failures.push(format!("segment {si}: Python failed ({e}), native also failed ({native_err})"));
+                                                }
+                                                Err(panic_err) => {
+                                                    failures.push(format!("segment {si}: Python failed ({e}), native panicked ({panic_err})"));
+                                                }
+                                            }
+                                        }
+                                        other => {
+                                            // T2: Native fallback for unexpected results too.
+                                            tracing::warn!(segment = si, result = ?other, "Python actor returned unexpected result, attempting native fallback");
+                                            let native_in = seg_paths[si].clone();
+                                            let native_out = tmp.path().join(format!("segment_{si:03}_native2.pdf"));
+                                            let native_json = json_str_for_fallback;
+                                            let native_result = tokio::task::spawn_blocking(move || {
+                                                let native_eng = crate::pdf::native_engine::OxidizePdfEngine::new();
+                                                native_eng.apply_many_edits(&native_in, &native_out, &native_json, None)
+                                            }).await;
+                                            match native_result {
+                                                Ok(Ok(count)) => {
+                                                    seg_paths[si] = tmp.path().join(format!("segment_{si:03}_native2.pdf"));
+                                                    applied += count;
+                                                    tracing::info!(segment = si, edits_applied = count, "Native fallback succeeded");
+                                                }
+                                                Ok(Err(native_err)) => {
+                                                    failures.push(format!("segment {si}: unexpected Python result, native also failed ({native_err})"));
+                                                }
+                                                Err(panic_err) => {
+                                                    failures.push(format!("segment {si}: unexpected Python result, native panicked ({panic_err})"));
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 

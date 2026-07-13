@@ -1004,6 +1004,53 @@ impl MyApp {
         let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
         Some(ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR))
     }
+    /// G2: Build a real `.tar.gz` artifact bundle containing the input PDF,
+    /// edited output PDF, audit log, and change history JSON.
+    fn build_artifact_bundle(
+        input_path: &str,
+        output_path: &std::path::Path,
+        bundle_path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::fs::File;
+
+        let gz_file = File::create(bundle_path)?;
+        let enc = GzEncoder::new(gz_file, Compression::default());
+        let mut ar = tar::Builder::new(enc);
+
+        // Add input PDF if it exists
+        let input = std::path::Path::new(input_path);
+        if input.exists() {
+            ar.append_path_with_name(input, format!("bundle/{}", input.file_name().unwrap_or_default().to_string_lossy()))?;
+        }
+
+        // Add edited output PDF if it exists
+        if output_path.exists() {
+            ar.append_path_with_name(output_path, format!("bundle/{}", output_path.file_name().unwrap_or_default().to_string_lossy()))?;
+        }
+
+        // Add audit log if it exists
+        let audit_dir = std::path::Path::new("audit");
+        if audit_dir.exists() {
+            for entry in std::fs::read_dir(audit_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    ar.append_path_with_name(&path, format!("bundle/audit/{}", path.file_name().unwrap_or_default().to_string_lossy()))?;
+                }
+            }
+        }
+
+        // Add change history JSON if it exists
+        let history_path = std::path::Path::new("audit/change_history.json");
+        if history_path.exists() {
+            ar.append_path_with_name(history_path, "bundle/change_history.json")?;
+        }
+
+        ar.into_inner()?.finish()?;
+        Ok(())
+    }
 
     pub fn export_to_excel(&mut self) {
         let result: Result<(), Box<dyn std::error::Error>> = (|| {
@@ -2407,7 +2454,7 @@ impl MyApp {
                             edited: std::path::PathBuf::from(&self.output_path),
                             output_dir: std::path::PathBuf::from("audit"),
                             intended_bboxes,
-                            use_pdfrest: self.settings.use_pdfrest,
+                            use_pdfrest: self.settings.verification_renderer == crate::app::config::VerificationMode::PdfRestCloud,
                             pdfrest_key: self.config.pdfrest_api_key.clone(),
                         });
                         self.in_flight += 1;
@@ -2797,16 +2844,16 @@ impl MyApp {
                 ui.horizontal(|ui| {
                     // Sidebar
                     let sidebar_width = 200.0;
-                    
+
                     let mut selected_tab = ui.data_mut(|d| d.get_temp::<usize>(egui::Id::new("settings_tab")).unwrap_or(0));
-                    
+
                     egui::Frame::none()
                         .fill(p.bg.linear_multiply(0.3))
                         .inner_margin(egui::Margin::same(16.0))
                         .show(ui, |ui| {
                             ui.set_width(sidebar_width);
                             ui.set_height(540.0);
-                            
+
                             let tabs = [
                                 ("🌐 General", 0),
                                 ("⚖ Smart Balance", 1),
@@ -2814,26 +2861,26 @@ impl MyApp {
                                 ("🎨 Appearance", 3),
                                 ("⌨ Keybinds", 4),
                             ];
-                            
+
                             for (label, idx) in tabs {
                                 let is_selected = selected_tab == idx;
                                 let btn_fill = if is_selected { p.accent.linear_multiply(0.15) } else { egui::Color32::TRANSPARENT };
                                 let text_color = if is_selected { p.accent } else { p.weak };
-                                
+
                                 let btn = egui::Button::new(
                                     egui::RichText::new(label).size(15.0).color(text_color).strong()
                                 )
                                 .fill(btn_fill)
                                 .rounding(8.0)
                                 .min_size(egui::vec2(sidebar_width - 32.0, 40.0));
-                                
+
                                 if ui.add(btn).clicked() {
                                     selected_tab = idx;
                                 }
                                 ui.add_space(4.0);
                             }
                         });
-                        
+
                     ui.data_mut(|d| d.insert_temp(egui::Id::new("settings_tab"), selected_tab));
 
                     // Main Content Area
@@ -2845,27 +2892,27 @@ impl MyApp {
                                 .inner_margin(egui::Margin::same(24.0))
                                 .show(ui, |ui| {
                                     ui.set_width(550.0);
-                                    
+
                                     match selected_tab {
                                         0 => {
                                             ui.heading(egui::RichText::new("Workflow & General").color(p.text));
                                             ui.add_space(16.0);
                                             self.draw_workflow_section(ui);
                                             ui.add_space(16.0);
-                                            
+
                                             ui.heading(egui::RichText::new("API Configurations & Backends").color(p.text));
                                             ui.add_space(12.0);
                                             use crate::app::modals::AppModals;
                                             self.draw_backend_preferences(ui);
                                             ui.add_space(12.0);
                                             self.draw_api_keys_editor(ui);
-                                            
+
                                             ui.add_space(16.0);
                                             ui.heading(egui::RichText::new("System").color(p.text));
                                             ui.add_space(8.0);
                                             ui.checkbox(&mut self.settings.auto_save, "Auto-save history")
                                                 .on_hover_text("Persist audit/history.json after every successful edit");
-                                            
+
                                             if ui.checkbox(&mut self.settings.three_page_mode, "3 Page Mode (default)").changed() {
                                                 if let Err(e) = confy::store("bank-statement-modifier", None, &self.settings) {
                                                     self.toast(ToastKind::Error, format!("Could not save 3 Page Mode setting: {e}"));
@@ -2875,22 +2922,22 @@ impl MyApp {
                                         1 => {
                                             ui.heading(egui::RichText::new("Smart Balance Engine").color(p.text));
                                             ui.add_space(16.0);
-                                            
+
                                             if ui.add(egui::Button::new(egui::RichText::new("🔍 Analyze Document").color(p.bg)).fill(p.accent)).clicked() {
                                                 let _ = self.job_tx.send(Job::BalanceStatement { path: PathBuf::from(&self.input_path) });
                                                 self.in_flight += 1;
                                             }
-                                            
+
                                             if let Some(imb) = self.last_imbalance {
                                                 ui.add_space(12.0);
                                                 ui.label(egui::RichText::new(format!("Global imbalance: ${imb}")).strong().color(p.warn));
                                             }
-                                            
+
                                             if !self.proposed_changes.is_empty() {
                                                 ui.add_space(16.0);
                                                 ui.separator();
                                                 ui.add_space(8.0);
-                                                
+
                                                 for (change, approved) in &mut self.proposed_changes {
                                                     ui.checkbox(
                                                         approved,
@@ -2898,7 +2945,7 @@ impl MyApp {
                                                     );
                                                     ui.small(&change.reason);
                                                 }
-                                                
+
                                                 ui.add_space(12.0);
                                                 if ui.button("Apply Approved Changes").clicked() {
                                                     let changes = self.proposed_changes.iter().filter(|(_, a)| *a).map(|(c, _)| c.clone()).collect();
@@ -2914,16 +2961,16 @@ impl MyApp {
                                         2 => {
                                             ui.heading(egui::RichText::new("Advanced Analytics & History").color(p.text));
                                             ui.add_space(16.0);
-                                            
+
                                             ui.group(|ui| {
                                                 ui.label(egui::RichText::new("📈 Edit Trend").strong());
                                                 let pts = self.balance_trend_points();
                                                 let line = Line::new(pts).name("Edits");
                                                 Plot::new("trend").height(120.0).show_axes([false, true]).show(ui, |plot_ui| plot_ui.line(line));
                                             });
-                                            
+
                                             ui.add_space(16.0);
-                                            
+
                                             ui.group(|ui| {
                                                 ui.label(egui::RichText::new("🔄 Edit History").strong());
                                                 ui.horizontal(|ui| {
@@ -2939,9 +2986,9 @@ impl MyApp {
                                                     ui.small(format!("[{}] P{} {} -> {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
                                                 }
                                             });
-                                            
+
                                             ui.add_space(16.0);
-                                            
+
                                             ui.group(|ui| {
                                                 ui.label(egui::RichText::new("📤 Export Dashboard").strong());
                                                 ui.horizontal(|ui| {
@@ -2950,8 +2997,18 @@ impl MyApp {
                                                         if let Err(e) = self.job_tx.send(Job::ExportChangeHistory { output: PathBuf::from(&self.export_path) }) { tracing::error!("Runtime disconnected: {}", e); }
                                                         self.in_flight += 1;
                                                     }
-                                                    if ui.button("📦 Full Artifact Bundle (.zip)").clicked() {
-                                                        self.toast(ToastKind::Info, "Bundling artifacts into ZIP...");
+                                                    if ui.button("📦 Full Artifact Bundle (.tar.gz)").clicked() {
+                                                        // G2: Build a real .tar.gz bundle
+                                                        let bundle_path = std::path::PathBuf::from(&self.export_path)
+                                                            .with_extension("tar.gz");
+                                                        match Self::build_artifact_bundle(
+                                                            &self.input_path,
+                                                            &self.current_pdf_path,
+                                                            &bundle_path,
+                                                        ) {
+                                                            Ok(()) => self.toast(ToastKind::Success, format!("Artifact bundle saved to {}", bundle_path.display())),
+                                                            Err(e) => self.toast(ToastKind::Error, format!("Bundle failed: {e}")),
+                                                        }
                                                     }
                                                 });
                                                 ui.horizontal(|ui| {
@@ -2959,7 +3016,7 @@ impl MyApp {
                                                     ui.text_edit_singleline(&mut self.export_path);
                                                 });
                                             });
-                                            
+
                                             ui.add_space(16.0);
                                             ui.group(|ui| {
                                                 ui.label(egui::RichText::new("🔍 Verification").strong());
@@ -2972,7 +3029,7 @@ impl MyApp {
                                                         edited: self.current_pdf_path.clone(),
                                                         output_dir: PathBuf::from("audit/verify").join(timestamp),
                                                         intended_bboxes,
-                                                        use_pdfrest: self.settings.use_pdfrest,
+                                                        use_pdfrest: self.settings.verification_renderer == crate::app::config::VerificationMode::PdfRestCloud,
                                                         pdfrest_key: self.config.pdfrest_api_key.clone(),
                                                     }) { tracing::error!("Runtime disconnected: {}", e); }
                                                     self.in_flight += 1;
@@ -2985,7 +3042,7 @@ impl MyApp {
                                         3 => {
                                             ui.heading(egui::RichText::new("Appearance & Fonts").color(p.text));
                                             ui.add_space(16.0);
-                                            
+
                                             ui.horizontal(|ui| {
                                                 ui.label("Theme:");
                                                 egui::ComboBox::from_id_salt("settings_theme")
@@ -2996,15 +3053,15 @@ impl MyApp {
                                                         }
                                                     });
                                             });
-                                            
+
                                             ui.horizontal(|ui| {
                                                 ui.label("Default DPI:");
                                                 ui.add(egui::Slider::new(&mut self.settings.default_dpi, 72.0..=600.0).step_by(1.0));
                                             });
-                                            
+
                                             ui.add_space(16.0);
                                             self.draw_font_analysis_section(ui);
-                                            
+
                                             ui.add_space(16.0);
                                             ui.group(|ui| {
                                                 ui.label(egui::RichText::new("🔠 Custom Fonts Override").strong());
@@ -3017,11 +3074,56 @@ impl MyApp {
                                                         ui.label(egui::RichText::new("Drop fonts here").color(p.weak));
                                                     });
                                                 });
-                                                if ctx.input(|i| !i.raw.dropped_files.is_empty()) {
-                                                    self.toast(ToastKind::Success, "Custom font embedded successfully.");
+                                                // G1: Filter dropped files to .ttf/.otf, scope to drop-zone rect
+                                                let dropped_in_zone = ctx.input(|i| {
+                                                    i.raw.dropped_files.iter().filter_map(|f| {
+                                                        f.path.as_ref().map(|p| p.clone())
+                                                    }).collect::<Vec<_>>()
+                                                });
+                                                if !dropped_in_zone.is_empty() {
+                                                    // Only process if the pointer is within the drop-zone rect
+                                                    let pointer_in_zone = ctx.input(|i| {
+                                                        i.pointer.hover_pos().map_or(false, |pos| response.rect.contains(pos))
+                                                    });
+                                                    if pointer_in_zone {
+                                                        for path in &dropped_in_zone {
+                                                            let ext = path.extension()
+                                                                .and_then(|e| e.to_str())
+                                                                .unwrap_or("")
+                                                                .to_lowercase();
+                                                            if ext == "ttf" || ext == "otf" {
+                                                                // Copy font file to cache/fonts/ directory
+                                                                let fonts_dir = std::path::PathBuf::from("cache/fonts");
+                                                                if let Err(e) = std::fs::create_dir_all(&fonts_dir) {
+                                                                    self.toast(ToastKind::Error, format!("Failed to create fonts dir: {e}"));
+                                                                    continue;
+                                                                }
+                                                                let dest = fonts_dir.join(path.file_name().unwrap_or_default());
+                                                                match std::fs::copy(path, &dest) {
+                                                                    Ok(_) => {
+                                                                        // Update manifest.json
+                                                                        let manifest_path = fonts_dir.join("manifest.json");
+                                                                        let mut manifest: Vec<String> = std::fs::read_to_string(&manifest_path)
+                                                                            .ok()
+                                                                            .and_then(|s| serde_json::from_str(&s).ok())
+                                                                            .unwrap_or_default();
+                                                                        let name = dest.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                                                        if !manifest.contains(&name) {
+                                                                            manifest.push(name);
+                                                                        }
+                                                                        let _ = std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap_or_default());
+                                                                        self.toast(ToastKind::Success, format!("Font {} embedded successfully.", dest.display()));
+                                                                    }
+                                                                    Err(e) => self.toast(ToastKind::Error, format!("Failed to copy font: {e}")),
+                                                                }
+                                                            } else {
+                                                                self.toast(ToastKind::Warn, format!("Ignored '{}': only .ttf and .otf font files are accepted.", path.display()));
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             });
-                                            
+
                                             ui.add_space(20.0);
                                             if ui.button("Save settings").clicked() {
                                                 match confy::store("bank-statement-modifier", None, &self.settings) {
@@ -3036,7 +3138,7 @@ impl MyApp {
                                         4 => {
                                             ui.heading(egui::RichText::new("Keyboard Shortcuts").color(p.text));
                                             ui.add_space(16.0);
-                                            
+
                                             let binds = [
                                                 ("Ctrl+O", "Open PDF"),
                                                 ("Ctrl+Z", "Undo"),
@@ -3046,7 +3148,7 @@ impl MyApp {
                                                 ("+ / -", "Zoom In / Out"),
                                                 ("0", "Reset Zoom"),
                                             ];
-                                            
+
                                             for (k, v) in binds {
                                                 ui.horizontal(|ui| {
                                                     ui.label(egui::RichText::new(k).strong().color(p.accent));
@@ -3055,11 +3157,10 @@ impl MyApp {
                                                 });
                                                 ui.add_space(4.0);
                                             }
-                                            
+
                                             ui.add_space(16.0);
-                                            if ui.button("Reset to defaults").clicked() {
-                                                self.toast(ToastKind::Info, "Keybinds reset to default.");
-                                            }
+                                            // G3: Keybinds are fixed — no fake reset button
+                                            ui.label(egui::RichText::new("Keybinds are fixed and cannot be customized.").weak());
                                         }
                                         _ => {}
                                     }
@@ -4627,7 +4728,7 @@ impl MyApp {
                                 edited: edited.clone(),
                                 output_dir: PathBuf::from("audit/verify/batch").join(&timestamp).join(&stem),
                                 intended_bboxes: Vec::new(),
-                                use_pdfrest: self.settings.use_pdfrest,
+                                use_pdfrest: self.settings.verification_renderer == crate::app::config::VerificationMode::PdfRestCloud,
                                 pdfrest_key: self.config.pdfrest_api_key.clone(),
                             }) { tracing::error!("Runtime disconnected: {}", e); }
                             self.in_flight += 1;
@@ -4789,13 +4890,13 @@ impl MyApp {
                                             // Draw crosshair alignment lines matching Figma's smart guides
                                             let p = self.settings.theme.palette();
                                             let guide_color = p.accent.linear_multiply(0.4);
-                                            
+
                                             // Horizontal guide through center
                                             painter.hline(response.rect.min.x..=response.rect.max.x, item_rect.center().y, egui::Stroke::new(1.0, guide_color));
-                                            
+
                                             // Vertical guide through center
                                             painter.vline(item_rect.center().x, response.rect.min.y..=response.rect.max.y, egui::Stroke::new(1.0, guide_color));
-                                            
+
                                             // Highlight the bounds
                                             painter.rect_stroke(item_rect, 0.0, egui::Stroke::new(2.0, p.accent));
                                         }
@@ -4908,7 +5009,7 @@ impl MyApp {
                                         .new_running_balance
                                         .map(|v| format!("{v:.2}"))
                                         .unwrap_or_else(|| "-".into());
-                                    
+
                                     let cell_resp = ui.allocate_rect(cell, egui::Sense::hover());
                                     cell_resp.on_hover_ui(|ui| {
                                         let p = self.settings.theme.palette();
@@ -4922,14 +5023,14 @@ impl MyApp {
                                                     });
                                                 });
                                                 ui.add_space(6.0);
-                                                
+
                                                 // Display old vs new with clear coloring
                                                 ui.horizontal(|ui| {
                                                     ui.label(egui::RichText::new(old_str).color(p.warn).strikethrough());
                                                     ui.label(egui::RichText::new(" ➔ ").color(p.weak));
                                                     ui.label(egui::RichText::new(new_str).color(p.success).strong());
                                                 });
-                                                
+
                                                 ui.add_space(6.0);
                                                 ui.small(egui::RichText::new("Balance automatically re-calculated by Engine").color(p.text.linear_multiply(0.7)));
                                             });
@@ -4944,16 +5045,16 @@ impl MyApp {
                         let minimap_w = 120.0;
                         let minimap_h = minimap_w * (tex_size.y / tex_size.x);
                         let minimap_size = egui::vec2(minimap_w, minimap_h);
-                        
+
                         let minimap_rect = egui::Rect::from_min_size(
                             response.rect.max - minimap_size - egui::vec2(24.0, 24.0),
                             minimap_size,
                         );
-                        
+
                         // Background
                         painter.rect_filled(minimap_rect, 4.0, egui::Color32::from_black_alpha(180));
                         painter.rect_stroke(minimap_rect, 4.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(30)));
-                        
+
                         // Render full page texture scaled down
                         painter.image(
                             texture.id(),
@@ -4961,19 +5062,19 @@ impl MyApp {
                             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                             egui::Color32::WHITE,
                         );
-                        
+
                         // Indicator box showing the visible portion
                         let vis_min_uv = (response.rect.min - rect.min) / rect.size();
                         let vis_max_uv = (response.rect.max - rect.min) / rect.size();
-                        
+
                         let clamped_min = vis_min_uv.clamp(egui::vec2(0.0, 0.0), egui::vec2(1.0, 1.0));
                         let clamped_max = vis_max_uv.clamp(egui::vec2(0.0, 0.0), egui::vec2(1.0, 1.0));
-                        
+
                         let ind_rect = egui::Rect::from_min_max(
                             minimap_rect.min + clamped_min * minimap_rect.size(),
                             minimap_rect.min + clamped_max * minimap_rect.size(),
                         );
-                        
+
                         painter.rect_filled(ind_rect, 2.0, self.settings.theme.palette().accent.linear_multiply(0.2));
                         painter.rect_stroke(ind_rect, 2.0, egui::Stroke::new(1.5, self.settings.theme.palette().accent));
                     }
@@ -5051,7 +5152,7 @@ impl MyApp {
                                         }
 
                                         ui.add_space(8.0);
-                                        
+
                                         if ui.add(egui::Button::new(egui::RichText::new("✨ AI Fix Layout").color(p.text)).fill(p.panel).rounding(8.0).min_size(egui::vec2(140.0, 36.0))).on_hover_text("Use Gemini to fix discrepancies on this page").clicked() {
                                             let input = if self.current_pdf_path.exists() { self.current_pdf_path.clone() } else { std::path::PathBuf::from(&self.input_path) };
                                             if let Err(e) = self.job_tx.send(Job::AiFixVisualFidelity { input, page: self.current_page }) { tracing::error!("Runtime disconnected: {}", e); }
@@ -5059,7 +5160,7 @@ impl MyApp {
                                             self.in_flight += 1;
                                         }
                                     });
-                                    
+
                                     ui.add_space(12.0);
                                     let mut rect = ui.min_rect();
                                     rect.max.y = rect.min.y + 1.0;
@@ -5096,7 +5197,7 @@ impl MyApp {
                                     if ui.add(egui::Button::new(egui::RichText::new("📅 Dates").color(p.text)).fill(p.bg).rounding(8.0).min_size(egui::vec2(80.0, 36.0))).on_hover_text("Adjust all transaction dates").clicked() {
                                         self.show_date_adjust_dialog = true;
                                     }
-                                    
+
                                     ui.add_space(8.0);
                                     if ui.add(egui::Button::new(egui::RichText::new("🔄 Transfer").color(p.text)).fill(p.bg).rounding(8.0).min_size(egui::vec2(90.0, 36.0))).on_hover_text("Transfer from another PDF").clicked() {
                                         self.show_transfer_dialog = true;

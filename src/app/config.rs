@@ -607,6 +607,9 @@ impl AppConfig {
             pdfrest: self.pdfrest_api_key.is_some(),
             pymupdf_pro: self.pro_editing_available(),
             applitools: self.applitools_api_key.is_some(),
+            ocr: cfg!(feature = "ocr")
+                && std::path::Path::new("models/text-detection.rten").exists()
+                && std::path::Path::new("models/text-recognition.rten").exists(),
         }
     }
 }
@@ -644,6 +647,9 @@ pub struct ApiAvailability {
     pub pymupdf_pro: bool,
     /// `APPLITOOLS_API_KEY` is set.
     pub applitools: bool,
+    /// Local OCR is available: `ocr` Cargo feature enabled AND
+    /// `models/text-detection.rten` + `models/text-recognition.rten` present.
+    pub ocr: bool,
 }
 
 impl ApiAvailability {
@@ -672,6 +678,13 @@ impl ApiAvailability {
             "pymupdf_pro" if !self.pymupdf_pro => {
                 Some("PYMUPDF_PRO_KEY is missing or malformed. Per-segment editing is unavailable.")
             }
+            "ocr" if !self.ocr => {
+                if !cfg!(feature = "ocr") {
+                    Some("Local OCR requires the 'ocr' Cargo feature. Rebuild with: cargo build --features ocr")
+                } else {
+                    Some("OCR model files not found. Download text-detection.rten and text-recognition.rten into the models/ directory.")
+                }
+            }
             _ => None,
         }
     }
@@ -687,6 +700,7 @@ impl ApiAvailability {
             pdfrest = self.pdfrest,
             pymupdf_pro = self.pymupdf_pro,
             applitools = self.applitools,
+            ocr = self.ocr,
             "[boot] API availability detected"
         );
     }

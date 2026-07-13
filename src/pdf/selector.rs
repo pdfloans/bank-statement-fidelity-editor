@@ -69,7 +69,7 @@ impl PdfEngineSelector {
         }
     }
 
-    /// The engine mode currently configured, defaulting to `DualConcurrent`
+    /// The engine mode currently configured, defaulting to `Auto`
     /// when the config lock is momentarily contended.
     fn current_mode(&self) -> crate::app::config::PdfEngineMode {
         if let Ok(guard) = self.config.try_lock() {
@@ -168,8 +168,8 @@ impl PdfEngineSelector {
     }
 
     /// Run `operation` on both engines at the same time using scoped threads.
-    /// Prefers the primary (native/Quick) result; if the primary fails, the
-    /// concurrently-computed fallback (PyMuPDF/Deep) result is used so a single
+    /// Prefers the primary (PyMuPDF/Deep) result; if the primary fails, the
+    /// concurrently-computed fallback (native/Quick) result is used so a single
     /// engine failure never breaks the operation.
     fn run_dual_concurrent<T, F>(&self, operation: F) -> Result<T, EngineError>
     where
@@ -285,8 +285,24 @@ impl PdfEngine for PdfEngineSelector {
         old_text: &str,
         font_path: Option<&Path>,
     ) -> Result<ReplaceOutcome, EngineError> {
+        // T2: Route through apply_change_guarded with 50% overlap threshold
+        // to prevent row-drift edits on introspectable pages.
         self.try_primary_or_fallback(|engine| {
-            engine.apply_change(input, output, page, bbox, new_text, old_text, font_path)
+            engine.apply_change_guarded(input, output, page, bbox, new_text, old_text, font_path, 0.5)
+        })
+    }
+
+    fn apply_many_edits(
+        &self,
+        input: &Path,
+        output: &Path,
+        edits_json: &str,
+        font_path: Option<&Path>,
+    ) -> Result<usize, EngineError> {
+        // T2: Delegate apply_many_edits through try_primary_or_fallback so
+        // native engine acts as automatic fallback when Python actor fails.
+        self.try_primary_or_fallback(|engine| {
+            engine.apply_many_edits(input, output, edits_json, font_path)
         })
     }
 
