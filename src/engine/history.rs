@@ -215,9 +215,7 @@ impl ChangeHistory {
         self.current_index < self.history.len()
     }
 
-    pub fn current_index(&self) -> usize {
-        self.current_index
-    }
+
 }
 
 #[cfg(test)]

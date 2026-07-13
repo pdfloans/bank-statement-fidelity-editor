@@ -108,6 +108,8 @@ subsetter = "0.2.6"
 image-compare = "0.5.0"
 rustybuzz = "0.20.1"
 sysinfo = "0.38.4"
+sentry = { version = "0.48.4", features = ["tracing"] }
+sentry-log = "0.48.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

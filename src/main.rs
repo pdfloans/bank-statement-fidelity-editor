@@ -8,6 +8,17 @@ use std::sync::Arc;
 
 fn main() {
     dotenvy::dotenv().ok();
+    
+    // Phase 3 - Stage 10: Sentry Integration for Telemetry
+    let _sentry = sentry::init((
+        std::env::var("SENTRY_DSN").unwrap_or_default(),
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            traces_sample_rate: 0.1, // Can be increased for full tracing
+            ..Default::default()
+        },
+    ));
+    sentry_log::init(None);
 
     let config = Arc::new(app::config::AppConfig::from_env().unwrap_or_else(|e| {
         eprintln!("\n❌ Configuration Error\n");
