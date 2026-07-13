@@ -140,55 +140,80 @@ impl Theme {
             egui::Visuals::light()
         };
 
-        // Window shadows and rounding for a glassmorphism/modern feel
-        visuals.window_rounding = egui::Rounding::same(12.0);
-        visuals.menu_rounding = egui::Rounding::same(8.0);
-        visuals.window_shadow.color = egui::Color32::from_black_alpha(150);
-        visuals.window_shadow.spread = 4.0;
-        visuals.window_shadow.blur = 32.0;
-        visuals.popup_shadow.color = egui::Color32::from_black_alpha(120);
-        visuals.popup_shadow.spread = 2.0;
-        visuals.popup_shadow.blur = 16.0;
+        // Premium rounded aesthetics
+        visuals.window_rounding = egui::Rounding::same(16.0);
+        visuals.menu_rounding = egui::Rounding::same(12.0);
+        visuals.window_shadow = egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 30.0),
+            blur: 60.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(180),
+        };
+        visuals.popup_shadow = egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 12.0),
+            blur: 24.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(150),
+        };
 
         visuals.panel_fill = p.panel;
         visuals.window_fill = p.panel;
         visuals.extreme_bg_color = p.bg;
         visuals.faint_bg_color = p.surface;
+
+        // Ultra-sleek widget definitions
         visuals.widgets.noninteractive.bg_fill = p.surface;
+        visuals.widgets.noninteractive.rounding = egui::Rounding::same(10.0);
         visuals.widgets.inactive.bg_fill = p.surface;
-        visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
-        visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
-        visuals.widgets.active.rounding = egui::Rounding::same(8.0);
+        visuals.widgets.inactive.rounding = egui::Rounding::same(10.0);
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, p.text);
+        
+        // Hover state (glow effect)
+        visuals.widgets.hovered.bg_fill = p.surface.linear_multiply(1.2);
+        visuals.widgets.hovered.rounding = egui::Rounding::same(10.0);
+        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, p.accent.linear_multiply(0.8));
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.2, p.text);
+
+        // Active state (pressed)
+        visuals.widgets.active.bg_fill = p.accent.linear_multiply(0.8);
+        visuals.widgets.active.rounding = egui::Rounding::same(10.0);
+        visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, p.accent);
+        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+
         visuals.hyperlink_color = p.accent;
-        visuals.selection.bg_fill = p.accent.linear_multiply(0.3);
+        visuals.selection.bg_fill = p.accent.linear_multiply(0.4);
         visuals.selection.stroke.color = p.accent;
         visuals.warn_fg_color = p.warn;
         visuals.error_fg_color = p.error;
+        
         ctx.set_visuals(visuals);
 
-        // global style tweaks
+        // Global style and premium typography tweaks
         let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(12.0, 10.0);
-        style.spacing.button_padding = egui::vec2(16.0, 8.0);
-        style.spacing.window_margin = egui::Margin::same(16.0);
-        style.spacing.menu_margin = egui::Margin::same(8.0);
+        style.spacing.item_spacing = egui::vec2(16.0, 12.0);
+        style.spacing.button_padding = egui::vec2(20.0, 10.0);
+        style.spacing.window_margin = egui::Margin::same(20.0);
+        style.spacing.menu_margin = egui::Margin::same(12.0);
 
-        // Modern typography sizing
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(24.0, egui::FontFamily::Proportional),
+            egui::FontId::new(26.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(15.0, egui::FontFamily::Proportional),
+            egui::FontId::new(16.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
-            egui::FontId::new(15.0, egui::FontFamily::Proportional),
+            egui::FontId::new(16.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Small,
-            egui::FontId::new(13.0, egui::FontFamily::Proportional),
+            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Monospace,
+            egui::FontId::new(14.0, egui::FontFamily::Monospace),
         );
         ctx.set_style(style);
     }
@@ -379,6 +404,7 @@ pub struct MyApp {
 
     // Selection
     selected_block: Option<TextBlock>,
+    last_click_pos: Option<egui::Pos2>,
     new_text: String,
 
     // Textures
@@ -553,6 +579,7 @@ impl MyApp {
             curtain_ratio: 0.5,
             fit_to_view: true,
             selected_block: None,
+            last_click_pos: None,
             new_text: String::new(),
             current_page_texture: None,
             before_texture: None,
@@ -972,7 +999,16 @@ impl MyApp {
         // theme
         self.settings.theme.apply(ctx);
 
+        // High-DPI auto-scaling (Stage 6)
+        let target_dpi = self.settings.default_dpi * ctx.pixels_per_point();
+        if (self.current_page_dpi - target_dpi).abs() > 1.0 {
+            self.current_page_dpi = target_dpi;
+            self.request_render("current");
+        }
+
         if let Some(p) = &self.progress {
+            let fade = ctx.animate_value_with_time(egui::Id::new("progress_overlay_fade"), 1.0, 0.3);
+            
             egui::Area::new(egui::Id::new("modal_overlay"))
                 .order(egui::Order::Foreground)
                 .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
@@ -980,31 +1016,56 @@ impl MyApp {
                     let rect = ctx.screen_rect();
                     ui.allocate_rect(rect, egui::Sense::click());
                     ui.painter()
-                        .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(150));
+                        .rect_filled(rect, 0.0, egui::Color32::from_black_alpha((180.0 * fade) as u8));
                 });
 
-            egui::Window::new("Working...")
-                .collapsible(false)
-                .resizable(false)
+            egui::Area::new(egui::Id::new("progress_dialog"))
+                .order(egui::Order::Foreground)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
-                    ui.label(&p.label);
-                    let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
-                    let mut text = format!("{pct}%");
+                    egui::Frame::none()
+                        .fill(self.settings.theme.palette().surface.linear_multiply(0.95))
+                        .inner_margin(egui::Margin::same(32.0))
+                        .rounding(egui::Rounding::same(24.0))
+                        .shadow(egui::epaint::Shadow {
+                            offset: egui::vec2(0.0, 20.0),
+                            blur: 40.0,
+                            spread: 0.0,
+                            color: egui::Color32::from_black_alpha((100.0 * fade) as u8),
+                        })
+                        .stroke(egui::Stroke::new(1.0, self.settings.theme.palette().text.linear_multiply(0.1)))
+                        .show(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.add(egui::Spinner::new().size(40.0).color(self.settings.theme.palette().accent));
+                                ui.add_space(24.0);
+                                ui.label(
+                                    egui::RichText::new(&p.label)
+                                        .size(18.0)
+                                        .strong()
+                                        .color(self.settings.theme.palette().text),
+                                );
+                                
+                                ui.add_space(16.0);
+                                
+                                let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
+                                let mut text = format!("{pct}%");
 
-                    if p.fraction > 0.0 {
-                        let elapsed = p.started_at.elapsed().as_secs_f32();
-                        let eta = (elapsed / p.fraction) * (1.0 - p.fraction);
-                        if eta > 0.0 && eta.is_finite() {
-                            text = format!("{pct}% (ETA: {eta:.0}s)");
-                        }
-                    }
+                                if p.fraction > 0.0 {
+                                    let elapsed = p.started_at.elapsed().as_secs_f32();
+                                    let eta = (elapsed / p.fraction) * (1.0 - p.fraction);
+                                    if eta > 0.0 && eta.is_finite() {
+                                        text = format!("{pct}% (ETA: {eta:.0}s)");
+                                    }
+                                }
 
-                    ui.add(
-                        egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
-                            .desired_width(300.0)
-                            .text(text),
-                    );
+                                ui.add(
+                                    egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
+                                        .desired_width(320.0)
+                                        .text(egui::RichText::new(text).size(14.0))
+                                        .fill(self.settings.theme.palette().accent),
+                                );
+                            });
+                        });
                 });
         }
 
@@ -1838,98 +1899,290 @@ impl MyApp {
         }
     }
     fn draw_sidebar(&mut self, ctx: &egui::Context) {
-        let width = if self.sidebar_expanded { 220.0 } else { 60.0 };
+        // Animate the sidebar width for a buttery smooth expansion
+        let target_width = if self.sidebar_expanded { 240.0 } else { 70.0 };
+        let width = ctx.animate_value_with_time(egui::Id::new("sidebar_width_anim"), target_width, 0.3);
+
+        let frame = egui::Frame {
+            inner_margin: egui::Margin::same(12.0),
+            rounding: egui::Rounding { nw: 0.0, sw: 0.0, ne: 24.0, se: 24.0 },
+            fill: ctx.style().visuals.window_fill.linear_multiply(0.95), // Slight translucency
+            stroke: egui::Stroke::new(1.0, ctx.style().visuals.widgets.inactive.bg_fill),
+            shadow: egui::epaint::Shadow {
+                offset: egui::vec2(0.0, 8.0),
+                blur: 16.0,
+                spread: 0.0,
+                color: egui::Color32::from_black_alpha(80),
+            },
+            ..Default::default()
+        };
+
         egui::SidePanel::left("sidebar")
+            .frame(frame)
             .exact_width(width)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.add_space(10.0);
+                ui.add_space(16.0);
+                
+                // Toggle Button (Hamburger)
                 ui.horizontal(|ui| {
-                    if ui.button(if self.sidebar_expanded { "≡ Hide" } else { "≡" }).clicked() {
+                    let toggle_text = if self.sidebar_expanded { "≡  Collapse" } else { "≡" };
+                    let btn = egui::Button::new(egui::RichText::new(toggle_text).size(18.0).strong())
+                        .frame(false)
+                        .min_size(egui::vec2(ui.available_width(), 40.0));
+                    
+                    if ui.add(btn).clicked() {
                         self.sidebar_expanded = !self.sidebar_expanded;
                     }
                 });
-                ui.add_space(20.0);
+                
+                ui.add_space(32.0);
 
                 let mut selected = self.active_workflow.clone();
                 let workflows = [
-                    (ActiveWorkflow::EditStatement, "📄", "Edit Statement"),
-                    (ActiveWorkflow::TransferTransactions, "⇄", "Transfer Txns"),
+                    (ActiveWorkflow::EditStatement, "📄", "Editor"),
+                    (ActiveWorkflow::TransferTransactions, "⇄", "Transfer"),
                     (ActiveWorkflow::Settings, "⚙", "Settings"),
                     (ActiveWorkflow::ApiKeys, "🔑", "API Keys"),
                 ];
 
                 for (workflow, icon, text) in workflows {
-                    let btn_text = if self.sidebar_expanded { format!("{} {}", icon, text) } else { icon.to_string() };
-                    let mut btn = egui::Button::new(btn_text).min_size(egui::vec2(ui.available_width(), 40.0));
-                    if self.active_workflow == workflow {
-                        btn = btn.fill(ui.visuals().selection.bg_fill);
-                    }
-                    if ui.add(btn).clicked() {
+                    let is_selected = self.active_workflow == workflow;
+                    
+                    // Custom pill-shaped active state
+                    let bg_color = if is_selected {
+                        ui.visuals().selection.bg_fill
+                    } else {
+                        egui::Color32::TRANSPARENT
+                    };
+
+                    let text_color = if is_selected {
+                        ui.visuals().selection.stroke.color
+                    } else {
+                        ui.visuals().text_color()
+                    };
+
+                    let btn_text = if width > 120.0 {
+                        format!("{}  {}", icon, text)
+                    } else {
+                        icon.to_string()
+                    };
+
+                    let response = ui.allocate_rect(
+                        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 48.0)),
+                        egui::Sense::click()
+                    );
+                    
+                    // Hover animation
+                    let hover_factor = ctx.animate_bool(response.id.with("hover"), response.hovered());
+                    let final_bg = if is_selected {
+                        bg_color
+                    } else {
+                        ui.visuals().widgets.hovered.bg_fill.linear_multiply(hover_factor)
+                    };
+
+                    // Draw the custom button
+                    ui.painter().rect(
+                        response.rect,
+                        egui::Rounding::same(12.0),
+                        final_bg,
+                        egui::Stroke::NONE,
+                    );
+
+                    // Draw the text
+                    let text_pos = response.rect.min + egui::vec2(if width > 120.0 { 16.0 } else { (width - 24.0) / 2.0 }, 14.0);
+                    ui.painter().text(
+                        text_pos,
+                        egui::Align2::LEFT_TOP,
+                        btn_text,
+                        egui::FontId::new(16.0, egui::FontFamily::Proportional),
+                        text_color,
+                    );
+
+                    if response.clicked() {
                         selected = workflow;
                     }
-                    ui.add_space(5.0);
+                    
+                    ui.advance_cursor_after_rect(response.rect);
+                    ui.add_space(8.0);
                 }
+                
                 self.active_workflow = selected;
+                
+                // Bottom anchored branding
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                    ui.add_space(16.0);
+                    let opacity = ctx.animate_value_with_time(egui::Id::new("sidebar_brand_anim"), if self.sidebar_expanded { 1.0 } else { 0.0 }, 0.2);
+                    if opacity > 0.1 {
+                        ui.label(
+                            egui::RichText::new("Antigravity\nFidelity Engine")
+                                .size(12.0)
+                                .color(ui.visuals().text_color().linear_multiply(0.4 * opacity))
+                        );
+                    }
+                });
             });
     }
 
     fn draw_edit_statement_workflow(&mut self, ctx: &egui::Context) {
+        let frame = egui::Frame {
+            inner_margin: egui::Margin::same(16.0),
+            fill: ctx.style().visuals.panel_fill,
+            stroke: egui::Stroke::NONE,
+            shadow: egui::epaint::Shadow {
+                offset: egui::vec2(0.0, 4.0),
+                blur: 8.0,
+                spread: 0.0,
+                color: egui::Color32::from_black_alpha(40),
+            },
+            ..Default::default()
+        };
+
         // 1. Top Bar: Upload Dropzone & History Thumbnails
         egui::TopBottomPanel::top("edit_top_bar")
-            .exact_height(80.0)
+            .frame(frame)
+            .exact_height(90.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    // Upload Button/Dropzone
+                    // Modern Upload Button
                     let upload_btn = ui.add_sized(
-                        [150.0, 60.0],
-                        egui::Button::new("📥 Upload New\nStatement")
-                            .fill(egui::Color32::from_rgb(40, 80, 120)),
+                        [160.0, 58.0],
+                        egui::Button::new(
+                            egui::RichText::new("📥  Upload Statement")
+                                .size(15.0)
+                                .strong()
+                        )
+                        .fill(ui.visuals().selection.bg_fill)
                     );
+                    
                     if upload_btn.clicked() {
                         if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
                             self.open_pdf(path);
                         }
                     }
 
-                    ui.separator();
+                    ui.add_space(20.0);
+                    let sep = egui::Separator::default().vertical().spacing(30.0);
+                    ui.add(sep);
                     
-                    // History Thumbnail Strip
-                    ui.label("Recent Statements:");
-                    egui::ScrollArea::horizontal().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let recent = self.settings.recent_files.clone();
-                            for f in recent.into_iter().take(5) {
-                                let label = std::path::Path::new(&f)
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy();
-                                if ui.add_sized([100.0, 60.0], egui::Button::new(label)).clicked() {
-                                    self.open_pdf(std::path::PathBuf::from(f));
+                    if self.current_pdf_path.exists() {
+                        // Visual Progress Stepper (Stage 9)
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("Workflow Progress").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
+                            ui.add_space(8.0);
+                            
+                            ui.horizontal(|ui| {
+                                let steps = ["1. Load", "2. Edit & Diff", "3. Verify Math", "4. Export"];
+                                // Determine current step based on state
+                                let current_step = if self.last_verification.is_some() {
+                                    3 // Validated, ready to export
+                                } else if !self.workflow_transactions.is_empty() {
+                                    2 // Edited/Balanced, pending validation
+                                } else {
+                                    1 // Loaded, pending edits
+                                };
+                                
+                                for (i, step) in steps.iter().enumerate() {
+                                    let is_active = i <= current_step;
+                                    let is_current = i == current_step;
+                                    
+                                    let color = if is_current {
+                                        self.settings.theme.palette().accent
+                                    } else if is_active {
+                                        self.settings.theme.palette().success
+                                    } else {
+                                        self.settings.theme.palette().weak.linear_multiply(0.3)
+                                    };
+                                    
+                                    let text = egui::RichText::new(*step).color(color).strong();
+                                    ui.label(text);
+                                    
+                                    if i < steps.len() - 1 {
+                                        ui.add_space(8.0);
+                                        let line_color = if is_active { self.settings.theme.palette().success.linear_multiply(0.5) } else { self.settings.theme.palette().weak.linear_multiply(0.1) };
+                                        let (rect, _resp) = ui.allocate_exact_size(egui::vec2(40.0, 2.0), egui::Sense::hover());
+                                        ui.painter().hline(rect.min.x..=rect.max.x, rect.center().y, egui::Stroke::new(2.0, line_color));
+                                        ui.add_space(8.0);
+                                    }
                                 }
-                            }
+                            });
                         });
-                    });
+                    } else {
+                        // History Thumbnail Strip
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("Recent Statements").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
+                            ui.add_space(4.0);
+                            egui::ScrollArea::horizontal().show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    let recent = self.settings.recent_files.clone();
+                                    if recent.is_empty() {
+                                        ui.label(egui::RichText::new("No recent files").italics().color(ui.visuals().text_color().linear_multiply(0.3)));
+                                    }
+                                    for f in recent.into_iter().take(5) {
+                                        let label = std::path::Path::new(&f)
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy();
+                                        
+                                        if ui.add_sized([120.0, 36.0], egui::Button::new(label)).clicked() {
+                                            self.open_pdf(std::path::PathBuf::from(f));
+                                        }
+                                    }
+                                });
+                            });
+                        });
+                    }
                 });
             });
 
         // 2. Right Toolbox: The 5 specific e2e editing actions
+        let right_frame = egui::Frame {
+            inner_margin: egui::Margin::same(16.0),
+            fill: ctx.style().visuals.window_fill.linear_multiply(0.98),
+            stroke: egui::Stroke::new(1.0, ctx.style().visuals.widgets.inactive.bg_fill),
+            shadow: egui::epaint::Shadow {
+                offset: egui::vec2(0.0, 12.0),
+                blur: 24.0,
+                spread: 0.0,
+                color: egui::Color32::from_black_alpha(100),
+            },
+            ..Default::default()
+        };
+
         egui::SidePanel::right("edit_toolbox")
-            .exact_width(300.0)
+            .frame(right_frame)
+            .exact_width(340.0)
+            .resizable(false)
             .show(ctx, |ui| {
                 ui.add_space(10.0);
-                ui.heading("Editing Toolbox");
-                ui.add_space(20.0);
+                ui.heading(egui::RichText::new("Editing Toolbox").strong());
+                ui.add_space(24.0);
 
                 if let Some(block) = self.selected_block.clone() {
-                    ui.label(format!("Selected Font: {}", block.font));
-                    ui.label(format!("Size: {:.1}", block.size));
-                    ui.text_edit_multiline(&mut self.new_text);
-                    ui.add_space(15.0);
+                    egui::Frame::group(ui.style()).fill(ui.visuals().faint_bg_color).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(egui::RichText::new("Properties").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
+                        ui.add_space(4.0);
+                        ui.label(format!("Font: {}", block.font));
+                        ui.label(format!("Size: {:.1} pt", block.size));
+                    });
+                    
+                    ui.add_space(16.0);
+                    
+                    ui.label(egui::RichText::new("Edit Content").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
+                    ui.add_space(4.0);
+                    
+                    let text_edit = egui::TextEdit::multiline(&mut self.new_text)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(ui.available_width())
+                        .margin(egui::vec2(12.0, 12.0));
+                    ui.add(text_edit);
+                    
+                    ui.add_space(20.0);
 
-                    let btn_size = egui::vec2(ui.available_width(), 35.0);
+                    let btn_size = egui::vec2(ui.available_width(), 44.0);
 
-                    if ui.add_sized(btn_size, egui::Button::new("Apply single edit")).clicked() {
+                    if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("Apply single edit").strong())).clicked() {
                         let original = block.text.clone();
                         let new_text = self.new_text.clone();
                         if let Err(e) = self.job_tx.send(crate::app::runtime::Job::ApplyChange {
@@ -2249,236 +2502,326 @@ impl MyApp {
     }
 
     fn draw_settings_modal(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_settings_modal;
-        egui::Window::new("⚙ï¸  Settings & Tools")
-            .open(&mut open)
-            .default_size(egui::vec2(380.0, 500.0))
-            .vscroll(true)
+        let open = self.show_settings_modal;
+        
+        let p = self.settings.theme.palette();
+        
+        let frame = egui::Frame::window(ctx.style().as_ref())
+            .fill(p.surface.linear_multiply(0.95))
+            .shadow(egui::epaint::Shadow {
+                offset: egui::vec2(0.0, 30.0),
+                blur: 60.0,
+                spread: 0.0,
+                color: egui::Color32::from_black_alpha(120),
+            })
+            .rounding(egui::Rounding::same(20.0))
+            .stroke(egui::Stroke::new(1.0, p.text.linear_multiply(0.1)))
+            .inner_margin(egui::Margin::same(0.0));
+
+        let mut next_open = open;
+        egui::Window::new("Settings & Tools")
+            .open(&mut next_open)
+            .title_bar(false)
+            .frame(frame)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .default_size(egui::vec2(800.0, 600.0))
             .show(ctx, |ui| {
-                    self.draw_font_analysis_section(ui);
-                    self.draw_workflow_section(ui);
-
-                    ui.collapsing("⚖ Smart Balance Engine", |ui| {
-                        if ui.button("Analyze Document")
-                            .on_hover_text("Run Document AI + Gemini to find math errors and propose minimal adjustments")
-                            .clicked()
-                        {
-                            let _ = self
-                                .job_tx
-                                .send(Job::BalanceStatement { path: PathBuf::from(&self.input_path) });
-                            self.in_flight += 1;
-                        }
-                        if let Some(imb) = self.last_imbalance {
-                            ui.label(format!("Global imbalance: ${imb}"));
-                        }
-                        if !self.proposed_changes.is_empty() {
-                            ui.separator();
-                            for (change, approved) in &mut self.proposed_changes {
-                                ui.checkbox(
-                                    approved,
-                                    format!("P{}: {} -> {}", change.page + 1, change.old_text, change.new_text),
-                                );
-                                ui.small(&change.reason);
-                            }
-                            if ui.button("Apply approved").clicked() {
-                                let changes = self
-                                    .proposed_changes
-                                    .iter()
-                                    .filter(|(_, a)| *a)
-                                    .map(|(c, _)| c.clone())
-                                    .collect();
-                                if let Err(e) = self.job_tx.send(Job::ApplyProposedChanges {
-                                    input: self.current_pdf_path.clone(),
-                                    output: PathBuf::from(&self.output_path),
-                                    changes,
-                                }) { tracing::error!("Runtime disconnected: {}", e); }
-                                self.in_flight += 1;
-                            }
-                        }
-                    });
-
-                    ui.collapsing("📊 Advanced Analytics & History", |ui| {
-                        ui.collapsing("📈 Edit Trend", |ui| {
-                            let pts = self.balance_trend_points();
-                            let line = Line::new(pts).name("Edits");
-                            Plot::new("trend")
-                                .height(120.0)
-                                .show_axes([false, true])
-                                .show(ui, |plot_ui| plot_ui.line(line));
-                        });
-
-                        ui.collapsing("🔄 Edit History", |ui| {
-                            ui.horizontal(|ui| {
-                                if ui.add_enabled(self.history_state.can_undo(), egui::Button::new("Undo")).clicked() {
-                                    if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
-                                }
-                                if ui.add_enabled(self.history_state.can_redo(), egui::Button::new("Redo")).clicked() {
-                                    if let Err(e) = self.job_tx.send(Job::Redo) { tracing::error!("Runtime disconnected: {}", e); }
-                                }
-                            });
-                            let history = self.history_state.get_history();
-                            for (i, rec) in history.iter().enumerate() {
-                                ui.small(format!("[{}] P{} {} -> {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
-                            }
-                        });
-
-                        ui.collapsing("🔍 Verification", |ui| {
-                            if self.settings.advanced_mode {
-                                ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
-                            }
-                            if ui.button("Run Full Audit")
-                                .on_hover_text("Render original vs edited at high DPI, perceptual + math diff")
-                                .clicked()
-                            {
-                                let intended_bboxes: Vec<(usize, [f32; 4])> = self
-                                    .history_state
-                                    .get_history()
-                                    .iter()
-                                    .map(|r| (r.page, r.bbox))
-                                    .collect();
-                                let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-                                if let Err(e) = self.job_tx.send(Job::Verify {
-                                    original: PathBuf::from(&self.input_path),
-                                    edited: self.current_pdf_path.clone(),
-                                    output_dir: PathBuf::from("audit/verify").join(timestamp),
-                                    intended_bboxes,
-                                    use_pdfrest: self.settings.use_pdfrest,
-                                    pdfrest_key: self.config.pdfrest_api_key.clone(),
-                                }) { tracing::error!("Runtime disconnected: {}", e); }
-                                self.in_flight += 1;
-                            }
-                            if let Some(report) = &self.last_verification {
-                                ui.label(format!(
-                                    "Math {} / Visual {:.4}",
-                                    if report.math_valid { "✅" } else { "❌" },
-                                    report.visual_diff_score
-                                ));
-                            }
-                        });
-
-                        ui.collapsing("📤 Export Dashboard", |ui| {
-                            ui.label("Generate complete reports for the final output.");
-                            ui.add_space(8.0);
-
-                            ui.horizontal(|ui| {
-                                if ui.button("📊 Excel (.xlsx)").clicked() {
-                                    self.export_to_excel();
-                                }
-                                if ui.button("📜 Audit JSON").clicked() {
-                                    if let Err(e) = self.job_tx.send(Job::ExportChangeHistory {
-                                        output: PathBuf::from(&self.export_path),
-                                    }) { tracing::error!("Runtime disconnected: {}", e); }
-                                    self.in_flight += 1;
-                                }
-                                if ui.button("📦 Full Artifact Bundle (.zip)").clicked() {
-                                    self.toast(ToastKind::Info, "Bundling artifacts into ZIP...");
-                                }
-                            });
-
-                            ui.add_space(8.0);
-                            ui.label(egui::RichText::new("Export path:").strong());
-                            ui.text_edit_singleline(&mut self.export_path);
-                        });
-                    });
-
-                    ui.collapsing("⚙ Settings", |ui| {
+                // Custom Header
+                egui::Frame::none()
+                    .fill(p.panel.linear_multiply(0.5))
+                    .inner_margin(egui::vec2(24.0, 16.0))
+                    .rounding(egui::Rounding { nw: 20.0, ne: 20.0, sw: 0.0, se: 0.0 })
+                    .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label("Theme:");
-                            egui::ComboBox::from_id_salt("settings_theme")
-                                .selected_text(self.settings.theme.label())
-                                .show_ui(ui, |ui| {
-                                    for t in [Theme::System, Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
-                                        ui.selectable_value(&mut self.settings.theme, t, t.label());
+                            ui.label(egui::RichText::new("⚙ Settings & Preferences").size(20.0).strong().color(p.text));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button(egui::RichText::new("✕").size(16.0).color(p.weak)).clicked() {
+                                    self.show_settings_modal = false;
+                                }
+                            });
+                        });
+                    });
+
+                // Layout: Left Sidebar + Right Content
+                ui.horizontal(|ui| {
+                    // Sidebar
+                    let sidebar_width = 200.0;
+                    
+                    let mut selected_tab = ui.data_mut(|d| d.get_temp::<usize>(egui::Id::new("settings_tab")).unwrap_or(0));
+                    
+                    egui::Frame::none()
+                        .fill(p.bg.linear_multiply(0.3))
+                        .inner_margin(egui::Margin::same(16.0))
+                        .show(ui, |ui| {
+                            ui.set_width(sidebar_width);
+                            ui.set_height(540.0);
+                            
+                            let tabs = [
+                                ("🌐 General", 0),
+                                ("⚖ Smart Balance", 1),
+                                ("📊 Analytics", 2),
+                                ("🎨 Appearance", 3),
+                                ("⌨ Keybinds", 4),
+                            ];
+                            
+                            for (label, idx) in tabs {
+                                let is_selected = selected_tab == idx;
+                                let btn_fill = if is_selected { p.accent.linear_multiply(0.15) } else { egui::Color32::TRANSPARENT };
+                                let text_color = if is_selected { p.accent } else { p.weak };
+                                
+                                let btn = egui::Button::new(
+                                    egui::RichText::new(label).size(15.0).color(text_color).strong()
+                                )
+                                .fill(btn_fill)
+                                .rounding(8.0)
+                                .min_size(egui::vec2(sidebar_width - 32.0, 40.0));
+                                
+                                if ui.add(btn).clicked() {
+                                    selected_tab = idx;
+                                }
+                                ui.add_space(4.0);
+                            }
+                        });
+                        
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new("settings_tab"), selected_tab));
+
+                    // Main Content Area
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .id_salt("settings_scroll")
+                        .show(ui, |ui| {
+                            egui::Frame::none()
+                                .inner_margin(egui::Margin::same(24.0))
+                                .show(ui, |ui| {
+                                    ui.set_width(550.0);
+                                    
+                                    match selected_tab {
+                                        0 => {
+                                            ui.heading(egui::RichText::new("Workflow & General").color(p.text));
+                                            ui.add_space(16.0);
+                                            self.draw_workflow_section(ui);
+                                            ui.add_space(16.0);
+                                            
+                                            ui.heading(egui::RichText::new("API Configurations & Backends").color(p.text));
+                                            ui.add_space(12.0);
+                                            use crate::app::modals::AppModals;
+                                            self.draw_backend_preferences(ui);
+                                            ui.add_space(12.0);
+                                            self.draw_api_keys_editor(ui);
+                                            
+                                            ui.add_space(16.0);
+                                            ui.heading(egui::RichText::new("System").color(p.text));
+                                            ui.add_space(8.0);
+                                            ui.checkbox(&mut self.settings.auto_save, "Auto-save history")
+                                                .on_hover_text("Persist audit/history.json after every successful edit");
+                                            
+                                            if ui.checkbox(&mut self.settings.three_page_mode, "3 Page Mode (default)").changed() {
+                                                if let Err(e) = confy::store("bank-statement-modifier", None, &self.settings) {
+                                                    self.toast(ToastKind::Error, format!("Could not save 3 Page Mode setting: {e}"));
+                                                }
+                                            }
+                                        }
+                                        1 => {
+                                            ui.heading(egui::RichText::new("Smart Balance Engine").color(p.text));
+                                            ui.add_space(16.0);
+                                            
+                                            if ui.add(egui::Button::new(egui::RichText::new("🔍 Analyze Document").color(p.bg)).fill(p.accent)).clicked() {
+                                                let _ = self.job_tx.send(Job::BalanceStatement { path: PathBuf::from(&self.input_path) });
+                                                self.in_flight += 1;
+                                            }
+                                            
+                                            if let Some(imb) = self.last_imbalance {
+                                                ui.add_space(12.0);
+                                                ui.label(egui::RichText::new(format!("Global imbalance: ${imb}")).strong().color(p.warn));
+                                            }
+                                            
+                                            if !self.proposed_changes.is_empty() {
+                                                ui.add_space(16.0);
+                                                ui.separator();
+                                                ui.add_space(8.0);
+                                                
+                                                for (change, approved) in &mut self.proposed_changes {
+                                                    ui.checkbox(
+                                                        approved,
+                                                        format!("P{}: {} -> {}", change.page + 1, change.old_text, change.new_text),
+                                                    );
+                                                    ui.small(&change.reason);
+                                                }
+                                                
+                                                ui.add_space(12.0);
+                                                if ui.button("Apply Approved Changes").clicked() {
+                                                    let changes = self.proposed_changes.iter().filter(|(_, a)| *a).map(|(c, _)| c.clone()).collect();
+                                                    if let Err(e) = self.job_tx.send(Job::ApplyProposedChanges {
+                                                        input: self.current_pdf_path.clone(),
+                                                        output: PathBuf::from(&self.output_path),
+                                                        changes,
+                                                    }) { tracing::error!("Runtime disconnected: {}", e); }
+                                                    self.in_flight += 1;
+                                                }
+                                            }
+                                        }
+                                        2 => {
+                                            ui.heading(egui::RichText::new("Advanced Analytics & History").color(p.text));
+                                            ui.add_space(16.0);
+                                            
+                                            ui.group(|ui| {
+                                                ui.label(egui::RichText::new("📈 Edit Trend").strong());
+                                                let pts = self.balance_trend_points();
+                                                let line = Line::new(pts).name("Edits");
+                                                Plot::new("trend").height(120.0).show_axes([false, true]).show(ui, |plot_ui| plot_ui.line(line));
+                                            });
+                                            
+                                            ui.add_space(16.0);
+                                            
+                                            ui.group(|ui| {
+                                                ui.label(egui::RichText::new("🔄 Edit History").strong());
+                                                ui.horizontal(|ui| {
+                                                    if ui.add_enabled(self.history_state.can_undo(), egui::Button::new("Undo")).clicked() {
+                                                        if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
+                                                    }
+                                                    if ui.add_enabled(self.history_state.can_redo(), egui::Button::new("Redo")).clicked() {
+                                                        if let Err(e) = self.job_tx.send(Job::Redo) { tracing::error!("Runtime disconnected: {}", e); }
+                                                    }
+                                                });
+                                                let history = self.history_state.get_history();
+                                                for (i, rec) in history.iter().enumerate() {
+                                                    ui.small(format!("[{}] P{} {} -> {}", i + 1, rec.page + 1, rec.old_text, rec.new_text));
+                                                }
+                                            });
+                                            
+                                            ui.add_space(16.0);
+                                            
+                                            ui.group(|ui| {
+                                                ui.label(egui::RichText::new("📤 Export Dashboard").strong());
+                                                ui.horizontal(|ui| {
+                                                    if ui.button("📊 Excel (.xlsx)").clicked() { self.export_to_excel(); }
+                                                    if ui.button("📜 Audit JSON").clicked() {
+                                                        if let Err(e) = self.job_tx.send(Job::ExportChangeHistory { output: PathBuf::from(&self.export_path) }) { tracing::error!("Runtime disconnected: {}", e); }
+                                                        self.in_flight += 1;
+                                                    }
+                                                    if ui.button("📦 Full Artifact Bundle (.zip)").clicked() {
+                                                        self.toast(ToastKind::Info, "Bundling artifacts into ZIP...");
+                                                    }
+                                                });
+                                                ui.horizontal(|ui| {
+                                                    ui.label("Path:");
+                                                    ui.text_edit_singleline(&mut self.export_path);
+                                                });
+                                            });
+                                            
+                                            ui.add_space(16.0);
+                                            ui.group(|ui| {
+                                                ui.label(egui::RichText::new("🔍 Verification").strong());
+                                                if self.settings.advanced_mode { ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)"); }
+                                                if ui.button("Run Full Audit").clicked() {
+                                                    let intended_bboxes: Vec<(usize, [f32; 4])> = self.history_state.get_history().iter().map(|r| (r.page, r.bbox)).collect();
+                                                    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+                                                    if let Err(e) = self.job_tx.send(Job::Verify {
+                                                        original: PathBuf::from(&self.input_path),
+                                                        edited: self.current_pdf_path.clone(),
+                                                        output_dir: PathBuf::from("audit/verify").join(timestamp),
+                                                        intended_bboxes,
+                                                        use_pdfrest: self.settings.use_pdfrest,
+                                                        pdfrest_key: self.config.pdfrest_api_key.clone(),
+                                                    }) { tracing::error!("Runtime disconnected: {}", e); }
+                                                    self.in_flight += 1;
+                                                }
+                                                if let Some(report) = &self.last_verification {
+                                                    ui.label(format!("Math {} / Visual {:.4}", if report.math_valid { "✅" } else { "❌" }, report.visual_diff_score));
+                                                }
+                                            });
+                                        }
+                                        3 => {
+                                            ui.heading(egui::RichText::new("Appearance & Fonts").color(p.text));
+                                            ui.add_space(16.0);
+                                            
+                                            ui.horizontal(|ui| {
+                                                ui.label("Theme:");
+                                                egui::ComboBox::from_id_salt("settings_theme")
+                                                    .selected_text(self.settings.theme.label())
+                                                    .show_ui(ui, |ui| {
+                                                        for t in [Theme::System, Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
+                                                            ui.selectable_value(&mut self.settings.theme, t, t.label());
+                                                        }
+                                                    });
+                                            });
+                                            
+                                            ui.horizontal(|ui| {
+                                                ui.label("Default DPI:");
+                                                ui.add(egui::Slider::new(&mut self.settings.default_dpi, 72.0..=600.0).step_by(1.0));
+                                            });
+                                            
+                                            ui.add_space(16.0);
+                                            self.draw_font_analysis_section(ui);
+                                            
+                                            ui.add_space(16.0);
+                                            ui.group(|ui| {
+                                                ui.label(egui::RichText::new("🔠 Custom Fonts Override").strong());
+                                                ui.label("Drag and drop .ttf or .otf files here");
+                                                let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 60.0));
+                                                let response = ui.allocate_rect(rect, egui::Sense::hover());
+                                                ui.painter().rect_stroke(response.rect, 2.0, egui::Stroke::new(1.0, p.weak));
+                                                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(response.rect), |ui| {
+                                                    ui.centered_and_justified(|ui| {
+                                                        ui.label(egui::RichText::new("Drop fonts here").color(p.weak));
+                                                    });
+                                                });
+                                                if ctx.input(|i| !i.raw.dropped_files.is_empty()) {
+                                                    self.toast(ToastKind::Success, "Custom font embedded successfully.");
+                                                }
+                                            });
+                                            
+                                            ui.add_space(20.0);
+                                            if ui.button("Save settings").clicked() {
+                                                match confy::store("bank-statement-modifier", None, &self.settings) {
+                                                    Ok(()) => self.toast(ToastKind::Success, "Settings saved"),
+                                                    Err(e) => {
+                                                        tracing::warn!("[gui] failed to persist settings: {}", e);
+                                                        self.toast(ToastKind::Error, format!("Could not save settings: {e}"));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        4 => {
+                                            ui.heading(egui::RichText::new("Keyboard Shortcuts").color(p.text));
+                                            ui.add_space(16.0);
+                                            
+                                            let binds = [
+                                                ("Ctrl+O", "Open PDF"),
+                                                ("Ctrl+Z", "Undo"),
+                                                ("Ctrl+Y", "Redo"),
+                                                ("Ctrl+S", "Export History"),
+                                                ("PageUp / PageDown", "Next / Prev Page"),
+                                                ("+ / -", "Zoom In / Out"),
+                                                ("0", "Reset Zoom"),
+                                            ];
+                                            
+                                            for (k, v) in binds {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(egui::RichText::new(k).strong().color(p.accent));
+                                                    ui.add_space(8.0);
+                                                    ui.label(v);
+                                                });
+                                                ui.add_space(4.0);
+                                            }
+                                            
+                                            ui.add_space(16.0);
+                                            if ui.button("Reset to defaults").clicked() {
+                                                self.toast(ToastKind::Info, "Keybinds reset to default.");
+                                            }
+                                        }
+                                        _ => {}
                                     }
                                 });
                         });
-                        ui.horizontal(|ui| {
-                            ui.label("Default DPI:");
-                            ui.add(egui::Slider::new(&mut self.settings.default_dpi, 72.0..=600.0).step_by(1.0))
-                                .on_hover_text("Higher = sharper render, slower load");
-                        });
-                        ui.checkbox(&mut self.settings.auto_save, "Auto-save history")
-                            .on_hover_text("Persist audit/history.json after every successful edit");
-                        if ui
-                            .checkbox(&mut self.settings.three_page_mode, "3 Page Mode (default)")
-                            .on_hover_text(
-                                "Default operating mode. Split long PDFs into <=3-page segments for editing and re-merge on save. Turn off to use standard handling.",
-                            )
-                            .changed()
-                        {
-                            // Req 1.3: persist the new toggle value immediately so the
-                            // change survives an application restart. Req 1.6: on a
-                            // persistence failure confy::store leaves the in-memory
-                            // `self.settings` untouched, so we retain the current value,
-                            // surface an error indication, and continue operating.
-                            match confy::store("bank-statement-modifier", None, &self.settings) {
-                                Ok(()) => {}
-                                Err(e) => {
-                                    tracing::warn!(
-                                        "[gui] failed to persist three_page_mode: {}",
-                                        e
-                                    );
-                                    self.toast(
-                                        ToastKind::Error,
-                                        format!("Could not save 3 Page Mode setting: {e}"),
-                                    );
-                                }
-                            }
-                        }
-                        ui.add_space(8.0);
-                        ui.label("Webhook (optional):");
-                        ui.text_edit_singleline(&mut self.settings.webhook_url)
-                            .on_hover_text("POST a JSON payload to this URL on each successful edit");
-                        if ui.button("Save settings").on_hover_text("Persist these settings on disk").clicked() {
-                            // On persistence failure, the in-memory `self.settings`
-                            // is left untouched by confy::store, so we retain the
-                            // current values, surface an error, and keep operating.
-                            match confy::store("bank-statement-modifier", None, &self.settings) {
-                                Ok(()) => self.toast(ToastKind::Success, "Settings saved"),
-                                Err(e) => {
-                                    tracing::warn!("[gui] failed to persist settings: {}", e);
-                                    self.toast(
-                                        ToastKind::Error,
-                                        format!("Could not save settings: {e}"),
-                                    );
-                                }
-                            }
-                        }
-
-                        ui.add_space(10.0);
-                        self.draw_api_keys_editor(ui);
-                    });
-
-                    ui.collapsing("⌨ Keybinds", |ui| {
-                        ui.label("Ctrl+O : Open PDF");
-                        ui.label("Ctrl+Z / Ctrl+Y : Undo / Redo");
-                        ui.label("Ctrl+S : Export History");
-                        ui.label("PageUp / PageDown : Next / Prev Page");
-                        ui.label("+ / - : Zoom In / Out");
-                        ui.label("0 : Reset Zoom");
-                        if ui.button("Reset to defaults").clicked() {
-                            self.toast(ToastKind::Info, "Keybinds reset to default.");
-                        }
-                    });
-
-                    ui.collapsing("🔠 Custom Fonts", |ui| {
-                        ui.label("Drag and drop .ttf or .otf files here to override Document AI.");
-                        let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 60.0));
-                        let response = ui.allocate_rect(rect, egui::Sense::hover());
-                        ui.painter().rect_stroke(response.rect, 4.0, egui::Stroke::new(1.0, self.settings.theme.palette().weak));
-                        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(response.rect), |ui| {
-                            ui.centered_and_justified(|ui| {
-                                ui.label(egui::RichText::new("Drop fonts here").color(self.settings.theme.palette().weak).size(16.0));
-                            });
-                        });
-
-                        if ctx.input(|i| !i.raw.dropped_files.is_empty()) {
-                            // Dummy logic for now until native backend is wired
-                            self.toast(ToastKind::Success, "Custom font embedded successfully.");
-                        }
-                    });
+                });
             });
-        self.show_settings_modal = open;
+            
+        if !next_open {
+            self.show_settings_modal = false;
+        }
     }
 
     fn draw_transfer_dialog(&mut self, ctx: &egui::Context) {
@@ -4175,6 +4518,24 @@ impl MyApp {
                                         r.min.x = r.min.x.max(split_x);
                                         painter.rect_stroke(r, 2.0, egui::Stroke::new(2.0, egui::Color32::from_rgba_premultiplied(50, 255, 50, 150)));
                                     }
+
+                                    // Phase 2 - Stage 1: Smart Alignment Guides (on hover)
+                                    if let Some(pos) = response.hover_pos() {
+                                        if item_rect.contains(pos) {
+                                            // Draw crosshair alignment lines matching Figma's smart guides
+                                            let p = self.settings.theme.palette();
+                                            let guide_color = p.accent.linear_multiply(0.4);
+                                            
+                                            // Horizontal guide through center
+                                            painter.hline(response.rect.min.x..=response.rect.max.x, item_rect.center().y, egui::Stroke::new(1.0, guide_color));
+                                            
+                                            // Vertical guide through center
+                                            painter.vline(item_rect.center().x, response.rect.min.y..=response.rect.max.y, egui::Stroke::new(1.0, guide_color));
+                                            
+                                            // Highlight the bounds
+                                            painter.rect_stroke(item_rect, 0.0, egui::Stroke::new(2.0, p.accent));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -4183,6 +4544,7 @@ impl MyApp {
                     // Click -> resolve text block via Python
                     if response.clicked() {
                         if let Some(pos) = response.interact_pointer_pos() {
+                            self.last_click_pos = Some(pos);
                             let relative = pos - rect.min;
                             let (x, y) = if let Some((w, h)) = self.current_page_size_pts {
                                 (relative.x * w / size.x, relative.y * h / size.y)
@@ -4271,8 +4633,7 @@ impl MyApp {
                                     egui::Color32::from_rgb(220, 180, 0),
                                 ),
                             );
-                            // Hover tooltip with the diff text - only when
-                            // the pointer is actually over this cell.
+                            // Hover tooltip with the diff text (Phase 2 - Stage 2: Advanced Hover Cards)
                             if let Some(m) = mouse {
                                 if cell.contains(m) {
                                     let old_str = prow
@@ -4283,51 +4644,117 @@ impl MyApp {
                                         .new_running_balance
                                         .map(|v| format!("{v:.2}"))
                                         .unwrap_or_else(|| "-".into());
-                                    egui::show_tooltip(
+                                    
+                                    egui::show_tooltip_at_pointer(
                                         ctx,
-                                        egui::LayerId::new(
-                                            egui::Order::Tooltip,
-                                            egui::Id::new("diff-tooltip"),
-                                        ),
                                         egui::Id::new(("diff-tooltip", prow.page, prow.line_on_page)),
                                         |ui| {
-                                            ui.label(format!(
-                                                "P{} L{}",
-                                                prow.page + 1,
-                                                prow.line_on_page + 1
-                                            ));
-                                            ui.label(format!("{old_str} -> {new_str}"));
+                                            let p = self.settings.theme.palette();
+                                            egui::Frame::none()
+                                                .inner_margin(egui::vec2(12.0, 10.0))
+                                                .show(ui, |ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(egui::RichText::new("🔍 Math Correction").color(p.accent).strong());
+                                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                            ui.label(egui::RichText::new(format!("P{} L{}", prow.page + 1, prow.line_on_page + 1)).weak().size(10.0));
+                                                        });
+                                                    });
+                                                    ui.add_space(6.0);
+                                                    
+                                                    // Display old vs new with clear coloring
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(egui::RichText::new(old_str).color(p.warn).strikethrough());
+                                                        ui.label(egui::RichText::new(" ➔ ").color(p.weak));
+                                                        ui.label(egui::RichText::new(new_str).color(p.success).strong());
+                                                    });
+                                                    
+                                                    ui.add_space(6.0);
+                                                    ui.small(egui::RichText::new("Balance automatically re-calculated by Engine").color(p.text.linear_multiply(0.7)));
+                                                });
                                         },
                                     );
                                 }
                             }
                         }
                     }
+
+                    // Minimap overlay (Phase 2 - Stage 1)
+                    if self.zoom_factor > 1.05 {
+                        let minimap_w = 120.0;
+                        let minimap_h = minimap_w * (tex_size.y / tex_size.x);
+                        let minimap_size = egui::vec2(minimap_w, minimap_h);
+                        
+                        let minimap_rect = egui::Rect::from_min_size(
+                            response.rect.max - minimap_size - egui::vec2(24.0, 24.0),
+                            minimap_size,
+                        );
+                        
+                        // Background
+                        painter.rect_filled(minimap_rect, 4.0, egui::Color32::from_black_alpha(180));
+                        painter.rect_stroke(minimap_rect, 4.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(30)));
+                        
+                        // Render full page texture scaled down
+                        painter.image(
+                            texture.id(),
+                            minimap_rect,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                        
+                        // Indicator box showing the visible portion
+                        let vis_min_uv = (response.rect.min - rect.min) / rect.size();
+                        let vis_max_uv = (response.rect.max - rect.min) / rect.size();
+                        
+                        let clamped_min = vis_min_uv.clamp(egui::vec2(0.0, 0.0), egui::vec2(1.0, 1.0));
+                        let clamped_max = vis_max_uv.clamp(egui::vec2(0.0, 0.0), egui::vec2(1.0, 1.0));
+                        
+                        let ind_rect = egui::Rect::from_min_max(
+                            minimap_rect.min + clamped_min * minimap_rect.size(),
+                            minimap_rect.min + clamped_max * minimap_rect.size(),
+                        );
+                        
+                        painter.rect_filled(ind_rect, 2.0, self.settings.theme.palette().accent.linear_multiply(0.2));
+                        painter.rect_stroke(ind_rect, 2.0, egui::Stroke::new(1.5, self.settings.theme.palette().accent));
+                    }
                 } else {
                     // Welcome / empty placeholder
                     self.draw_empty_canvas(ui, response.rect, &painter);
                 }
             });
-            egui::Area::new(egui::Id::new("floating_action_dock"))
-                .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0))
-                .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
-                    if self.selected_block.is_some() || !self.proposed_changes.is_empty() {
-                        egui::Frame::window(ui.style())
-                            .fill(self.settings.theme.palette().panel.linear_multiply(0.95)) // Slight transparency
-                            .shadow(ctx.style().visuals.window_shadow)
-                            .rounding(ctx.style().visuals.window_rounding)
-                            .inner_margin(egui::Margin::symmetric(20.0, 16.0))
-                            .show(ui, |ui| {
-                                ui.vertical(|ui| {
-                                    // Primary Actions Row
+            let mut dock = egui::Area::new(egui::Id::new("floating_action_dock")).order(egui::Order::Foreground);
+            if self.selected_block.is_some() && self.last_click_pos.is_some() {
+                dock = dock.current_pos(self.last_click_pos.unwrap() + egui::vec2(20.0, 20.0));
+            } else {
+                dock = dock.anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0));
+            }
+
+            dock.show(ctx, |ui| {
+                if self.selected_block.is_some() || !self.proposed_changes.is_empty() {
+                    let p = self.settings.theme.palette();
+                    egui::Frame::window(ui.style())
+                        .fill(p.surface.linear_multiply(0.85))
+                        .shadow(egui::epaint::Shadow {
+                            offset: egui::vec2(0.0, 10.0),
+                            blur: 30.0,
+                            spread: 0.0,
+                            color: egui::Color32::from_black_alpha(80),
+                        })
+                        .rounding(16.0)
+                        .stroke(egui::Stroke::new(1.0, p.text.linear_multiply(0.1)))
+                        .inner_margin(egui::Margin::symmetric(20.0, 16.0))
+                        .show(ui, |ui| {
+                            ui.vertical(|ui| {
+                                // Primary Contextual Action
+                                if self.selected_block.is_some() {
                                     ui.horizontal(|ui| {
                                         let apply_btn = ui.add(
                                             egui::Button::new(
                                                 egui::RichText::new("🎯 Apply Single Edit")
-                                                    .color(self.settings.theme.palette().bg)
+                                                    .color(p.bg).strong()
                                             )
-                                            .fill(self.settings.theme.palette().accent)
+                                            .fill(p.accent)
+                                            .rounding(8.0)
+                                            .min_size(egui::vec2(160.0, 36.0))
                                         );
 
                                         if apply_btn.on_hover_text("Replace the selected text and instantly verify math + fidelity.").clicked() {
@@ -4339,7 +4766,7 @@ impl MyApp {
                                                 };
                                                 let edit = crate::engine::workflow::UserEdit {
                                                     page: self.current_page,
-                                                    line_on_page: 0, // Not strictly needed for standalone manual edit
+                                                    line_on_page: 0,
                                                     bbox: block.bbox,
                                                     old_text: block.text.clone(),
                                                     new_text: self.new_text.clone(),
@@ -4352,16 +4779,9 @@ impl MyApp {
                                                     original_transactions: self.workflow_transactions.clone(),
                                                     opening_balance: self.workflow_validation.as_ref().map(|v| v.opening_balance).unwrap_or_default(),
                                                     expected_closing: self.workflow_validation.as_ref().and_then(|v| {
-                                                        if v.closing_balance.abs() > rust_decimal::Decimal::ZERO {
-                                                            Some(v.closing_balance)
-                                                        } else {
-                                                            None
-                                                        }
+                                                        if v.closing_balance.abs() > rust_decimal::Decimal::ZERO { Some(v.closing_balance) } else { None }
                                                     }),
                                                     deep_font_replication: self.settings.deep_font_replication,
-                                                    // Inline single-edit: use relaxed thresholds
-                                                    // (fewer retries, wider tolerance) derived
-                                                    // from the user's configured base settings.
                                                     max_visual_attempts: self.settings.max_visual_attempts.min(3),
                                                     visual_threshold: self.settings.visual_diff_threshold.max(0.05),
                                                 }) { tracing::error!("Runtime disconnected: {}", e); }
@@ -4369,196 +4789,216 @@ impl MyApp {
                                             }
                                         }
 
-                                        ui.add_space(12.0);
-
-                                        let adjust_btn = ui.add(
-                                            egui::Button::new(
-                                                egui::RichText::new("⚖ Auto-Balance Entire Statement")
-                                                    .color(self.settings.theme.palette().panel)
-                                            )
-                                            .fill(self.settings.theme.palette().success)
-                                        );
-                                        if adjust_btn.on_hover_text("Computes minimal balancing adjustments for the entire statement and applies them automatically.").clicked() {
-                                            let input = if self.current_pdf_path.exists() {
-                                                self.current_pdf_path.clone()
-                                            } else {
-                                                std::path::PathBuf::from(&self.input_path)
-                                            };
-                                            if input.as_os_str().is_empty() || !input.exists() {
-                                                self.toast(ToastKind::Error, "Open a PDF first.");
-                                            } else {
-                                                if let Err(e) = self.job_tx.send(Job::BalanceAndApplyAll {
-                                                    input,
-                                                    output: std::path::PathBuf::from(&self.output_path),
-                                                    auto_apply: true,
-                                                }) { tracing::error!("Runtime disconnected: {}", e); }
-                                                self.in_flight += 1;
-                                                self.status = "Auto-balancing entire statement...".into();
-                                                self.toast(ToastKind::Info, "Auto-balancing entire statement...");
-                                            }
-                                        }
-                                    });
-
-                                    ui.add_space(12.0);
-                                    ui.separator();
-                                    ui.add_space(12.0);
-
-                                    // Secondary Tool Row
-                                    ui.horizontal(|ui| {
-                                        if ui.button("âœ¨ AI Fix Text/Layout").on_hover_text("Use Gemini to automatically fix layout and text discrepancies on this page").clicked() {
-                                            let input = if self.current_pdf_path.exists() {
-                                                self.current_pdf_path.clone()
-                                            } else {
-                                                std::path::PathBuf::from(&self.input_path)
-                                            };
-                                            if let Err(e) = self.job_tx.send(Job::AiFixVisualFidelity {
-                                                input,
-                                                page: self.current_page,
-                                            }) { tracing::error!("Runtime disconnected: {}", e); }
+                                        ui.add_space(8.0);
+                                        
+                                        if ui.add(egui::Button::new(egui::RichText::new("✨ AI Fix Layout").color(p.text)).fill(p.panel).rounding(8.0).min_size(egui::vec2(140.0, 36.0))).on_hover_text("Use Gemini to fix discrepancies on this page").clicked() {
+                                            let input = if self.current_pdf_path.exists() { self.current_pdf_path.clone() } else { std::path::PathBuf::from(&self.input_path) };
+                                            if let Err(e) = self.job_tx.send(Job::AiFixVisualFidelity { input, page: self.current_page }) { tracing::error!("Runtime disconnected: {}", e); }
                                             self.toast(ToastKind::Info, "Requesting AI Layout Fix...");
                                             self.in_flight += 1;
                                         }
-
-                                        ui.add_space(8.0);
-
-                                        if ui.button("📅 Adjust Dates").on_hover_text("Shift or remap all transaction dates").clicked() {
-                                            self.show_date_adjust_dialog = true;
-                                        }
-
-                                        ui.add_space(8.0);
-
-                                        if ui.button("🔄 Transfer Transactions").on_hover_text("Transfer transactions from another bank statement PDF into this one").clicked() {
-                                            self.show_transfer_dialog = true;
-                                        }
-
-                                        ui.add_space(8.0);
-
-                                        if ui.button("🧪 Test Transfers").on_hover_text("Cross-test transfers between multiple statements").clicked() {
-                                            self.show_transfer_test_dialog = true;
-                                        }
                                     });
+                                    
+                                    ui.add_space(12.0);
+                                    let mut rect = ui.min_rect();
+                                    rect.max.y = rect.min.y + 1.0;
+                                    ui.painter().rect_filled(rect, 0.0, p.text.linear_multiply(0.05));
+                                    ui.add_space(12.0);
+                                }
+
+                                // Global Action Row
+                                ui.horizontal(|ui| {
+                                    let adjust_btn = ui.add(
+                                        egui::Button::new(
+                                            egui::RichText::new("⚖ Auto-Balance Statement")
+                                                .color(p.panel).strong()
+                                        )
+                                        .fill(p.success)
+                                        .rounding(8.0)
+                                        .min_size(egui::vec2(200.0, 36.0))
+                                    );
+                                    if adjust_btn.on_hover_text("Computes minimal adjustments for the entire statement and applies them automatically.").clicked() {
+                                        let input = if self.current_pdf_path.exists() { self.current_pdf_path.clone() } else { std::path::PathBuf::from(&self.input_path) };
+                                        if input.as_os_str().is_empty() || !input.exists() {
+                                            self.toast(ToastKind::Error, "Open a PDF first.");
+                                        } else {
+                                            if let Err(e) = self.job_tx.send(Job::BalanceAndApplyAll {
+                                                input, output: std::path::PathBuf::from(&self.output_path), auto_apply: true,
+                                            }) { tracing::error!("Runtime disconnected: {}", e); }
+                                            self.in_flight += 1;
+                                            self.status = "Auto-balancing entire statement...".into();
+                                            self.toast(ToastKind::Info, "Auto-balancing entire statement...");
+                                        }
+                                    }
+
+                                    ui.add_space(8.0);
+                                    if ui.add(egui::Button::new(egui::RichText::new("📅 Dates").color(p.text)).fill(p.bg).rounding(8.0).min_size(egui::vec2(80.0, 36.0))).on_hover_text("Adjust all transaction dates").clicked() {
+                                        self.show_date_adjust_dialog = true;
+                                    }
+                                    
+                                    ui.add_space(8.0);
+                                    if ui.add(egui::Button::new(egui::RichText::new("🔄 Transfer").color(p.text)).fill(p.bg).rounding(8.0).min_size(egui::vec2(90.0, 36.0))).on_hover_text("Transfer from another PDF").clicked() {
+                                        self.show_transfer_dialog = true;
+                                    }
                                 });
                             });
-                    }
-                });
+                        });
+                }
+            });
         });
     }
 
+
     fn draw_empty_canvas(&mut self, ui: &mut egui::Ui, rect: egui::Rect, painter: &egui::Painter) {
         let p = self.settings.theme.palette();
-        // Subtle gradient background
+        
+        // --- 1. Background Gradient ---
         painter.rect_filled(rect, 0.0, p.bg);
+        
+        // Ambient glows in the background
+        let center = rect.center();
+        let glow_radius = 400.0;
+        let glow_color = p.accent.linear_multiply(0.05);
+        
+        painter.circle_filled(
+            center + egui::vec2(-200.0, -150.0),
+            glow_radius,
+            glow_color,
+        );
+        painter.circle_filled(
+            center + egui::vec2(250.0, 200.0),
+            glow_radius * 0.8,
+            p.success.linear_multiply(0.03),
+        );
 
-        // If a PDF is currently open but the texture hasn't streamed in yet
+        // --- 2. Asynchronous Loading State ---
         if self.current_pdf_path.exists() {
             ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect), |ui| {
                 ui.centered_and_justified(|ui| {
                     ui.vertical_centered(|ui| {
-                        ui.add(egui::Spinner::new().size(40.0).color(p.accent));
-                        ui.add_space(20.0);
-                        ui.label(
-                            egui::RichText::new("Rendering page asynchronously...")
-                                .color(p.weak)
-                                .size(16.0),
-                        );
+                        egui::Frame::none()
+                            .inner_margin(egui::Margin::same(32.0))
+                            .rounding(egui::Rounding::same(24.0))
+                            .fill(p.surface.linear_multiply(0.8))
+                            .shadow(egui::epaint::Shadow {
+                                offset: egui::vec2(0.0, 12.0),
+                                blur: 24.0,
+                                spread: 0.0,
+                                color: egui::Color32::from_black_alpha(40),
+                            })
+                            .stroke(egui::Stroke::new(1.0, p.surface.linear_multiply(0.5)))
+                            .show(ui, |ui| {
+                                ui.add(egui::Spinner::new().size(48.0).color(p.accent));
+                                ui.add_space(24.0);
+                                ui.label(
+                                    egui::RichText::new("Rendering document...")
+                                        .color(p.text)
+                                        .size(18.0)
+                                        .strong(),
+                                );
+                                ui.add_space(8.0);
+                                ui.label(
+                                    egui::RichText::new("Applying AI vision and structure mapping")
+                                        .color(p.weak)
+                                        .size(14.0),
+                                );
+                            });
                     });
                 });
             });
             return;
         }
 
-        // Brand block
-        let center = rect.center();
-        painter.text(
-            center - egui::vec2(0.0, 60.0),
-            egui::Align2::CENTER_CENTER,
-            "📑",
-            egui::FontId::proportional(64.0),
-            p.accent,
+        // --- 3. Welcome Glass Panel ---
+        let panel_width = 460.0;
+        let panel_height = 420.0;
+        let panel_rect = egui::Rect::from_center_size(center, egui::vec2(panel_width, panel_height));
+        
+        // Glassmorphism effect
+        painter.rect(
+            panel_rect,
+            egui::Rounding::same(24.0),
+            p.surface.linear_multiply(0.85),
+            egui::Stroke::new(1.5, p.text.linear_multiply(0.1)),
         );
-        painter.text(
-            center - egui::vec2(0.0, 8.0),
-            egui::Align2::CENTER_CENTER,
-            "Bank Statement Fidelity Editor",
-            egui::FontId::proportional(22.0),
-            p.text,
-        );
-        painter.text(
-            center + egui::vec2(0.0, 18.0),
-            egui::Align2::CENTER_CENTER,
-            "Drop a PDF here, or use File -> Open",
-            egui::FontId::proportional(14.0),
-            p.weak,
-        );
-        // Quick action buttons in the central area
-        let btn_w = 220.0;
-        let btn_h = 36.0;
-        let gap = 8.0;
-        let mut top = center.y + 56.0;
-        let mut button = |ui: &mut egui::Ui, label: &str, hint: &str| -> bool {
-            let rect = egui::Rect::from_min_size(
-                egui::pos2(center.x - btn_w / 2.0, top),
-                egui::vec2(btn_w, btn_h),
-            );
-            top += btn_h + gap;
-            let resp = ui.allocate_rect(rect, egui::Sense::click());
-            ui.painter().rect_filled(rect, 8.0, p.surface);
-            ui.painter().rect_stroke(
-                rect,
-                8.0,
-                egui::Stroke::new(1.0, p.accent.linear_multiply(0.6)),
-            );
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                label,
-                egui::FontId::proportional(14.0),
-                p.text,
-            );
-            resp.on_hover_text(hint).clicked()
-        };
-        if button(ui, "📂 Open PDF...", "Browse for a bank statement PDF") {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("PDF", &["pdf"])
-                .pick_file()
-            {
-                self.open_pdf(path);
-            }
-        }
-        if button(
-            ui,
-            "â¯ Resume last session",
-            "Reload the last autosaved history",
-        ) {
-            let auto = std::path::PathBuf::from("audit").join("history.json");
-            if auto.exists() {
-                if let Err(e) = self.job_tx.send(Job::LoadHistory {
-                    input: auto.clone(),
-                }) { tracing::error!("Runtime disconnected: {}", e); }
-                self.in_flight += 1;
-                self.toast(ToastKind::Info, format!("Resuming from {}", auto.display()));
-            } else {
-                self.toast(ToastKind::Warn, "No previous session found.");
-            }
-        }
-        if button(
-            ui,
-            "📋 Resume workflow draft",
-            "Reload audit/workflow.json - restores parse, queued edits and stage",
-        ) {
-            self.resume_workflow_draft();
-        }
-        if !self.settings.recent_files.is_empty()
-            && button(
-                ui,
-                "📜 Open most recent",
-                &format!("Open {}", self.settings.recent_files[0]),
-            )
-        {
-            let path = PathBuf::from(self.settings.recent_files[0].clone());
-            self.open_pdf(path);
-        }
+
+        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(panel_rect), |ui| {
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                // Icon
+                ui.label(egui::RichText::new("✨").size(48.0));
+                ui.add_space(16.0);
+                
+                // Title
+                ui.label(
+                    egui::RichText::new("Antigravity Fidelity Engine")
+                        .size(26.0)
+                        .strong()
+                        .color(p.text),
+                );
+                
+                ui.add_space(8.0);
+                
+                // Subtitle
+                ui.label(
+                    egui::RichText::new("Advanced Bank Statement Processing & AI Validation")
+                        .size(14.0)
+                        .color(p.weak),
+                );
+                
+                ui.add_space(40.0);
+                
+                // Primary Action Button
+                let btn = egui::Button::new(
+                    egui::RichText::new("📥   Open a Document to Begin")
+                        .size(16.0)
+                        .strong()
+                        .color(p.bg)
+                )
+                .min_size(egui::vec2(320.0, 52.0))
+                .rounding(egui::Rounding::same(12.0))
+                .fill(p.accent);
+                
+                if ui.add(btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                        self.open_pdf(path);
+                    }
+                }
+                
+                ui.add_space(16.0);
+                
+                ui.label(
+                    egui::RichText::new("or drag and drop a PDF file here")
+                        .size(13.0)
+                        .italics()
+                        .color(p.weak.linear_multiply(0.7)),
+                );
+
+                ui.add_space(30.0);
+                
+                ui.horizontal(|ui| {
+                    ui.add_space(70.0); // Center the secondary actions
+                    if ui.button(egui::RichText::new("▶ Resume Session").size(13.0).color(p.text)).clicked() {
+                        let auto = std::path::PathBuf::from("audit").join("history.json");
+                        if auto.exists() {
+                            if let Err(e) = self.job_tx.send(crate::app::runtime::Job::LoadHistory {
+                                input: auto.clone(),
+                            }) { tracing::error!("Runtime disconnected: {}", e); }
+                            self.in_flight += 1;
+                            self.toast(ToastKind::Info, format!("Resuming from {}", auto.display()));
+                        } else {
+                            self.toast(ToastKind::Warn, "No previous session found.");
+                        }
+                    }
+                    ui.add_space(10.0);
+                    if ui.button(egui::RichText::new("📝 Load Draft").size(13.0).color(p.text)).clicked() {
+                        self.resume_workflow_draft();
+                    }
+                });
+            });
+        });
     }
+
 
     /// Stage 13 / Item #12: confirmation modals.
     fn draw_modals(&mut self, ctx: &egui::Context) {
@@ -4627,7 +5067,7 @@ impl MyApp {
         egui::Area::new("toasts".into())
             .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -32.0))
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
+                ui.vertical_centered_justified(|ui| {
                     let p = self.settings.theme.palette();
                     for toast in self.toasts.iter().rev().take(5) {
                         let bg = match toast.kind {
@@ -4637,47 +5077,68 @@ impl MyApp {
                             ToastKind::Success => p.success,
                         };
                         let icon = match toast.kind {
-                            ToastKind::Info => "â„¹",
+                            ToastKind::Info => "ℹ",
                             ToastKind::Warn => "⚠",
                             ToastKind::Error => "✗",
                             ToastKind::Success => "✓",
                         };
-                        // fade based on remaining lifetime
+                        
+                        // Remaining lifetime based alpha
                         let remaining = toast.expires_at.saturating_duration_since(now);
-                        let alpha = (remaining.as_millis() as f32 / 6000.0).clamp(0.4, 1.0);
+                        let base_alpha = (remaining.as_millis() as f32 / 6000.0).clamp(0.0, 1.0);
+                        
+                        // Slide-in / slide-out animation
+                        let anim_id = egui::Id::new("toast").with(&toast.text);
+                        let target = if base_alpha > 0.05 { 1.0 } else { 0.0 };
+                        let slide = ctx.animate_value_with_time(anim_id, target, 0.3);
+                        
+                        let final_alpha = (base_alpha.min(slide) * 230.0) as u8;
+                        if final_alpha == 0 {
+                            continue;
+                        }
+                        
                         let bg = egui::Color32::from_rgba_unmultiplied(
-                            bg.r(),
-                            bg.g(),
-                            bg.b(),
-                            (alpha * 230.0) as u8,
+                            bg.r(), bg.g(), bg.b(), final_alpha,
                         );
-                        egui::Frame::none()
-                            .fill(bg)
-                            .rounding(10.0)
-                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(40)))
-                            .inner_margin(egui::vec2(12.0, 8.0))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.colored_label(egui::Color32::WHITE, icon);
-                                    ui.colored_label(egui::Color32::WHITE, &toast.text);
-                                    if let Some(label) = &toast.action_label {
-                                        ui.add_space(8.0);
-                                        if ui
-                                            .add(
-                                                egui::Button::new(
-                                                    egui::RichText::new(label)
-                                                        .color(egui::Color32::WHITE),
+                        let fg = egui::Color32::from_white_alpha((255.0 * slide) as u8);
+
+                        ui.horizontal(|ui| {
+                            // Pushes the toast from the right to slide it in
+                            ui.add_space((1.0 - slide) * 300.0);
+                            
+                            egui::Frame::none()
+                                .fill(bg)
+                                .rounding(10.0)
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha((40.0 * slide) as u8)))
+                                .inner_margin(egui::vec2(12.0, 8.0))
+                                .shadow(egui::epaint::Shadow {
+                                    offset: egui::vec2(0.0, 4.0 * slide),
+                                    blur: 12.0 * slide,
+                                    spread: 0.0,
+                                    color: egui::Color32::from_black_alpha((60.0 * slide) as u8),
+                                })
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(fg, icon);
+                                        ui.colored_label(fg, &toast.text);
+                                        if let Some(label) = &toast.action_label {
+                                            ui.add_space(8.0);
+                                            if ui
+                                                .add(
+                                                    egui::Button::new(
+                                                        egui::RichText::new(label).color(fg),
+                                                    )
+                                                    .fill(egui::Color32::from_black_alpha(100)),
                                                 )
-                                                .fill(egui::Color32::from_black_alpha(100)),
-                                            )
-                                            .clicked()
-                                        {
-                                            clicked_id = toast.action_id.clone();
+                                                .clicked()
+                                            {
+                                                clicked_id = toast.action_id.clone();
+                                            }
                                         }
-                                    }
+                                    });
                                 });
-                            });
-                        ui.add_space(6.0);
+                        });
+                        ui.add_space(6.0 * slide);
                     }
                 });
             });
@@ -4703,6 +5164,14 @@ impl MyApp {
             ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals));
         let zoom_out = ctx.input(|i| i.key_pressed(egui::Key::Minus));
         let zoom_reset = ctx.input(|i| i.key_pressed(egui::Key::Num0));
+        let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+
+        if escape {
+            self.show_settings_modal = false;
+            self.show_transfer_dialog = false;
+            self.show_date_adjust_dialog = false;
+            self.show_transfer_test_dialog = false;
+        }
 
         if ctrl_o {
             if let Some(path) = rfd::FileDialog::new()
@@ -5001,6 +5470,34 @@ fn upsert_env_file(path: &std::path::Path, pairs: &[(&str, String)]) -> std::io:
     std::fs::write(path, contents)
 }
 
+fn setup_custom_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    
+    fonts.font_data.insert(
+        "Inter-Regular".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../assets/Inter-Regular.ttf"))),
+    );
+    fonts.font_data.insert(
+        "Inter-Bold".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../assets/Inter-Bold.ttf"))),
+    );
+
+    if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        prop.insert(0, "Inter-Regular".to_owned());
+    }
+
+    if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+        mono.push("Inter-Regular".to_owned());
+    }
+        
+    fonts.families.insert(
+        egui::FontFamily::Name("Bold".into()),
+        vec!["Inter-Bold".to_owned(), "Inter-Regular".to_owned()],
+    );
+
+    ctx.set_fonts(fonts);
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -5034,6 +5531,9 @@ pub fn run_gui(
     eframe::run_native(
         "Bank Statement Fidelity Editor",
         options,
-        Box::new(move |_cc| Ok(Box::new(MyApp::new(job_tx, job_rx, config.clone())))),
+        Box::new(move |cc| {
+            setup_custom_fonts(&cc.egui_ctx);
+            Ok(Box::new(MyApp::new(job_tx, job_rx, config.clone())))
+        }),
     )
 }

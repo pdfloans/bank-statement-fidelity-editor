@@ -1,11 +1,5 @@
-use crate::app::gui::{AppView, MyApp, Toast, ToastKind};
-
-use crate::app::runtime::{Job, PythonJob};
-use crate::app::gui::Theme;
-use crate::engine::font_analysis::*;
-use crate::engine::model::*;
-use crate::engine::workflow::*;
-use egui::*;
+use crate::app::gui::{AppView, MyApp, ToastKind, Theme};
+use crate::app::runtime::Job;
 use egui_plot::{Line, Plot};
 use std::path::PathBuf;
 
@@ -162,7 +156,7 @@ impl AppModals for MyApp {
                         ui.collapsing("⚙ Settings", |ui| {
                             ui.horizontal(|ui| {
                                 ui.label("Theme:");
-                                egui::ComboBox::from_id_source("settings_theme")
+                                egui::ComboBox::from_id_salt("settings_theme")
                                     .selected_text(self.settings.theme.label())
                                     .show_ui(ui, |ui| {
                                         for t in [Theme::System, Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
@@ -247,7 +241,7 @@ impl AppModals for MyApp {
                             let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 60.0));
                             let response = ui.allocate_rect(rect, egui::Sense::hover());
                             ui.painter().rect_stroke(response.rect, 4.0, egui::Stroke::new(1.0, self.settings.theme.palette().weak));
-                            ui.allocate_ui_at_rect(response.rect, |ui| {
+                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(response.rect), |ui| {
                                 ui.centered_and_justified(|ui| {
                                     ui.label(egui::RichText::new("Drop fonts here").color(self.settings.theme.palette().weak).size(16.0));
                                 });
@@ -285,7 +279,7 @@ impl AppModals for MyApp {
                     .show(ui, |ui| {
                         // ── 1. PDF Engine ──
                         ui.label("\u{1f4c4} PDF Engine:");
-                        egui::ComboBox::from_id_source("bp_pdf_engine")
+                        egui::ComboBox::from_id_salt("bp_pdf_engine")
                             .selected_text(match self.edit_engine_mode {
                                 PdfEngineMode::Auto => "Auto (PyMuPDF \u{2192} Native)",
                                 PdfEngineMode::DualConcurrent => "Dual Concurrent",
@@ -309,7 +303,7 @@ impl AppModals for MyApp {
 
                         // ── 2. AI Provider ──
                         ui.label("\u{1f916} AI Provider:");
-                        egui::ComboBox::from_id_source("bp_ai_provider")
+                        egui::ComboBox::from_id_salt("bp_ai_provider")
                             .selected_text(self.settings.ai_provider.label())
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::ManualOnly, "Manual Only (No AI)")
@@ -378,7 +372,7 @@ impl AppModals for MyApp {
 
                         // ── 3. Document Parser ──
                         ui.label("\u{1f4dd} Document Parser:");
-                        egui::ComboBox::from_id_source("bp_doc_parser")
+                        egui::ComboBox::from_id_salt("bp_doc_parser")
                             .selected_text(self.settings.document_parser.label())
                             .show_ui(ui, |ui| {
                                 // Mindee
@@ -445,7 +439,7 @@ impl AppModals for MyApp {
                         // ── 4. Verification Renderer ──
                         ui.label("\u{1f50d} Verification:");
                         ui.vertical(|ui| {
-                            egui::ComboBox::from_id_source("bp_verification")
+                            egui::ComboBox::from_id_salt("bp_verification")
                                 .selected_text(self.settings.verification_renderer.label())
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::LocalPdfium, "Local (Pdfium) \u{2705}")

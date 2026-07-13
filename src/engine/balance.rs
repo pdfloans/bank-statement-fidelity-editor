@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn auto_correct_noop_when_already_balanced() -> anyhow::Result<()> {
-        let mut txs = vec![make_tx(Some(dec!(20)), None)];
+        let txs = vec![make_tx(Some(dec!(20)), None)];
         let (res, msg) = auto_correct_final_balance_smart(txs, dec!(100), dec!(120))?;
         assert_eq!(res[0].running_balance, Some(dec!(120.00)));
         assert_eq!(msg, "Balances already match perfectly.");
