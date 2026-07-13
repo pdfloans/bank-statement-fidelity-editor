@@ -762,10 +762,18 @@ pub fn run(
         Commands::Gui => {
             // [Phase 0.1] Environment & Memory Assertions
             if let Err(e) = crate::app::preflight::verify_environment(&config) {
-                tracing::warn!("Pre-flight verification warning/error: {}. Proceeding with caution.", e);
-                if matches!(e, crate::app::preflight::PreflightError::HeadlessEnvironment) {
+                tracing::warn!(
+                    "Pre-flight verification warning/error: {}. Proceeding with caution.",
+                    e
+                );
+                if matches!(
+                    e,
+                    crate::app::preflight::PreflightError::HeadlessEnvironment
+                ) {
                     tracing::error!("Headless environment detected. Auto-healing: falling back to Headless Server.");
-                    if let Err(serve_err) = crate::app::server::run_server(job_tx, job_rx, config.clone()) {
+                    if let Err(serve_err) =
+                        crate::app::server::run_server(job_tx, job_rx, config.clone())
+                    {
                         tracing::error!("Fallback server also failed: {}", serve_err);
                         return exit_code::GENERAL;
                     }
@@ -777,7 +785,7 @@ pub fn run(
             if let Err(e) = crate::app::gui::run_gui(job_tx, job_rx, config.clone()) {
                 tracing::error!("Failed to launch GUI (eframe error): {}.", e);
                 tracing::error!("Auto-healing: falling back to Headless Server.");
-                
+
                 // We must restart the runtime because `job_rx` was consumed by the failed GUI
                 tracing::info!("Restarting worker runtime for fallback server...");
                 let audit_log = match crate::app::audit::AuditLog::open("audit") {
@@ -787,9 +795,12 @@ pub fn run(
                         return exit_code::IO;
                     }
                 };
-                let (_new_rt, new_tx, new_rx) = crate::app::runtime::Runtime::start(audit_log, config.clone());
+                let (_new_rt, new_tx, new_rx) =
+                    crate::app::runtime::Runtime::start(audit_log, config.clone());
 
-                if let Err(serve_err) = crate::app::server::run_server(new_tx, new_rx, config.clone()) {
+                if let Err(serve_err) =
+                    crate::app::server::run_server(new_tx, new_rx, config.clone())
+                {
                     tracing::error!("Fallback server also failed: {}", serve_err);
                     return exit_code::GENERAL;
                 }

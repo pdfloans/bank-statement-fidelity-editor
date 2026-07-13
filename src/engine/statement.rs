@@ -11,8 +11,8 @@
 //! - Queue changes that may span multiple pages
 //! - Apply all approved changes with maximum visual fidelity
 
-use crate::ai::document_ai::DocumentAiClient;
 use crate::ai::backend::AiBackend;
+use crate::ai::document_ai::DocumentAiClient;
 use crate::engine::model::{dec_to_f64, f64_to_dec, ProposedChange, Transaction};
 use crate::extractors::merger::HybridMerger;
 use crate::pdf::PdfEngine;
@@ -155,15 +155,11 @@ impl SmartDocumentEngine {
             .ai_backend
             .propose_balance_adjustments(&self.all_transactions, dec_to_f64(imbalance), layout)
             .await
-            .map_err(|e| {
-                match e {
-                    crate::ai::backend::AiBackendError::Gemini(crate::ai::gemini_client::GeminiError::LowConfidence(c)) => {
-                        EngineError::AiPlanFailed(format!("AI low confidence ({c:.2})"))
-                    }
-                    _ => {
-                        EngineError::AiPlanFailed(format!("AI failed: {e}"))
-                    }
-                }
+            .map_err(|e| match e {
+                crate::ai::backend::AiBackendError::Gemini(
+                    crate::ai::gemini_client::GeminiError::LowConfidence(c),
+                ) => EngineError::AiPlanFailed(format!("AI low confidence ({c:.2})")),
+                _ => EngineError::AiPlanFailed(format!("AI failed: {e}")),
             })?;
 
         // 6. Map adjustments to ProposedChange. Format with two-decimal

@@ -241,16 +241,16 @@ impl LlamaParseClient {
                     if parts.len() >= 5 {
                         let date = parts.get(1).unwrap_or(&"").to_string();
                         let desc = parts.get(2).unwrap_or(&"").to_string();
-                        
+
                         let parse_dec = |s: &str| -> Option<Decimal> {
                             let cleaned = s.replace(['$', ',', ' '], "");
                             cleaned.parse::<Decimal>().ok()
                         };
-                        
+
                         let debit = parts.get(3).and_then(|s| parse_dec(s));
                         let credit = parts.get(4).and_then(|s| parse_dec(s));
                         let balance = parts.get(5).and_then(|s| parse_dec(s));
-                        
+
                         if !date.is_empty() && (debit.is_some() || credit.is_some()) {
                             line_on_page += 1;
                             transactions.push(crate::engine::model::Transaction {
@@ -274,9 +274,14 @@ impl LlamaParseClient {
         }
 
         if transactions.is_empty() {
-            tracing::warn!("[llamaparse] No transactions found in markdown. Returning empty statement.");
+            tracing::warn!(
+                "[llamaparse] No transactions found in markdown. Returning empty statement."
+            );
         } else {
-            tracing::info!("[llamaparse] Parsed {} transactions from markdown.", transactions.len());
+            tracing::info!(
+                "[llamaparse] Parsed {} transactions from markdown.",
+                transactions.len()
+            );
         }
 
         Ok(BankStatement {

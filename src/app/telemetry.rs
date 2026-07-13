@@ -98,16 +98,17 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
                 .with_tonic()
                 .with_endpoint(endpoint)
                 .build()?;
-                
-            let resource = opentelemetry_sdk::Resource::new(vec![
-                opentelemetry::KeyValue::new("service.name", cfg.otel_service_name.clone()),
-            ]);
-                
+
+            let resource = opentelemetry_sdk::Resource::new(vec![opentelemetry::KeyValue::new(
+                "service.name",
+                cfg.otel_service_name.clone(),
+            )]);
+
             let provider = opentelemetry_sdk::trace::TracerProvider::builder()
                 .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
                 .with_resource(resource)
                 .build();
-                
+
             use opentelemetry::trace::TracerProvider;
             let tracer = provider.tracer("dual-core-pdf-pipeline");
             opentelemetry::global::set_tracer_provider(provider);

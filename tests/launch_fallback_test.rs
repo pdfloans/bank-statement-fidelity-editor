@@ -48,6 +48,7 @@ fn test_force_headless_fallback_routes_to_server() {
 
     assert!(
         logs.contains("falling back to Headless Server"),
-        "Did not find auto-heal fallback log in output. Logs: {}", logs
+        "Did not find auto-heal fallback log in output. Logs: {}",
+        logs
     );
 }

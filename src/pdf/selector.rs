@@ -100,7 +100,10 @@ impl PdfEngineSelector {
                     } else {
                         "Unknown panic".to_string()
                     };
-                    Err(EngineError::ApplyFailed(format!("Engine thread panicked: {}", msg)))
+                    Err(EngineError::ApplyFailed(format!(
+                        "Engine thread panicked: {}",
+                        msg
+                    )))
                 }
             }
         };
@@ -295,8 +298,8 @@ impl PdfEngine for PdfEngineSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use crate::app::config::{AppConfig, PdfEngineMode};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
     #[derive(Debug)]
@@ -308,17 +311,29 @@ mod tests {
 
     impl MockEngine {
         fn new_success() -> Self {
-            Self { fail_with: None, panic_on_call: false, called: Arc::new(AtomicBool::new(false)) }
+            Self {
+                fail_with: None,
+                panic_on_call: false,
+                called: Arc::new(AtomicBool::new(false)),
+            }
         }
-        
+
         fn new_error(err: EngineError) -> Self {
-            Self { fail_with: Some(err), panic_on_call: false, called: Arc::new(AtomicBool::new(false)) }
+            Self {
+                fail_with: Some(err),
+                panic_on_call: false,
+                called: Arc::new(AtomicBool::new(false)),
+            }
         }
 
         fn new_panic() -> Self {
-            Self { fail_with: None, panic_on_call: true, called: Arc::new(AtomicBool::new(false)) }
+            Self {
+                fail_with: None,
+                panic_on_call: true,
+                called: Arc::new(AtomicBool::new(false)),
+            }
         }
-        
+
         fn was_called(&self) -> bool {
             self.called.load(Ordering::SeqCst)
         }
@@ -334,66 +349,149 @@ mod tests {
             }
         }
 
-        fn render_page(&self, _path: &Path, _page: usize, _dpi: f32) -> Result<RenderedPage, EngineError> {
+        fn render_page(
+            &self,
+            _path: &Path,
+            _page: usize,
+            _dpi: f32,
+        ) -> Result<RenderedPage, EngineError> {
             self.called.store(true, Ordering::SeqCst);
             if self.panic_on_call {
                 panic!("MockEngine panic!");
             }
             if let Some(err) = &self.fail_with {
-                return Err(crate::pdf::engine::EngineError::ApplyFailed(err.to_string()));
+                return Err(crate::pdf::engine::EngineError::ApplyFailed(
+                    err.to_string(),
+                ));
             }
-            Ok(RenderedPage { png_bytes: vec![1, 2, 3], width_pts: 100.0, height_pts: 100.0 })
+            Ok(RenderedPage {
+                png_bytes: vec![1, 2, 3],
+                width_pts: 100.0,
+                height_pts: 100.0,
+            })
         }
 
-        fn get_text_blocks(&self, _path: &Path, _page: usize) -> Result<Vec<TextBlock>, EngineError> { Ok(vec![]) }
-        fn find_text_block_at_click(&self, _path: &Path, _page: usize, _x: f32, _y: f32) -> Result<Option<TextBlock>, EngineError> { Ok(None) }
-        fn apply_change(&self, _i: &Path, _o: &Path, _p: usize, _b: [f32; 4], _n: &str, _ot: &str, _fp: Option<&Path>) -> Result<ReplaceOutcome, EngineError> { 
-            Ok(ReplaceOutcome { success: true, font_used: "MockFont".into(), overflow: false, obj_id: None }) 
+        fn get_text_blocks(
+            &self,
+            _path: &Path,
+            _page: usize,
+        ) -> Result<Vec<TextBlock>, EngineError> {
+            Ok(vec![])
         }
-        fn analyze_layout(&self, _path: &Path) -> Result<DocumentLayout, EngineError> { Ok(DocumentLayout { total_pages: 1, pages: vec![], has_consistent_headers: true, has_consistent_footers: true, overall_style: "Standard".to_string(), layout_confidence: 1.0 }) }
+        fn find_text_block_at_click(
+            &self,
+            _path: &Path,
+            _page: usize,
+            _x: f32,
+            _y: f32,
+        ) -> Result<Option<TextBlock>, EngineError> {
+            Ok(None)
+        }
+        fn apply_change(
+            &self,
+            _i: &Path,
+            _o: &Path,
+            _p: usize,
+            _b: [f32; 4],
+            _n: &str,
+            _ot: &str,
+            _fp: Option<&Path>,
+        ) -> Result<ReplaceOutcome, EngineError> {
+            Ok(ReplaceOutcome {
+                success: true,
+                font_used: "MockFont".into(),
+                overflow: false,
+                obj_id: None,
+            })
+        }
+        fn analyze_layout(&self, _path: &Path) -> Result<DocumentLayout, EngineError> {
+            Ok(DocumentLayout {
+                total_pages: 1,
+                pages: vec![],
+                has_consistent_headers: true,
+                has_consistent_footers: true,
+                overall_style: "Standard".to_string(),
+                layout_confidence: 1.0,
+            })
+        }
     }
 
-    fn make_selector(primary: Arc<dyn PdfEngine>, fallback: Arc<dyn PdfEngine>, mode: PdfEngineMode) -> PdfEngineSelector {
+    fn make_selector(
+        primary: Arc<dyn PdfEngine>,
+        fallback: Arc<dyn PdfEngine>,
+        mode: PdfEngineMode,
+    ) -> PdfEngineSelector {
         let mut cfg = AppConfig::default();
         cfg.engine_mode = mode;
-        PdfEngineSelector::new(primary, fallback, Arc::new(std::sync::Mutex::new(Arc::new(cfg))))
+        PdfEngineSelector::new(
+            primary,
+            fallback,
+            Arc::new(std::sync::Mutex::new(Arc::new(cfg))),
+        )
     }
 
     #[test]
     fn fallback_takes_over_when_primary_fails() {
         let primary = Arc::new(MockEngine::new_error(EngineError::Unsupported));
         let fallback = Arc::new(MockEngine::new_success());
-        
+
         let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::Auto);
-        
+
         // This exercises try_primary_or_fallback (write path)
-        let res = selector.apply_change(Path::new("i"), Path::new("o"), 0, [0.0;4], "new", "old", None);
-        assert!(res.is_ok(), "Fallback should succeed even if primary returns Unsupported");
+        let res = selector.apply_change(
+            Path::new("i"),
+            Path::new("o"),
+            0,
+            [0.0; 4],
+            "new",
+            "old",
+            None,
+        );
+        assert!(
+            res.is_ok(),
+            "Fallback should succeed even if primary returns Unsupported"
+        );
     }
 
     #[test]
     fn dual_concurrent_falls_back_on_primary_panic() {
         let primary = Arc::new(MockEngine::new_panic());
         let fallback = Arc::new(MockEngine::new_success());
-        
-        let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::DualConcurrent);
-        
+
+        let selector = make_selector(
+            primary.clone(),
+            fallback.clone(),
+            PdfEngineMode::DualConcurrent,
+        );
+
         // This exercises run_dual_concurrent
         let res = selector.render_page(Path::new("dummy.pdf"), 0, 150.0);
-        assert!(res.is_ok(), "Selector should catch panic in primary and return fallback result");
-        assert!(fallback.was_called(), "Fallback engine must have been invoked");
+        assert!(
+            res.is_ok(),
+            "Selector should catch panic in primary and return fallback result"
+        );
+        assert!(
+            fallback.was_called(),
+            "Fallback engine must have been invoked"
+        );
     }
 
     #[test]
     fn sequential_auto_catches_primary_panic_and_returns_fallback() {
         let primary = Arc::new(MockEngine::new_panic());
         let fallback = Arc::new(MockEngine::new_success());
-        
+
         let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::Auto);
-        
+
         // render_page falls into try_primary_or_fallback when not DualConcurrent
         let res = selector.render_page(Path::new("dummy.pdf"), 0, 150.0);
-        assert!(res.is_ok(), "Selector should catch panic in primary and safely execute fallback");
-        assert!(fallback.was_called(), "Fallback engine must have been invoked");
+        assert!(
+            res.is_ok(),
+            "Selector should catch panic in primary and safely execute fallback"
+        );
+        assert!(
+            fallback.was_called(),
+            "Fallback engine must have been invoked"
+        );
     }
 }

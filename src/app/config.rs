@@ -202,6 +202,33 @@ impl AiProviderMode {
             Self::ManualOnly => "Manual Only (No AI)",
         }
     }
+
+    /// Token written to `.env` / `AI_PROVIDER` and read back by
+    /// [`AppConfig::from_env`]. Matches the serde `rename_all = "snake_case"`
+    /// representation of each variant.
+    pub fn env_token(self) -> &'static str {
+        match self {
+            Self::GeminiApiKey => "gemini_api_key",
+            Self::GeminiVertex => "gemini_vertex",
+            Self::GroqApiKey => "groq_api_key",
+            Self::OpenRouterApiKey => "openrouter_api_key",
+            Self::ManualOnly => "manual_only",
+        }
+    }
+
+    /// Tolerant parse from an environment variable string. Accepts the
+    /// canonical serde snake_case tokens and convenient short aliases.
+    /// Returns `ManualOnly` on empty/unknown input.
+    pub fn from_env_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "gemini_api_key" | "gemini" => Self::GeminiApiKey,
+            "gemini_vertex" | "vertex" | "vertex_ai" => Self::GeminiVertex,
+            "groq_api_key" | "groq" => Self::GroqApiKey,
+            "openrouter_api_key" | "openrouter" => Self::OpenRouterApiKey,
+            "manual_only" | "manual" => Self::ManualOnly,
+            _ => Self::ManualOnly,
+        }
+    }
 }
 
 /// Which document parser to use for extracting transactions from PDFs.
@@ -430,11 +457,15 @@ impl AppConfig {
             d.passphrase = passphrase.clone();
         }
 
+        // AI provider selection: tolerant parse, mirrors GEMINI_AUTH_MODE pattern.
+        let ai_provider =
+            AiProviderMode::from_env_str(&env::var("AI_PROVIDER").unwrap_or_default());
+
         Ok(Self {
             gemini_api_key,
             groq_api_key,
             openrouter_api_key,
-            ai_provider: AiProviderMode::default(),
+            ai_provider,
             pdfrest_api_key,
             lipi_api_key,
             document_ai: doc_ai,
@@ -522,10 +553,24 @@ impl AppConfig {
         self.pro_key_status().reason()
     }
 
-    /// Returns true if the application has valid AI configuration for balancing.
+    /// Returns true if the application has a valid AI provider configured for
+    /// balance analysis. Provider-aware: any configured AI backend counts
+    /// (Gemini API key, Gemini Vertex, Groq, or OpenRouter).
+    ///
+    /// pdfRest (a rendering backend) is intentionally excluded — it is
+    /// unrelated to balancing.
     pub fn has_ai_for_balancing(&self) -> bool {
-        self.gemini_api_key.is_some()
-            && (self.document_ai.is_some() || self.pdfrest_api_key.is_some())
+        match self.ai_provider {
+            AiProviderMode::ManualOnly => false,
+            AiProviderMode::GeminiApiKey => self.gemini_api_key.is_some(),
+            AiProviderMode::GeminiVertex => self
+                .document_ai
+                .as_ref()
+                .map(|d| !d.service_account_path.is_empty() || !d.adc_path.is_empty())
+                .unwrap_or(false),
+            AiProviderMode::GroqApiKey => self.groq_api_key.is_some(),
+            AiProviderMode::OpenRouterApiKey => self.openrouter_api_key.is_some(),
+        }
     }
 
     /// Returns true if the application has valid AI configuration for extraction.
@@ -751,5 +796,104 @@ mod tests {
         let json = serde_json::to_string(&ProKeyStatus::Available)?;
         assert!(json.contains("available"));
         Ok(())
+    }
+
+    #[test]
+    fn ai_provider_mode_from_env_str() {
+        use super::AiProviderMode;
+        assert_eq!(
+            AiProviderMode::from_env_str("gemini"),
+            AiProviderMode::GeminiApiKey
+        );
+        assert_eq!(
+            AiProviderMode::from_env_str("gemini_api_key"),
+            AiProviderMode::GeminiApiKey
+        );
+        assert_eq!(
+            AiProviderMode::from_env_str("vertex_ai"),
+            AiProviderMode::GeminiVertex
+        );
+        assert_eq!(
+            AiProviderMode::from_env_str("groq"),
+            AiProviderMode::GroqApiKey
+        );
+        assert_eq!(
+            AiProviderMode::from_env_str("openrouter_api_key"),
+            AiProviderMode::OpenRouterApiKey
+        );
+        assert_eq!(
+            AiProviderMode::from_env_str("manual_only"),
+            AiProviderMode::ManualOnly
+        );
+        assert_eq!(AiProviderMode::from_env_str(""), AiProviderMode::ManualOnly);
+        assert_eq!(
+            AiProviderMode::from_env_str("unknown"),
+            AiProviderMode::ManualOnly
+        );
+    }
+
+    #[test]
+    fn ai_provider_mode_env_token_round_trip() {
+        use super::AiProviderMode;
+        let modes = vec![
+            AiProviderMode::GeminiApiKey,
+            AiProviderMode::GeminiVertex,
+            AiProviderMode::GroqApiKey,
+            AiProviderMode::OpenRouterApiKey,
+            AiProviderMode::ManualOnly,
+        ];
+        for mode in modes {
+            assert_eq!(AiProviderMode::from_env_str(mode.env_token()), mode);
+        }
+    }
+
+    #[test]
+    fn test_has_ai_for_balancing() {
+        let mut cfg = super::AppConfig::default();
+
+        // Manual mode is always false
+        cfg.ai_provider = super::AiProviderMode::ManualOnly;
+        cfg.gemini_api_key = Some("test".into());
+        cfg.groq_api_key = Some("test".into());
+        assert!(!cfg.has_ai_for_balancing());
+
+        // Gemini API Key requires gemini_api_key
+        cfg.ai_provider = super::AiProviderMode::GeminiApiKey;
+        cfg.gemini_api_key = None;
+        assert!(!cfg.has_ai_for_balancing());
+        cfg.gemini_api_key = Some("test".into());
+        assert!(cfg.has_ai_for_balancing());
+
+        // Groq API Key requires groq_api_key
+        cfg.ai_provider = super::AiProviderMode::GroqApiKey;
+        cfg.groq_api_key = None;
+        assert!(!cfg.has_ai_for_balancing());
+        cfg.groq_api_key = Some("test".into());
+        assert!(cfg.has_ai_for_balancing());
+
+        // OpenRouter API Key requires openrouter_api_key
+        cfg.ai_provider = super::AiProviderMode::OpenRouterApiKey;
+        cfg.openrouter_api_key = None;
+        assert!(!cfg.has_ai_for_balancing());
+        cfg.openrouter_api_key = Some("test".into());
+        assert!(cfg.has_ai_for_balancing());
+
+        // Gemini Vertex requires Document AI SA or ADC
+        cfg.ai_provider = super::AiProviderMode::GeminiVertex;
+        cfg.document_ai = None;
+        assert!(!cfg.has_ai_for_balancing());
+        cfg.document_ai = Some(crate::ai::document_ai::DocAiConfig {
+            project_id: "".into(),
+            location: "".into(),
+            processor_id: "".into(),
+            service_account_path: "sa.json".into(),
+            adc_path: "".into(),
+            api_key: None,
+        });
+        assert!(cfg.has_ai_for_balancing());
+
+        // Independent of pdfRest
+        cfg.pdfrest_api_key = Some("pdfrest".into());
+        assert!(cfg.has_ai_for_balancing());
     }
 }

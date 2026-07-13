@@ -222,7 +222,7 @@ impl AppPanels for MyApp {
                         }
                     });
 
-                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).max_height(200.0).show(ui, |ui| {
                         for i in 0..self.total_pages {
                             let selected = i == self.current_page;
                             if ui.selectable_label(selected, format!("Page {}", i + 1)).clicked() {
@@ -327,7 +327,7 @@ impl AppPanels for MyApp {
 
                 if !self.batch_files.is_empty() {
                     ui.heading(format!("{} PDF(s) found", self.batch_files.len()));
-                    egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                         for file in &self.batch_files {
                             ui.label(file.file_name().unwrap_or_default().to_string_lossy());
                         }
@@ -842,7 +842,7 @@ impl AppPanels for MyApp {
                         ui.small(msg);
                     }
                     // Compact diff list
-                    egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).max_height(120.0).show(ui, |ui| {
                         for r in p.rows.iter().filter(|r| r.will_change).take(20) {
                             // Char-aware truncation so multi-byte UTF-8 (CJK,
                             // accented Latin) doesn't panic on byte slicing.
@@ -992,7 +992,7 @@ impl AppPanels for MyApp {
                 Vec::new();
             let mut row_reverts: Vec<(usize, usize)> = Vec::new();
 
-            egui::ScrollArea::both()
+            egui::ScrollArea::both().auto_shrink([false, false])
                 .max_height(220.0)
                 .id_source("workflow-edit-table")
                 .show(ui, |ui| {
@@ -1221,7 +1221,7 @@ impl AppPanels for MyApp {
                 ui.separator();
 
                 // Per-font breakdown.
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::vertical().auto_shrink([false, false])
                     .id_source("font-analysis-list")
                     .max_height(280.0)
                     .show(ui, |ui| {

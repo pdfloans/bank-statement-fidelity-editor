@@ -214,8 +214,6 @@ impl ChangeHistory {
     pub fn can_redo(&self) -> bool {
         self.current_index < self.history.len()
     }
-
-
 }
 
 #[cfg(test)]

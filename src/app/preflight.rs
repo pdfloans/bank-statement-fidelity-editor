@@ -4,7 +4,9 @@ use crate::app::config::AppConfig;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PreflightError {
-    #[error("Insufficient available memory. Required: {required_mb} MB, Available: {available_mb} MB")]
+    #[error(
+        "Insufficient available memory. Required: {required_mb} MB, Available: {available_mb} MB"
+    )]
     InsufficientMemory { required_mb: u64, available_mb: u64 },
     #[error("Display server is unavailable (Headless environment)")]
     HeadlessEnvironment,
@@ -30,7 +32,7 @@ pub fn verify_environment(_config: &AppConfig) -> Result<(), PreflightError> {
             return Err(PreflightError::HeadlessEnvironment);
         }
     }
-    
+
     // Auto-Heal test injection support: If testing fallback, we can set an env var
     if std::env::var("FORCE_HEADLESS_FALLBACK").is_ok() {
         return Err(PreflightError::HeadlessEnvironment);

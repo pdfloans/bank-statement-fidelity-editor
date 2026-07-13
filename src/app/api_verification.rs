@@ -332,7 +332,7 @@ async fn verify_gemini(config: &AppConfig) -> VerificationResult {
 async fn verify_mindee(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     let key = config.mindee_api_key.as_ref();
-    
+
     if key.is_none() || key.is_some_and(|k| k.is_empty()) {
         return VerificationResult {
             service: "Mindee".to_string(),
@@ -343,7 +343,7 @@ async fn verify_mindee(config: &AppConfig) -> VerificationResult {
             method_used: None,
         };
     }
-    
+
     VerificationResult {
         service: "Mindee".to_string(),
         status: VerificationStatus::Success,
@@ -357,7 +357,7 @@ async fn verify_mindee(config: &AppConfig) -> VerificationResult {
 async fn verify_llamaparse(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     let key = config.llamaparse_api_key.as_ref();
-    
+
     if key.is_none() || key.is_some_and(|k| k.is_empty()) {
         return VerificationResult {
             service: "LlamaParse".to_string(),
@@ -368,7 +368,7 @@ async fn verify_llamaparse(config: &AppConfig) -> VerificationResult {
             method_used: None,
         };
     }
-    
+
     let key_str = key.unwrap();
     if !key_str.starts_with("llx-") {
         return VerificationResult {
@@ -394,18 +394,21 @@ async fn verify_llamaparse(config: &AppConfig) -> VerificationResult {
 async fn verify_pdfrest(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     let key = config.pdfrest_api_key.as_ref();
-    
+
     if key.is_none() || key.is_some_and(|k| k.is_empty()) {
         return VerificationResult {
             service: "pdfRest".to_string(),
             status: VerificationStatus::Skipped,
             latency_ms: start.elapsed().as_millis() as u64,
             error_message: Some("PDFREST_API_KEY not configured".to_string()),
-            guidance: Some("Set PDFREST_API_KEY to enable Adobe-tier cloud rendering for verification.".to_string()),
+            guidance: Some(
+                "Set PDFREST_API_KEY to enable Adobe-tier cloud rendering for verification."
+                    .to_string(),
+            ),
             method_used: None,
         };
     }
-    
+
     VerificationResult {
         service: "pdfRest".to_string(),
         status: VerificationStatus::Success,
@@ -419,18 +422,21 @@ async fn verify_pdfrest(config: &AppConfig) -> VerificationResult {
 async fn verify_applitools(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     let key = config.applitools_api_key.as_ref();
-    
+
     if key.is_none() || key.is_some_and(|k| k.is_empty()) {
         return VerificationResult {
             service: "Applitools".to_string(),
             status: VerificationStatus::Skipped,
             latency_ms: start.elapsed().as_millis() as u64,
             error_message: Some("APPLITOOLS_API_KEY not configured".to_string()),
-            guidance: Some("Set APPLITOOLS_API_KEY to enable visual AI testing verification layer.".to_string()),
+            guidance: Some(
+                "Set APPLITOOLS_API_KEY to enable visual AI testing verification layer."
+                    .to_string(),
+            ),
             method_used: None,
         };
     }
-    
+
     VerificationResult {
         service: "Applitools".to_string(),
         status: VerificationStatus::Success,

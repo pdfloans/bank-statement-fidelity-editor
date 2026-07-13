@@ -391,7 +391,7 @@ impl MindeeClient {
                 .header("Authorization", format!("Token {}", self.api_key))
                 .multipart(form)
                 .send()
-                .await 
+                .await
             {
                 Ok(resp) => {
                     let status = resp.status();
@@ -401,8 +401,14 @@ impl MindeeClient {
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.subsec_millis() as u64 % 500)
                                 .unwrap_or(250);
-                            let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
-                            tracing::warn!("[mindee] enqueue got {}, retrying in {:?}", status, delay);
+                            let delay = std::time::Duration::from_millis(
+                                500 * (1 << (attempts - 1)) + jitter,
+                            );
+                            tracing::warn!(
+                                "[mindee] enqueue got {}, retrying in {:?}",
+                                status,
+                                delay
+                            );
                             tokio::time::sleep(delay).await;
                             continue;
                         }
@@ -423,7 +429,8 @@ impl MindeeClient {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.subsec_millis() as u64 % 500)
                             .unwrap_or(250);
-                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
+                        let delay =
+                            std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
                         tracing::warn!("[mindee] network error {}, retrying in {:?}", e, delay);
                         tokio::time::sleep(delay).await;
                         continue;
@@ -447,7 +454,7 @@ impl MindeeClient {
                 .get(&url)
                 .header("Authorization", format!("Token {}", self.api_key))
                 .send()
-                .await 
+                .await
             {
                 Ok(r) => r,
                 Err(e) => {

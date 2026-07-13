@@ -31,6 +31,10 @@ pub enum Theme {
     Light,
     Midnight,
     Solarized,
+    // Phase 2 - Stage 4: Accessibility Themes
+    HighContrast,
+    Protanopia,
+    Deuteranopia,
 }
 
 pub struct Palette {
@@ -140,20 +144,20 @@ impl Theme {
             egui::Visuals::light()
         };
 
-        // Premium rounded aesthetics
-        visuals.window_rounding = egui::Rounding::same(16.0);
-        visuals.menu_rounding = egui::Rounding::same(12.0);
+        // Premium Pro-Suite Aesthetics (sleeker, less bubbly)
+        visuals.window_rounding = egui::Rounding::same(12.0);
+        visuals.menu_rounding = egui::Rounding::same(8.0);
         visuals.window_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 30.0),
-            blur: 60.0,
-            spread: 0.0,
-            color: egui::Color32::from_black_alpha(180),
-        };
-        visuals.popup_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 12.0),
-            blur: 24.0,
+            offset: egui::vec2(0.0, 20.0),
+            blur: 40.0,
             spread: 0.0,
             color: egui::Color32::from_black_alpha(150),
+        };
+        visuals.popup_shadow = egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 8.0),
+            blur: 16.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(120),
         };
 
         visuals.panel_fill = p.panel;
@@ -163,25 +167,28 @@ impl Theme {
 
         // Ultra-sleek widget definitions
         visuals.widgets.noninteractive.bg_fill = p.surface;
-        visuals.widgets.noninteractive.rounding = egui::Rounding::same(10.0);
-        visuals.widgets.inactive.bg_fill = p.surface;
-        visuals.widgets.inactive.rounding = egui::Rounding::same(10.0);
-        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, p.text);
+        visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, p.text);
         
-        // Hover state (glow effect)
-        visuals.widgets.hovered.bg_fill = p.surface.linear_multiply(1.2);
-        visuals.widgets.hovered.rounding = egui::Rounding::same(10.0);
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, p.accent.linear_multiply(0.8));
-        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.2, p.text);
+        visuals.widgets.inactive.bg_fill = p.surface;
+        visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, p.text);
+        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+
+        // Hover state (subtle glow and slight outline)
+        visuals.widgets.hovered.bg_fill = p.surface.linear_multiply(1.3);
+        visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
+        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, p.weak.linear_multiply(0.5));
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, p.text.linear_multiply(1.2));
 
         // Active state (pressed)
         visuals.widgets.active.bg_fill = p.accent.linear_multiply(0.8);
-        visuals.widgets.active.rounding = egui::Rounding::same(10.0);
+        visuals.widgets.active.rounding = egui::Rounding::same(8.0);
         visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, p.accent);
-        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.2, egui::Color32::WHITE);
 
         visuals.hyperlink_color = p.accent;
-        visuals.selection.bg_fill = p.accent.linear_multiply(0.4);
+        visuals.selection.bg_fill = p.accent.linear_multiply(0.3);
         visuals.selection.stroke.color = p.accent;
         visuals.warn_fg_color = p.warn;
         visuals.error_fg_color = p.error;
@@ -190,30 +197,35 @@ impl Theme {
 
         // Global style and premium typography tweaks
         let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(16.0, 12.0);
-        style.spacing.button_padding = egui::vec2(20.0, 10.0);
-        style.spacing.window_margin = egui::Margin::same(20.0);
-        style.spacing.menu_margin = egui::Margin::same(12.0);
+        style.spacing.item_spacing = egui::vec2(12.0, 10.0);
+        style.spacing.button_padding = egui::vec2(16.0, 8.0);
+        style.spacing.window_margin = egui::Margin::same(16.0);
+        style.spacing.menu_margin = egui::Margin::same(8.0);
+        
+        // Slightly thicker scrollbars for better visibility
+        style.spacing.scroll.bar_width = 10.0;
+        style.spacing.scroll.bar_inner_margin = 2.0;
+        style.spacing.scroll.bar_outer_margin = 2.0;
 
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(26.0, egui::FontFamily::Proportional),
+            egui::FontId::new(22.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(16.0, egui::FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Button,
-            egui::FontId::new(16.0, egui::FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Small,
             egui::FontId::new(14.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
+            egui::TextStyle::Button,
+            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Small,
+            egui::FontId::new(12.0, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
             egui::TextStyle::Monospace,
-            egui::FontId::new(14.0, egui::FontFamily::Monospace),
+            egui::FontId::new(13.0, egui::FontFamily::Monospace),
         );
         ctx.set_style(style);
     }
@@ -677,12 +689,31 @@ impl MyApp {
         };
         // Log which API backends were detected at boot for diagnostics.
         app.api_availability.log_summary();
-        
+
         // Seed USE_APPLITOOLS environment variable from the loaded AppSettings
         // so that the verification engine (running on the tokio runtime) respects
         // the GUI toggle on startup.
-        std::env::set_var("USE_APPLITOOLS", if app.settings.use_applitools { "1" } else { "0" });
-        
+        std::env::set_var(
+            "USE_APPLITOOLS",
+            if app.settings.use_applitools {
+                "1"
+            } else {
+                "0"
+            },
+        );
+
+        // Seed AI_PROVIDER from persisted settings so the runtime AppConfig
+        // snapshot picks it up on the initial ReloadConfig below.
+        std::env::set_var("AI_PROVIDER", app.settings.ai_provider.env_token());
+
+        // Dispatch a one-time ReloadConfig so the runtime's config_holder
+        // picks up the persisted provider + any env vars seeded above.
+        // USE_APPLITOOLS is read live by verification, but ai_provider lives
+        // in the config snapshot, so a reload is required.
+        if let Err(e) = app.job_tx.send(crate::app::runtime::Job::ReloadConfig) {
+            tracing::warn!("[gui] boot ReloadConfig failed (runtime may not be ready): {e}");
+        }
+
         app
     }
 
@@ -743,10 +774,7 @@ impl MyApp {
                 "APPLITOOLS_API_KEY",
                 self.edit_applitools_api_key.trim().to_string(),
             ),
-            (
-                "GROQ_API_KEY",
-                self.edit_groq_api_key.trim().to_string(),
-            ),
+            ("GROQ_API_KEY", self.edit_groq_api_key.trim().to_string()),
             (
                 "OPENROUTER_API_KEY",
                 self.edit_openrouter_api_key.trim().to_string(),
@@ -771,7 +799,15 @@ impl MyApp {
             ),
             (
                 "USE_APPLITOOLS",
-                if self.settings.use_applitools { "1".to_string() } else { "0".to_string() }
+                if self.settings.use_applitools {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
+            ),
+            (
+                "AI_PROVIDER",
+                self.settings.ai_provider.env_token().to_string(),
             ),
         ];
 
@@ -792,7 +828,9 @@ impl MyApp {
         }
 
         // 3) Ask the runtime to hot-reload AppConfig from the environment.
-        if let Err(e) = self.job_tx.send(Job::ReloadConfig) { tracing::error!("Runtime disconnected: {}", e); }
+        if let Err(e) = self.job_tx.send(Job::ReloadConfig) {
+            tracing::error!("Runtime disconnected: {}", e);
+        }
         self.in_flight += 1;
         self.toast(ToastKind::Info, "Saving credentials and reloading...");
     }
@@ -891,7 +929,9 @@ impl MyApp {
             page: self.current_page,
             dpi: self.current_page_dpi,
             tag: tag.to_string(),
-        }) { tracing::error!("Runtime disconnected: {}", e); }
+        }) {
+            tracing::error!("Runtime disconnected: {}", e);
+        }
         self.in_flight += 1;
     }
 
@@ -1011,16 +1051,20 @@ impl MyApp {
         }
 
         if let Some(p) = &self.progress {
-            let fade = ctx.animate_value_with_time(egui::Id::new("progress_overlay_fade"), 1.0, 0.3);
-            
+            let fade =
+                ctx.animate_value_with_time(egui::Id::new("progress_overlay_fade"), 1.0, 0.3);
+
             egui::Area::new(egui::Id::new("modal_overlay"))
                 .order(egui::Order::Foreground)
                 .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
                     let rect = ctx.screen_rect();
                     ui.allocate_rect(rect, egui::Sense::click());
-                    ui.painter()
-                        .rect_filled(rect, 0.0, egui::Color32::from_black_alpha((180.0 * fade) as u8));
+                    ui.painter().rect_filled(
+                        rect,
+                        0.0,
+                        egui::Color32::from_black_alpha((180.0 * fade) as u8),
+                    );
                 });
 
             egui::Area::new(egui::Id::new("progress_dialog"))
@@ -1037,10 +1081,17 @@ impl MyApp {
                             spread: 0.0,
                             color: egui::Color32::from_black_alpha((100.0 * fade) as u8),
                         })
-                        .stroke(egui::Stroke::new(1.0, self.settings.theme.palette().text.linear_multiply(0.1)))
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            self.settings.theme.palette().text.linear_multiply(0.1),
+                        ))
                         .show(ui, |ui| {
                             ui.vertical_centered(|ui| {
-                                ui.add(egui::Spinner::new().size(40.0).color(self.settings.theme.palette().accent));
+                                ui.add(
+                                    egui::Spinner::new()
+                                        .size(40.0)
+                                        .color(self.settings.theme.palette().accent),
+                                );
                                 ui.add_space(24.0);
                                 ui.label(
                                     egui::RichText::new(&p.label)
@@ -1048,9 +1099,9 @@ impl MyApp {
                                         .strong()
                                         .color(self.settings.theme.palette().text),
                                 );
-                                
+
                                 ui.add_space(16.0);
-                                
+
                                 let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
                                 let mut text = format!("{pct}%");
 
@@ -1089,7 +1140,9 @@ impl MyApp {
                 version: Some(self.selected_parser_version.clone()),
                 parser_mode: self.settings.document_parser,
                 ai_provider: self.settings.ai_provider,
-            }) { tracing::error!("Runtime disconnected: {}", e); }
+            }) {
+                tracing::error!("Runtime disconnected: {}", e);
+            }
             self.in_flight += 1;
             self.workflow_edits.clear();
             self.workflow_preview = None;
@@ -1110,7 +1163,9 @@ impl MyApp {
                     } else {
                         None
                     },
-                }) { tracing::error!("Runtime disconnected: {}", e); }
+                }) {
+                    tracing::error!("Runtime disconnected: {}", e);
+                }
                 self.in_flight += 1;
                 self.toast(ToastKind::Info, "Preview triggered (Ctrl+2)");
             }
@@ -1139,7 +1194,9 @@ impl MyApp {
                     deep_font_replication: self.settings.deep_font_replication,
                     max_visual_attempts: self.settings.max_visual_attempts,
                     visual_threshold: self.settings.visual_diff_threshold,
-                }) { tracing::error!("Runtime disconnected: {}", e); }
+                }) {
+                    tracing::error!("Runtime disconnected: {}", e);
+                }
                 self.in_flight += 1;
                 self.toast(ToastKind::Info, "Confirm + Render triggered (Ctrl+3)");
             }
@@ -1386,7 +1443,9 @@ impl MyApp {
                     version: Some(self.selected_parser_version.clone()),
                     parser_mode: self.settings.document_parser,
                     ai_provider: self.settings.ai_provider,
-                }) { tracing::error!("Runtime disconnected: {}", e); }
+                }) {
+                    tracing::error!("Runtime disconnected: {}", e);
+                }
             }
             JobResult::HistoryUpdated { history } => {
                 self.history_state = history;
@@ -1493,27 +1552,15 @@ impl MyApp {
                 let mut parts = Vec::new();
                 parts.push(format!(
                     "Document AI {}",
-                    if document_ai_configured {
-                        "✓"
-                    } else {
-                        "✗"
-                    }
+                    if document_ai_configured { "✓" } else { "✗" }
                 ));
                 parts.push(format!(
                     "Gemini {}",
-                    if gemini_configured {
-                        "✓"
-                    } else {
-                        "✗"
-                    }
+                    if gemini_configured { "✓" } else { "✗" }
                 ));
                 parts.push(format!(
                     "Pro editing {}",
-                    if pro_editing_available {
-                        "✓"
-                    } else {
-                        "✗"
-                    }
+                    if pro_editing_available { "✓" } else { "✗" }
                 ));
                 let summary = parts.join(" Â· ");
                 self.status = format!("Credentials reloaded: {summary}");
@@ -1776,16 +1823,8 @@ impl MyApp {
                 let msg = format!(
                     "✅ Transfer complete: {} txns -> output, math: {}, visual: {} ({:.1}s)",
                     result.source_tx_count,
-                    if result.math_verified {
-                        "✓"
-                    } else {
-                        "✗"
-                    },
-                    if result.visual_verified {
-                        "✓"
-                    } else {
-                        "✗"
-                    },
+                    if result.math_verified { "✓" } else { "✗" },
+                    if result.visual_verified { "✓" } else { "✗" },
                     result.total_duration_secs,
                 );
                 self.status = msg.clone();
@@ -1905,11 +1944,17 @@ impl MyApp {
     fn draw_sidebar(&mut self, ctx: &egui::Context) {
         // Animate the sidebar width for a buttery smooth expansion
         let target_width = if self.sidebar_expanded { 240.0 } else { 70.0 };
-        let width = ctx.animate_value_with_time(egui::Id::new("sidebar_width_anim"), target_width, 0.3);
+        let width =
+            ctx.animate_value_with_time(egui::Id::new("sidebar_width_anim"), target_width, 0.3);
 
         let frame = egui::Frame {
             inner_margin: egui::Margin::same(12.0),
-            rounding: egui::Rounding { nw: 0.0, sw: 0.0, ne: 24.0, se: 24.0 },
+            rounding: egui::Rounding {
+                nw: 0.0,
+                sw: 0.0,
+                ne: 24.0,
+                se: 24.0,
+            },
             fill: ctx.style().visuals.window_fill.linear_multiply(0.95), // Slight translucency
             stroke: egui::Stroke::new(1.0, ctx.style().visuals.widgets.inactive.bg_fill),
             shadow: egui::epaint::Shadow {
@@ -1927,19 +1972,24 @@ impl MyApp {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.add_space(16.0);
-                
+
                 // Toggle Button (Hamburger)
                 ui.horizontal(|ui| {
-                    let toggle_text = if self.sidebar_expanded { "≡  Collapse" } else { "≡" };
-                    let btn = egui::Button::new(egui::RichText::new(toggle_text).size(18.0).strong())
-                        .frame(false)
-                        .min_size(egui::vec2(ui.available_width(), 40.0));
-                    
+                    let toggle_text = if self.sidebar_expanded {
+                        "≡  Collapse"
+                    } else {
+                        "≡"
+                    };
+                    let btn =
+                        egui::Button::new(egui::RichText::new(toggle_text).size(18.0).strong())
+                            .frame(false)
+                            .min_size(egui::vec2(ui.available_width(), 40.0));
+
                     if ui.add(btn).clicked() {
                         self.sidebar_expanded = !self.sidebar_expanded;
                     }
                 });
-                
+
                 ui.add_space(32.0);
 
                 let mut selected = self.active_workflow.clone();
@@ -1952,7 +2002,7 @@ impl MyApp {
 
                 for (workflow, icon, text) in workflows {
                     let is_selected = self.active_workflow == workflow;
-                    
+
                     // Custom pill-shaped active state
                     let bg_color = if is_selected {
                         ui.visuals().selection.bg_fill
@@ -1973,16 +2023,24 @@ impl MyApp {
                     };
 
                     let response = ui.allocate_rect(
-                        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 48.0)),
-                        egui::Sense::click()
+                        egui::Rect::from_min_size(
+                            ui.cursor().min,
+                            egui::vec2(ui.available_width(), 48.0),
+                        ),
+                        egui::Sense::click(),
                     );
-                    
+
                     // Hover animation
-                    let hover_factor = ctx.animate_bool(response.id.with("hover"), response.hovered());
+                    let hover_factor =
+                        ctx.animate_bool(response.id.with("hover"), response.hovered());
                     let final_bg = if is_selected {
                         bg_color
                     } else {
-                        ui.visuals().widgets.hovered.bg_fill.linear_multiply(hover_factor)
+                        ui.visuals()
+                            .widgets
+                            .hovered
+                            .bg_fill
+                            .linear_multiply(hover_factor)
                     };
 
                     // Draw the custom button
@@ -1994,7 +2052,15 @@ impl MyApp {
                     );
 
                     // Draw the text
-                    let text_pos = response.rect.min + egui::vec2(if width > 120.0 { 16.0 } else { (width - 24.0) / 2.0 }, 14.0);
+                    let text_pos = response.rect.min
+                        + egui::vec2(
+                            if width > 120.0 {
+                                16.0
+                            } else {
+                                (width - 24.0) / 2.0
+                            },
+                            14.0,
+                        );
                     ui.painter().text(
                         text_pos,
                         egui::Align2::LEFT_TOP,
@@ -2006,22 +2072,26 @@ impl MyApp {
                     if response.clicked() {
                         selected = workflow;
                     }
-                    
+
                     ui.advance_cursor_after_rect(response.rect);
                     ui.add_space(8.0);
                 }
-                
+
                 self.active_workflow = selected;
-                
+
                 // Bottom anchored branding
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.add_space(16.0);
-                    let opacity = ctx.animate_value_with_time(egui::Id::new("sidebar_brand_anim"), if self.sidebar_expanded { 1.0 } else { 0.0 }, 0.2);
+                    let opacity = ctx.animate_value_with_time(
+                        egui::Id::new("sidebar_brand_anim"),
+                        if self.sidebar_expanded { 1.0 } else { 0.0 },
+                        0.2,
+                    );
                     if opacity > 0.1 {
                         ui.label(
                             egui::RichText::new("Antigravity\nFidelity Engine")
                                 .size(12.0)
-                                .color(ui.visuals().text_color().linear_multiply(0.4 * opacity))
+                                .color(ui.visuals().text_color().linear_multiply(0.4 * opacity)),
                         );
                     }
                 });
@@ -2054,13 +2124,16 @@ impl MyApp {
                         egui::Button::new(
                             egui::RichText::new("📥  Upload Statement")
                                 .size(15.0)
-                                .strong()
+                                .strong(),
                         )
-                        .fill(ui.visuals().selection.bg_fill)
+                        .fill(ui.visuals().selection.bg_fill),
                     );
-                    
+
                     if upload_btn.clicked() {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .pick_file()
+                        {
                             self.open_pdf(path);
                         }
                     }
@@ -2068,15 +2141,20 @@ impl MyApp {
                     ui.add_space(20.0);
                     let sep = egui::Separator::default().vertical().spacing(30.0);
                     ui.add(sep);
-                    
+
                     if self.current_pdf_path.exists() {
                         // Visual Progress Stepper (Stage 9)
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Workflow Progress").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
+                            ui.label(
+                                egui::RichText::new("Workflow Progress")
+                                    .color(ui.visuals().text_color().linear_multiply(0.6))
+                                    .size(12.0),
+                            );
                             ui.add_space(8.0);
-                            
+
                             ui.horizontal(|ui| {
-                                let steps = ["1. Load", "2. Edit & Diff", "3. Verify Math", "4. Export"];
+                                let steps =
+                                    ["1. Load", "2. Edit & Diff", "3. Verify Math", "4. Export"];
                                 // Determine current step based on state
                                 let current_step = if self.last_verification.is_some() {
                                     3 // Validated, ready to export
@@ -2085,11 +2163,11 @@ impl MyApp {
                                 } else {
                                     1 // Loaded, pending edits
                                 };
-                                
+
                                 for (i, step) in steps.iter().enumerate() {
                                     let is_active = i <= current_step;
                                     let is_current = i == current_step;
-                                    
+
                                     let color = if is_current {
                                         self.settings.theme.palette().accent
                                     } else if is_active {
@@ -2097,15 +2175,30 @@ impl MyApp {
                                     } else {
                                         self.settings.theme.palette().weak.linear_multiply(0.3)
                                     };
-                                    
+
                                     let text = egui::RichText::new(*step).color(color).strong();
                                     ui.label(text);
-                                    
+
                                     if i < steps.len() - 1 {
                                         ui.add_space(8.0);
-                                        let line_color = if is_active { self.settings.theme.palette().success.linear_multiply(0.5) } else { self.settings.theme.palette().weak.linear_multiply(0.1) };
-                                        let (rect, _resp) = ui.allocate_exact_size(egui::vec2(40.0, 2.0), egui::Sense::hover());
-                                        ui.painter().hline(rect.min.x..=rect.max.x, rect.center().y, egui::Stroke::new(2.0, line_color));
+                                        let line_color = if is_active {
+                                            self.settings
+                                                .theme
+                                                .palette()
+                                                .success
+                                                .linear_multiply(0.5)
+                                        } else {
+                                            self.settings.theme.palette().weak.linear_multiply(0.1)
+                                        };
+                                        let (rect, _resp) = ui.allocate_exact_size(
+                                            egui::vec2(40.0, 2.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        ui.painter().hline(
+                                            rect.min.x..=rect.max.x,
+                                            rect.center().y,
+                                            egui::Stroke::new(2.0, line_color),
+                                        );
                                         ui.add_space(8.0);
                                     }
                                 }
@@ -2114,21 +2207,32 @@ impl MyApp {
                     } else {
                         // History Thumbnail Strip
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Recent Statements").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
+                            ui.label(
+                                egui::RichText::new("Recent Statements")
+                                    .color(ui.visuals().text_color().linear_multiply(0.6))
+                                    .size(12.0),
+                            );
                             ui.add_space(4.0);
-                            egui::ScrollArea::horizontal().show(ui, |ui| {
+                            egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     let recent = self.settings.recent_files.clone();
                                     if recent.is_empty() {
-                                        ui.label(egui::RichText::new("No recent files").italics().color(ui.visuals().text_color().linear_multiply(0.3)));
+                                        ui.label(
+                                            egui::RichText::new("No recent files").italics().color(
+                                                ui.visuals().text_color().linear_multiply(0.3),
+                                            ),
+                                        );
                                     }
                                     for f in recent.into_iter().take(5) {
                                         let label = std::path::Path::new(&f)
                                             .file_name()
                                             .unwrap_or_default()
                                             .to_string_lossy();
-                                        
-                                        if ui.add_sized([120.0, 36.0], egui::Button::new(label)).clicked() {
+
+                                        if ui
+                                            .add_sized([120.0, 36.0], egui::Button::new(label))
+                                            .clicked()
+                                        {
                                             self.open_pdf(std::path::PathBuf::from(f));
                                         }
                                     }
@@ -2163,30 +2267,46 @@ impl MyApp {
                 ui.add_space(24.0);
 
                 if let Some(block) = self.selected_block.clone() {
-                    egui::Frame::group(ui.style()).fill(ui.visuals().faint_bg_color).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.label(egui::RichText::new("Properties").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
-                        ui.add_space(4.0);
-                        ui.label(format!("Font: {}", block.font));
-                        ui.label(format!("Size: {:.1} pt", block.size));
-                    });
-                    
+                    egui::Frame::group(ui.style())
+                        .fill(ui.visuals().faint_bg_color)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.label(
+                                egui::RichText::new("Properties")
+                                    .color(ui.visuals().text_color().linear_multiply(0.6))
+                                    .size(12.0),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(format!("Font: {}", block.font));
+                            ui.label(format!("Size: {:.1} pt", block.size));
+                        });
+
                     ui.add_space(16.0);
-                    
-                    ui.label(egui::RichText::new("Edit Content").color(ui.visuals().text_color().linear_multiply(0.6)).size(12.0));
+
+                    ui.label(
+                        egui::RichText::new("Edit Content")
+                            .color(ui.visuals().text_color().linear_multiply(0.6))
+                            .size(12.0),
+                    );
                     ui.add_space(4.0);
-                    
+
                     let text_edit = egui::TextEdit::multiline(&mut self.new_text)
                         .font(egui::TextStyle::Monospace)
                         .desired_width(ui.available_width())
                         .margin(egui::vec2(12.0, 12.0));
                     ui.add(text_edit);
-                    
+
                     ui.add_space(20.0);
 
                     let btn_size = egui::vec2(ui.available_width(), 44.0);
 
-                    if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("Apply single edit").strong())).clicked() {
+                    if ui
+                        .add_sized(
+                            btn_size,
+                            egui::Button::new(egui::RichText::new("Apply single edit").strong()),
+                        )
+                        .clicked()
+                    {
                         let original = block.text.clone();
                         let new_text = self.new_text.clone();
                         if let Err(e) = self.job_tx.send(crate::app::runtime::Job::ApplyChange {
@@ -2198,25 +2318,38 @@ impl MyApp {
                             new_text,
                             description: "Manual Edit".to_string(),
                             deep_font_replication: self.settings.deep_font_replication,
-                        }) { tracing::error!("Runtime disconnected: {}", e); }
+                        }) {
+                            tracing::error!("Runtime disconnected: {}", e);
+                        }
                         self.in_flight += 1;
                         self.new_text.clear();
                         self.selected_block = None;
                     }
                     ui.add_space(5.0);
-                    if ui.add_sized(btn_size, egui::Button::new("Preview single edit")).clicked() {
+                    if ui
+                        .add_sized(btn_size, egui::Button::new("Preview single edit"))
+                        .clicked()
+                    {
                         self.toast(ToastKind::Info, "Previewing single edit visually...");
                     }
                     ui.add_space(5.0);
-                    if ui.add_sized(btn_size, egui::Button::new("Preview edits required")).clicked() {
+                    if ui
+                        .add_sized(btn_size, egui::Button::new("Preview edits required"))
+                        .clicked()
+                    {
                         self.toast(ToastKind::Info, "Generating required edits proposal...");
-                        let _ = self.job_tx.send(crate::app::runtime::Job::BalanceStatement { 
-                            path: std::path::PathBuf::from(&self.input_path) 
-                        });
+                        let _ = self
+                            .job_tx
+                            .send(crate::app::runtime::Job::BalanceStatement {
+                                path: std::path::PathBuf::from(&self.input_path),
+                            });
                         self.in_flight += 1;
                     }
                     ui.add_space(5.0);
-                    if ui.add_sized(btn_size, egui::Button::new("Verify preview with ai")).clicked() {
+                    if ui
+                        .add_sized(btn_size, egui::Button::new("Verify preview with ai"))
+                        .clicked()
+                    {
                         self.toast(ToastKind::Info, "Running AI verification pipeline...");
                         let intended_bboxes: Vec<(usize, [f32; 4])> = self
                             .history_state
@@ -2235,12 +2368,20 @@ impl MyApp {
                         self.in_flight += 1;
                     }
                     ui.add_space(5.0);
-                    if ui.add_sized(btn_size, egui::Button::new("Perform * edits and perform complete balance out")
-                        .fill(egui::Color32::from_rgb(0, 100, 0))).clicked() {
+                    if ui
+                        .add_sized(
+                            btn_size,
+                            egui::Button::new("Perform * edits and perform complete balance out")
+                                .fill(egui::Color32::from_rgb(0, 100, 0)),
+                        )
+                        .clicked()
+                    {
                         self.toast(ToastKind::Info, "Executing full auto-balance editing...");
-                        let _ = self.job_tx.send(crate::app::runtime::Job::BalanceStatement { 
-                            path: std::path::PathBuf::from(&self.input_path) 
-                        });
+                        let _ = self
+                            .job_tx
+                            .send(crate::app::runtime::Job::BalanceStatement {
+                                path: std::path::PathBuf::from(&self.input_path),
+                            });
                         self.in_flight += 1;
                     }
                 } else {
@@ -2268,14 +2409,29 @@ impl MyApp {
                         ui.heading("Source Statement");
                         ui.label("Transactions will be extracted from this document.");
                         ui.add_space(10.0);
-                        if ui.add_sized([200.0, 80.0], egui::Button::new("📥 Upload Source\n(PDF)")).clicked() {
-                            if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                        if ui
+                            .add_sized([200.0, 80.0], egui::Button::new("📥 Upload Source\n(PDF)"))
+                            .clicked()
+                        {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("PDF", &["pdf"])
+                                .pick_file()
+                            {
                                 self.transfer_source_path = path.to_string_lossy().to_string();
                             }
                         }
                         if !self.transfer_source_path.is_empty() {
                             ui.add_space(5.0);
-                            ui.colored_label(egui::Color32::LIGHT_GREEN, format!("Selected: {}", std::path::Path::new(&self.transfer_source_path).file_name().unwrap_or_default().to_string_lossy()));
+                            ui.colored_label(
+                                egui::Color32::LIGHT_GREEN,
+                                format!(
+                                    "Selected: {}",
+                                    std::path::Path::new(&self.transfer_source_path)
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                ),
+                            );
                         }
                     });
                 });
@@ -2287,34 +2443,60 @@ impl MyApp {
                         ui.heading("Target Statement");
                         ui.label("Transactions will be injected into this document.");
                         ui.add_space(10.0);
-                        if ui.add_sized([200.0, 80.0], egui::Button::new("📥 Upload Target\n(PDF)")).clicked() {
-                            if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+                        if ui
+                            .add_sized([200.0, 80.0], egui::Button::new("📥 Upload Target\n(PDF)"))
+                            .clicked()
+                        {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("PDF", &["pdf"])
+                                .pick_file()
+                            {
                                 self.input_path = path.to_string_lossy().to_string();
                             }
                         }
                         if !self.input_path.is_empty() && self.input_path != "examples/sample.pdf" {
                             ui.add_space(5.0);
-                            ui.colored_label(egui::Color32::LIGHT_GREEN, format!("Selected: {}", std::path::Path::new(&self.input_path).file_name().unwrap_or_default().to_string_lossy()));
+                            ui.colored_label(
+                                egui::Color32::LIGHT_GREEN,
+                                format!(
+                                    "Selected: {}",
+                                    std::path::Path::new(&self.input_path)
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                ),
+                            );
                         }
                     });
                 });
             });
 
             ui.add_space(30.0);
-            
+
             // Execute Transfer Action
             ui.vertical_centered(|ui| {
-                let can_transfer = !self.transfer_source_path.is_empty() && !self.input_path.is_empty() && self.input_path != "examples/sample.pdf";
-                
+                let can_transfer = !self.transfer_source_path.is_empty()
+                    && !self.input_path.is_empty()
+                    && self.input_path != "examples/sample.pdf";
+
                 let btn = egui::Button::new("⚡ Execute Complete Transfer")
                     .min_size(egui::vec2(400.0, 60.0))
-                    .fill(if can_transfer { egui::Color32::from_rgb(0, 120, 0) } else { egui::Color32::DARK_GRAY });
+                    .fill(if can_transfer {
+                        egui::Color32::from_rgb(0, 120, 0)
+                    } else {
+                        egui::Color32::DARK_GRAY
+                    });
 
                 if ui.add_enabled(can_transfer, btn).clicked() {
-                    self.toast(ToastKind::Info, "Initiating Cross-Document Transaction Transfer...");
-                    let _ = self.job_tx.send(crate::app::runtime::Job::ExtractTransactions {
-                        path: std::path::PathBuf::from(&self.transfer_source_path),
-                    });
+                    self.toast(
+                        ToastKind::Info,
+                        "Initiating Cross-Document Transaction Transfer...",
+                    );
+                    let _ = self
+                        .job_tx
+                        .send(crate::app::runtime::Job::ExtractTransactions {
+                            path: std::path::PathBuf::from(&self.transfer_source_path),
+                        });
                     self.in_flight += 1;
                 }
 
@@ -2330,7 +2512,7 @@ impl MyApp {
 
             // Shared History Thumbnail Row
             ui.label("Recent Statements (Click to assign to Target):");
-            egui::ScrollArea::horizontal().show(ui, |ui| {
+            egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let recent = self.settings.recent_files.clone();
                     for f in recent.into_iter().take(8) {
@@ -2338,7 +2520,10 @@ impl MyApp {
                             .file_name()
                             .unwrap_or_default()
                             .to_string_lossy();
-                        if ui.add_sized([120.0, 80.0], egui::Button::new(label)).clicked() {
+                        if ui
+                            .add_sized([120.0, 80.0], egui::Button::new(label))
+                            .clicked()
+                        {
                             self.input_path = f.clone();
                         }
                     }
@@ -2353,7 +2538,7 @@ impl MyApp {
             ui.separator();
             ui.add_space(10.0);
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Theme:");
                     egui::ComboBox::from_id_salt("theme_selector")
@@ -2361,7 +2546,11 @@ impl MyApp {
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut self.settings.theme, Theme::Dark, "Dark");
                             ui.selectable_value(&mut self.settings.theme, Theme::Light, "Light");
-                            ui.selectable_value(&mut self.settings.theme, Theme::Midnight, "Midnight");
+                            ui.selectable_value(
+                                &mut self.settings.theme,
+                                Theme::Midnight,
+                                "Midnight",
+                            );
                         });
                 });
 
@@ -2379,7 +2568,7 @@ impl MyApp {
             ui.separator();
             ui.add_space(10.0);
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 self.draw_api_keys_editor(ui);
             });
         });
@@ -2446,7 +2635,7 @@ impl MyApp {
             .show(ctx, |ui| {
                 ui.heading("Navigation");
                 ui.horizontal(|ui| {
-                    if ui.button("-€").clicked() && self.current_page > 0 {
+                    if ui.button("◀").clicked() && self.current_page > 0 {
                         self.current_page -= 1;
                         self.request_render("current");
                     }
@@ -2461,7 +2650,7 @@ impl MyApp {
                     }
                 });
 
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::vertical().auto_shrink([false, false])
                     .max_height(200.0)
                     .show(ui, |ui| {
                         for i in 0..self.total_pages {
@@ -2507,9 +2696,9 @@ impl MyApp {
 
     fn draw_settings_modal(&mut self, ctx: &egui::Context) {
         let open = self.show_settings_modal;
-        
+
         let p = self.settings.theme.palette();
-        
+
         let frame = egui::Frame::window(ctx.style().as_ref())
             .fill(p.surface.linear_multiply(0.95))
             .shadow(egui::epaint::Shadow {
@@ -2592,7 +2781,7 @@ impl MyApp {
                     ui.data_mut(|d| d.insert_temp(egui::Id::new("settings_tab"), selected_tab));
 
                     // Main Content Area
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::vertical().auto_shrink([false, false])
                         .auto_shrink([false; 2])
                         .id_salt("settings_scroll")
                         .show(ui, |ui| {
@@ -2822,7 +3011,7 @@ impl MyApp {
                         });
                 });
             });
-            
+
         if !next_open {
             self.show_settings_modal = false;
         }
@@ -2910,7 +3099,9 @@ impl MyApp {
                             source_pdf: source,
                             target_pdf: target,
                             output_pdf: output,
-                        }) { tracing::error!("Runtime disconnected: {}", e); }
+                        }) {
+                            tracing::error!("Runtime disconnected: {}", e);
+                        }
                         self.in_flight += 1;
                         self.status = "Starting transaction transfer...".into();
                         self.toast(
@@ -3039,7 +3230,9 @@ impl MyApp {
                             input,
                             output,
                             mode,
-                        }) { tracing::error!("Runtime disconnected: {}", e); }
+                        }) {
+                            tracing::error!("Runtime disconnected: {}", e);
+                        }
                         self.in_flight += 1;
                         self.status = "Adjusting dates...".into();
                         self.toast(ToastKind::Info, "Date adjustment started.");
@@ -3115,7 +3308,9 @@ impl MyApp {
                     user_note: None,
                 };
                 let _ = crate::engine::ai_confirm::log_learning_response(&confirmation, &response);
-                if let Err(e) = self.job_tx.send(Job::AiConfirmationResponse(response)) { tracing::error!("Runtime disconnected: {}", e); }
+                if let Err(e) = self.job_tx.send(Job::AiConfirmationResponse(response)) {
+                    tracing::error!("Runtime disconnected: {}", e);
+                }
                 self.pending_ai_confirmations.remove(0);
             }
         }
@@ -3191,7 +3386,9 @@ impl MyApp {
                         if let Err(e) = self.job_tx.send(Job::RunTransferTests {
                             statements,
                             max_iterations: 3,
-                        }) { tracing::error!("Runtime disconnected: {}", e); }
+                        }) {
+                            tracing::error!("Runtime disconnected: {}", e);
+                        }
                         self.in_flight += 1;
                         self.status = format!("Running {pairs} transfer tests...");
                         self.toast(
@@ -3218,7 +3415,7 @@ impl MyApp {
                     };
                     ui.colored_label(color, report.summary());
 
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::vertical().auto_shrink([false, false])
                         .max_height(200.0)
                         .show(ui, |ui| {
                             for r in &report.results {
@@ -3260,7 +3457,7 @@ impl MyApp {
     /// the runtime config (`Job::ReloadConfig`) so they take effect with no
     /// restart.
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui) {
-            ui.collapsing("🔑 API keys & credentials", |ui| {
+        ui.collapsing("🔑 API keys & credentials", |ui| {
                 ui.small("Stored in .env (gitignored). Applied live - no restart needed.");
                 ui.add_space(4.0);
 
@@ -3457,9 +3654,8 @@ impl MyApp {
                     );
                 }
             });
-        }
+    }
 
-    
     /// Stage 5 / Item #6 + #8: inline editable table of parsed transactions.
     /// Each numeric cell becomes a `TextEdit`; on change we upsert the
     /// matching `UserEdit` in `self.workflow_edits`. The "↶" button on each
@@ -3487,7 +3683,7 @@ impl MyApp {
         let mut cell_changes: Vec<(usize, usize, EditField, String, [f32; 4], String)> = Vec::new();
         let mut row_reverts: Vec<(usize, usize)> = Vec::new();
 
-        egui::ScrollArea::both()
+        egui::ScrollArea::both().auto_shrink([false, false])
             .max_height(220.0)
             .id_salt("workflow-edit-table")
             .show(ui, |ui| {
@@ -3833,7 +4029,9 @@ impl MyApp {
                     if ui.button("Re-analyze").clicked() {
                         if let Err(e) = self.job_tx.send(Job::AnalyzeFonts {
                             path: PathBuf::from(&self.input_path),
-                        }) { tracing::error!("Runtime disconnected: {}", e); }
+                        }) {
+                            tracing::error!("Runtime disconnected: {}", e);
+                        }
                         self.in_flight += 1;
                     }
                 });
@@ -3890,14 +4088,16 @@ impl MyApp {
             if ui.button("🔄 Re-analyze").clicked() {
                 if let Err(e) = self.job_tx.send(Job::AnalyzeFonts {
                     path: PathBuf::from(&self.input_path),
-                }) { tracing::error!("Runtime disconnected: {}", e); }
+                }) {
+                    tracing::error!("Runtime disconnected: {}", e);
+                }
                 self.in_flight += 1;
             }
 
             ui.separator();
 
             // Per-font breakdown.
-            egui::ScrollArea::vertical()
+            egui::ScrollArea::vertical().auto_shrink([false, false])
                 .id_salt("font-analysis-list")
                 .max_height(280.0)
                 .show(ui, |ui| {
@@ -4119,7 +4319,7 @@ impl MyApp {
                     ui.small(msg);
                 }
                 // Compact diff list
-                egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).max_height(120.0).show(ui, |ui| {
                     for r in p.rows.iter().filter(|r| r.will_change).take(20) {
                         // Char-aware truncation so multi-byte UTF-8 (CJK,
                         // accented Latin) doesn't panic on byte slicing.
@@ -4298,7 +4498,9 @@ impl MyApp {
             deep_font_replication: deep,
             max_visual_attempts: self.settings.max_visual_attempts,
             visual_threshold: self.settings.visual_diff_threshold,
-        }) { tracing::error!("Runtime disconnected: {}", e); }
+        }) {
+            tracing::error!("Runtime disconnected: {}", e);
+        }
         self.in_flight += 1;
     }
 
@@ -4381,7 +4583,7 @@ impl MyApp {
 
             if !self.batch_files.is_empty() {
                 ui.heading(format!("{} PDF(s) found", self.batch_files.len()));
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     for file in &self.batch_files {
                         ui.label(file.file_name().unwrap_or_default().to_string_lossy());
                     }
@@ -4849,23 +5051,18 @@ impl MyApp {
         });
     }
 
-
     fn draw_empty_canvas(&mut self, ui: &mut egui::Ui, rect: egui::Rect, painter: &egui::Painter) {
         let p = self.settings.theme.palette();
-        
+
         // --- 1. Background Gradient ---
         painter.rect_filled(rect, 0.0, p.bg);
-        
+
         // Ambient glows in the background
         let center = rect.center();
         let glow_radius = 400.0;
         let glow_color = p.accent.linear_multiply(0.05);
-        
-        painter.circle_filled(
-            center + egui::vec2(-200.0, -150.0),
-            glow_radius,
-            glow_color,
-        );
+
+        painter.circle_filled(center + egui::vec2(-200.0, -150.0), glow_radius, glow_color);
         painter.circle_filled(
             center + egui::vec2(250.0, 200.0),
             glow_radius * 0.8,
@@ -4893,14 +5090,35 @@ impl MyApp {
                                 let time = ui.input(|i| i.time);
                                 let alpha = ((time * 4.0).sin() as f32 * 0.3 + 0.7) * 0.15;
                                 let skel_color = p.text.linear_multiply(alpha);
-                                
-                                let (rect, _) = ui.allocate_exact_size(egui::vec2(200.0, 80.0), egui::Sense::hover());
+
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(200.0, 80.0),
+                                    egui::Sense::hover(),
+                                );
                                 let painter = ui.painter();
-                                painter.rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(200.0, 24.0)), 4.0, skel_color);
-                                painter.rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 40.0), egui::vec2(160.0, 14.0)), 4.0, skel_color);
-                                painter.rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(0.0, 64.0), egui::vec2(120.0, 14.0)), 4.0, skel_color);
+                                painter.rect_filled(
+                                    egui::Rect::from_min_size(rect.min, egui::vec2(200.0, 24.0)),
+                                    4.0,
+                                    skel_color,
+                                );
+                                painter.rect_filled(
+                                    egui::Rect::from_min_size(
+                                        rect.min + egui::vec2(0.0, 40.0),
+                                        egui::vec2(160.0, 14.0),
+                                    ),
+                                    4.0,
+                                    skel_color,
+                                );
+                                painter.rect_filled(
+                                    egui::Rect::from_min_size(
+                                        rect.min + egui::vec2(0.0, 64.0),
+                                        egui::vec2(120.0, 14.0),
+                                    ),
+                                    4.0,
+                                    skel_color,
+                                );
                                 ui.ctx().request_repaint();
-                                
+
                                 ui.add_space(16.0);
                                 ui.label(
                                     egui::RichText::new("Rendering document...")
@@ -4924,8 +5142,9 @@ impl MyApp {
         // --- 3. Welcome Glass Panel ---
         let panel_width = 460.0;
         let panel_height = 420.0;
-        let panel_rect = egui::Rect::from_center_size(center, egui::vec2(panel_width, panel_height));
-        
+        let panel_rect =
+            egui::Rect::from_center_size(center, egui::vec2(panel_width, panel_height));
+
         // Glassmorphism effect
         painter.rect(
             panel_rect,
@@ -4940,7 +5159,7 @@ impl MyApp {
                 // Icon
                 ui.label(egui::RichText::new("✨").size(48.0));
                 ui.add_space(16.0);
-                
+
                 // Title
                 ui.label(
                     egui::RichText::new("Antigravity Fidelity Engine")
@@ -4948,37 +5167,44 @@ impl MyApp {
                         .strong()
                         .color(p.text),
                 );
-                
+
                 ui.add_space(8.0);
-                
+
                 // Subtitle
                 ui.label(
                     egui::RichText::new("Advanced Bank Statement Processing & AI Validation")
                         .size(14.0)
                         .color(p.weak),
                 );
-                
+
                 ui.add_space(40.0);
-                
+
                 // Primary Action Button
                 let btn = egui::Button::new(
                     egui::RichText::new("📥   Open a Document to Begin")
                         .size(16.0)
                         .strong()
-                        .color(p.bg)
+                        .color(p.bg),
                 )
                 .min_size(egui::vec2(320.0, 52.0))
                 .rounding(egui::Rounding::same(12.0))
                 .fill(p.accent);
-                
-                if ui.add(btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_file() {
+
+                if ui
+                    .add(btn)
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked()
+                {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("PDF", &["pdf"])
+                        .pick_file()
+                    {
                         self.open_pdf(path);
                     }
                 }
-                
+
                 ui.add_space(16.0);
-                
+
                 ui.label(
                     egui::RichText::new("or drag and drop a PDF file here")
                         .size(13.0)
@@ -4987,30 +5213,50 @@ impl MyApp {
                 );
 
                 ui.add_space(30.0);
-                
+
                 ui.horizontal(|ui| {
                     ui.add_space(70.0); // Center the secondary actions
-                    if ui.button(egui::RichText::new("▶ Resume Session").size(13.0).color(p.text)).clicked() {
+                    if ui
+                        .button(
+                            egui::RichText::new("▶ Resume Session")
+                                .size(13.0)
+                                .color(p.text),
+                        )
+                        .clicked()
+                    {
                         let auto = std::path::PathBuf::from("audit").join("history.json");
                         if auto.exists() {
-                            if let Err(e) = self.job_tx.send(crate::app::runtime::Job::LoadHistory {
-                                input: auto.clone(),
-                            }) { tracing::error!("Runtime disconnected: {}", e); }
+                            if let Err(e) =
+                                self.job_tx.send(crate::app::runtime::Job::LoadHistory {
+                                    input: auto.clone(),
+                                })
+                            {
+                                tracing::error!("Runtime disconnected: {}", e);
+                            }
                             self.in_flight += 1;
-                            self.toast(ToastKind::Info, format!("Resuming from {}", auto.display()));
+                            self.toast(
+                                ToastKind::Info,
+                                format!("Resuming from {}", auto.display()),
+                            );
                         } else {
                             self.toast(ToastKind::Warn, "No previous session found.");
                         }
                     }
                     ui.add_space(10.0);
-                    if ui.button(egui::RichText::new("📝 Load Draft").size(13.0).color(p.text)).clicked() {
+                    if ui
+                        .button(
+                            egui::RichText::new("📝 Load Draft")
+                                .size(13.0)
+                                .color(p.text),
+                        )
+                        .clicked()
+                    {
                         self.resume_workflow_draft();
                     }
                 });
             });
         });
     }
-
 
     /// Stage 13 / Item #12: confirmation modals.
     fn draw_modals(&mut self, ctx: &egui::Context) {
@@ -5094,34 +5340,40 @@ impl MyApp {
                             ToastKind::Error => "✗",
                             ToastKind::Success => "✓",
                         };
-                        
+
                         // Remaining lifetime based alpha
                         let remaining = toast.expires_at.saturating_duration_since(now);
                         let base_alpha = (remaining.as_millis() as f32 / 6000.0).clamp(0.0, 1.0);
-                        
+
                         // Slide-in / slide-out animation
                         let anim_id = egui::Id::new("toast").with(&toast.text);
                         let target = if base_alpha > 0.05 { 1.0 } else { 0.0 };
                         let slide = ctx.animate_value_with_time(anim_id, target, 0.3);
-                        
+
                         let final_alpha = (base_alpha.min(slide) * 230.0) as u8;
                         if final_alpha == 0 {
                             continue;
                         }
-                        
+
                         let bg = egui::Color32::from_rgba_unmultiplied(
-                            bg.r(), bg.g(), bg.b(), final_alpha,
+                            bg.r(),
+                            bg.g(),
+                            bg.b(),
+                            final_alpha,
                         );
                         let fg = egui::Color32::from_white_alpha((255.0 * slide) as u8);
 
                         ui.horizontal(|ui| {
                             // Pushes the toast from the right to slide it in
                             ui.add_space((1.0 - slide) * 300.0);
-                            
+
                             egui::Frame::none()
                                 .fill(bg)
                                 .rounding(10.0)
-                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha((40.0 * slide) as u8)))
+                                .stroke(egui::Stroke::new(
+                                    1.0,
+                                    egui::Color32::from_white_alpha((40.0 * slide) as u8),
+                                ))
                                 .inner_margin(egui::vec2(12.0, 8.0))
                                 .shadow(egui::epaint::Shadow {
                                     offset: egui::vec2(0.0, 4.0 * slide),
@@ -5194,15 +5446,21 @@ impl MyApp {
             }
         }
         if ctrl_z {
-            if let Err(e) = self.job_tx.send(Job::Undo) { tracing::error!("Runtime disconnected: {}", e); }
+            if let Err(e) = self.job_tx.send(Job::Undo) {
+                tracing::error!("Runtime disconnected: {}", e);
+            }
         }
         if ctrl_y {
-            if let Err(e) = self.job_tx.send(Job::Redo) { tracing::error!("Runtime disconnected: {}", e); }
+            if let Err(e) = self.job_tx.send(Job::Redo) {
+                tracing::error!("Runtime disconnected: {}", e);
+            }
         }
         if ctrl_s {
             if let Err(e) = self.job_tx.send(Job::ExportChangeHistory {
                 output: PathBuf::from(&self.export_path),
-            }) { tracing::error!("Runtime disconnected: {}", e); }
+            }) {
+                tracing::error!("Runtime disconnected: {}", e);
+            }
         }
         if page_down && self.current_page + 1 < self.total_pages {
             self.current_page += 1;
@@ -5254,7 +5512,9 @@ impl MyApp {
         if let Err(e) = self.job_tx.send(Job::LoadDocument {
             path: self.current_pdf_path.clone(),
             three_page_mode: self.settings.three_page_mode,
-        }) { tracing::error!("Runtime disconnected: {}", e); }
+        }) {
+            tracing::error!("Runtime disconnected: {}", e);
+        }
         self.in_flight += 1;
     }
 
@@ -5368,10 +5628,7 @@ impl MyApp {
         if !pdf_path.exists() {
             self.toast(
                 ToastKind::Warn,
-                format!(
-                    "PDF missing: {} - please pick the file",
-                    pdf_path.display()
-                ),
+                format!("PDF missing: {} - please pick the file", pdf_path.display()),
             );
             match rfd::FileDialog::new()
                 .add_filter("PDF", &["pdf"])
@@ -5411,7 +5668,9 @@ impl MyApp {
         if let Err(e) = self.job_tx.send(Job::LoadDocument {
             path: pdf_path.clone(),
             three_page_mode: self.settings.three_page_mode,
-        }) { tracing::error!("Runtime disconnected: {}", e); }
+        }) {
+            tracing::error!("Runtime disconnected: {}", e);
+        }
         self.in_flight += 1;
 
         if same {
@@ -5484,14 +5743,18 @@ fn upsert_env_file(path: &std::path::Path, pairs: &[(&str, String)]) -> std::io:
 
 fn setup_custom_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    
+
     fonts.font_data.insert(
         "Inter-Regular".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../assets/Inter-Regular.ttf"))),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../assets/Inter-Regular.ttf"
+        ))),
     );
     fonts.font_data.insert(
         "Inter-Bold".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../assets/Inter-Bold.ttf"))),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../assets/Inter-Bold.ttf"
+        ))),
     );
 
     if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
@@ -5501,7 +5764,7 @@ fn setup_custom_fonts(ctx: &egui::Context) {
     if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
         mono.push("Inter-Regular".to_owned());
     }
-        
+
     fonts.families.insert(
         egui::FontFamily::Name("Bold".into()),
         vec!["Inter-Bold".to_owned(), "Inter-Regular".to_owned()],

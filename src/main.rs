@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 fn main() {
     dotenvy::dotenv().ok();
-    
+
     // Phase 3 - Stage 10: Sentry Integration for Telemetry
     let _sentry = sentry::init((
         std::env::var("SENTRY_DSN").unwrap_or_default(),

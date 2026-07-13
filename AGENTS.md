@@ -215,6 +215,8 @@ Every pipeline stage must have at least one offline fallback:
 - Visual AI → SSIM-only metrics
 - PyMuPDF edit → Pdfium → Typst reconstruct (ultimate)
 
+**Exception**: `TransferTransactions` and `RunTransferTests` strictly require an AI provider (Gemini/Groq/OpenRouter) for layout-agnostic format mapping. Their source and target parsing stages fall back to `offline_parser`, but the actual translation mapping has no offline equivalent.
+
 New integrations must follow this pattern and register in ApiAvailability.
 
 ## Reporting format

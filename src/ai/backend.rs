@@ -1,6 +1,6 @@
 use crate::ai::gemini_client::{GeminiClient, GeminiCompletenessReport, GeminiError};
 use crate::ai::openai_client::{OpenAiClient, OpenAiError};
-use crate::app::config::{AppConfig, AiProviderMode};
+use crate::app::config::{AiProviderMode, AppConfig};
 use crate::engine::model::Transaction;
 
 pub enum AiBackend {
@@ -27,7 +27,7 @@ impl AiBackend {
                 let c = GeminiClient::from_app_config(cfg)?;
                 Ok(Self::Gemini(c))
             }
-            AiProviderMode::ManualOnly => Err(AiBackendError::Gemini(GeminiError::MissingKey)) // dummy
+            AiProviderMode::ManualOnly => Err(AiBackendError::Gemini(GeminiError::MissingKey)), // dummy
         }
     }
 
@@ -41,7 +41,7 @@ impl AiBackend {
                 let c = GeminiClient::from_app_config_async(cfg).await?;
                 Ok(Self::Gemini(c))
             }
-            AiProviderMode::ManualOnly => Err(AiBackendError::Gemini(GeminiError::MissingKey)) // dummy
+            AiProviderMode::ManualOnly => Err(AiBackendError::Gemini(GeminiError::MissingKey)), // dummy
         }
     }
 
@@ -59,8 +59,14 @@ impl AiBackend {
         layout: &crate::engine::layout::DocumentLayout,
     ) -> Result<crate::ai::gemini_client::GeminiBalancePlan, AiBackendError> {
         match self {
-            Self::Gemini(c) => c.propose_balance_adjustments(transactions, imbalance, layout).await.map_err(Into::into),
-            Self::OpenAi(c) => c.propose_balance_adjustments(transactions, imbalance, layout).await.map_err(Into::into),
+            Self::Gemini(c) => c
+                .propose_balance_adjustments(transactions, imbalance, layout)
+                .await
+                .map_err(Into::into),
+            Self::OpenAi(c) => c
+                .propose_balance_adjustments(transactions, imbalance, layout)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -72,8 +78,14 @@ impl AiBackend {
         pages: usize,
     ) -> Result<GeminiCompletenessReport, AiBackendError> {
         match self {
-            Self::Gemini(c) => c.validate_parse_completeness(transactions, opening, closing, pages).await.map_err(Into::into),
-            Self::OpenAi(c) => c.validate_parse_completeness(transactions, opening, closing, pages).await.map_err(Into::into),
+            Self::Gemini(c) => c
+                .validate_parse_completeness(transactions, opening, closing, pages)
+                .await
+                .map_err(Into::into),
+            Self::OpenAi(c) => c
+                .validate_parse_completeness(transactions, opening, closing, pages)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -83,8 +95,14 @@ impl AiBackend {
         opening: f64,
     ) -> Result<bool, AiBackendError> {
         match self {
-            Self::Gemini(c) => c.verify_statement_mathematics(transactions_json, opening).await.map_err(Into::into),
-            Self::OpenAi(c) => c.verify_statement_mathematics(transactions_json, opening).await.map_err(Into::into),
+            Self::Gemini(c) => c
+                .verify_statement_mathematics(transactions_json, opening)
+                .await
+                .map_err(Into::into),
+            Self::OpenAi(c) => c
+                .verify_statement_mathematics(transactions_json, opening)
+                .await
+                .map_err(Into::into),
         }
     }
 
@@ -95,7 +113,10 @@ impl AiBackend {
         _bboxes: &[[f32; 4]],
     ) -> Result<crate::ai::gemini_client::GeminiVisionReport, AiBackendError> {
         match self {
-            Self::Gemini(c) => c.validate_render_visually(_doc, _bboxes).await.map_err(Into::into),
+            Self::Gemini(c) => c
+                .validate_render_visually(_doc, _bboxes)
+                .await
+                .map_err(Into::into),
             Self::OpenAi(_) => Ok(crate::ai::gemini_client::GeminiVisionReport {
                 anomaly_score: 0.0,
                 hotspots: vec![],
@@ -111,8 +132,17 @@ impl AiBackend {
         correction_hint: Option<&str>,
     ) -> Result<crate::engine::transfer::TransferPlan, AiBackendError> {
         match self {
-            Self::Gemini(c) => c.plan_transaction_transfer(source_transactions, target_transactions, correction_hint).await.map_err(Into::into),
-            Self::OpenAi(_) => Err(AiBackendError::OpenAi(OpenAiError::Format("Transfer planning requires Vision AI (Gemini)".into()))),
+            Self::Gemini(c) => c
+                .plan_transaction_transfer(
+                    source_transactions,
+                    target_transactions,
+                    correction_hint,
+                )
+                .await
+                .map_err(Into::into),
+            Self::OpenAi(_) => Err(AiBackendError::OpenAi(OpenAiError::Format(
+                "Transfer planning requires Vision AI (Gemini)".into(),
+            ))),
         }
     }
 
@@ -121,9 +151,15 @@ impl AiBackend {
         mapped_transactions: &[crate::engine::transfer::MappedTransaction],
         opening_balance: rust_decimal::Decimal,
     ) -> Result<bool, AiBackendError> {
-         match self {
-            Self::Gemini(c) => c.verify_transfer_math(mapped_transactions, opening_balance).await.map_err(Into::into),
-            Self::OpenAi(c) => c.verify_transfer_math(mapped_transactions, opening_balance).await.map_err(Into::into),
+        match self {
+            Self::Gemini(c) => c
+                .verify_transfer_math(mapped_transactions, opening_balance)
+                .await
+                .map_err(Into::into),
+            Self::OpenAi(c) => c
+                .verify_transfer_math(mapped_transactions, opening_balance)
+                .await
+                .map_err(Into::into),
         }
     }
 }

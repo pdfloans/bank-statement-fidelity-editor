@@ -145,7 +145,7 @@ pub fn recalculate_and_validate(
 ///
 /// Strategy:
 /// 1. Calculate the exact discrepancy.
-/// 2. Scan the ledger to find a single transaction anomaly (e.g. OCR transposition) 
+/// 2. Scan the ledger to find a single transaction anomaly (e.g. OCR transposition)
 ///    where applying the discrepancy minimizes the variance against original extracted running balances.
 /// 3. Patch the exact transaction (credit or debit) and recalculate to ensure 100% mathematical perfection.
 pub fn auto_correct_final_balance_smart(
@@ -200,13 +200,13 @@ pub fn auto_correct_final_balance_smart(
 
     // Apply the correction to the best candidate row `best_index`.
     let target_tx = &mut transactions[best_index];
-    
+
     // We must apply `discrepancy` to `net_delta`. net_delta = debit - credit.
     // If it's a deposit (debit > 0), adjust debit. If credit > 0, adjust credit.
     // If neither, default to debit.
     let old_debit = target_tx.debit.unwrap_or(Decimal::ZERO);
     let old_credit = target_tx.credit.unwrap_or(Decimal::ZERO);
-    
+
     if old_credit > Decimal::ZERO && old_debit == Decimal::ZERO {
         target_tx.credit = Some(old_credit - discrepancy);
     } else {
@@ -233,14 +233,14 @@ pub fn process_and_reconcile(
     opening_balance: Decimal,
     expected_final_balance: Option<Decimal>,
 ) -> Result<(Vec<Transaction>, Option<String>), BalanceError> {
-    
     if let Some(expected) = expected_final_balance {
         let mut current = opening_balance;
         for tx in &transactions {
             current += tx.net_delta();
         }
         if (current - expected).abs() > ONE_CENT {
-            let (fixed, message) = auto_correct_final_balance_smart(transactions.clone(), opening_balance, expected)?;
+            let (fixed, message) =
+                auto_correct_final_balance_smart(transactions.clone(), opening_balance, expected)?;
             return Ok((fixed, Some(message)));
         }
     }
@@ -327,7 +327,7 @@ mod tests {
         // But say OCR captured Tx1 as -50.
         let mut tx0 = make_tx(Some(dec!(20)), None);
         tx0.running_balance = Some(dec!(120)); // Provide hint so solver knows Tx0 is mathematically sound
-        
+
         let txs = vec![
             tx0,
             make_tx(None, Some(dec!(50))), // error

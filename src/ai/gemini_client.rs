@@ -342,8 +342,12 @@ impl GeminiClient {
         let max_attempts = 5; // 1 initial + 4 retries for extreme resilience
         loop {
             attempts += 1;
-            let mut req = self.http.post(&url).json(body).timeout(std::time::Duration::from_secs(dynamic_timeout));
-            
+            let mut req = self
+                .http
+                .post(&url)
+                .json(body)
+                .timeout(std::time::Duration::from_secs(dynamic_timeout));
+
             match &self.auth {
                 GeminiAuth::ApiKey => {
                     req = req.header("x-goog-api-key", self.api_key.trim());
@@ -368,8 +372,14 @@ impl GeminiClient {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.subsec_millis() as u64 % 500)
                             .unwrap_or(250);
-                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)) + jitter);
-                        tracing::warn!("Gemini {} error for model {}, retrying in {:?}...", status, model, delay);
+                        let delay =
+                            std::time::Duration::from_millis(1000 * (1 << (attempts - 1)) + jitter);
+                        tracing::warn!(
+                            "Gemini {} error for model {}, retrying in {:?}...",
+                            status,
+                            model,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -387,7 +397,8 @@ impl GeminiClient {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.subsec_millis() as u64 % 500)
                             .unwrap_or(250);
-                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)) + jitter);
+                        let delay =
+                            std::time::Duration::from_millis(1000 * (1 << (attempts - 1)) + jitter);
                         tracing::warn!("Gemini network error {}, retrying in {:?}...", e, delay);
                         tokio::time::sleep(delay).await;
                         continue;

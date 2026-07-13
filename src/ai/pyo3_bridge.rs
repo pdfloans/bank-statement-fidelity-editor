@@ -71,9 +71,10 @@ impl PyEngine {
         });
 
         match result {
-            Ok(Ok(Ok(res))) => Ok(res), // Inner Python execution succeeded
+            Ok(Ok(Ok(res))) => Ok(res),         // Inner Python execution succeeded
             Ok(Ok(Err(py_err))) => Err(py_err), // Inner Python execution failed gracefully
-            Ok(Err(panic_err)) => { // Python execution panicked
+            Ok(Err(panic_err)) => {
+                // Python execution panicked
                 let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
                     s.to_string()
                 } else if let Some(s) = panic_err.downcast_ref::<String>() {
@@ -82,7 +83,7 @@ impl PyEngine {
                     "Unknown panic type".to_string()
                 };
                 Err(format!("Python panic: {}", msg))
-            },
+            }
             Err(join_err) => Err(format!("Python thread join error: {:?}", join_err)),
         }
     }
@@ -135,8 +136,9 @@ impl PyEngine {
                 .call1(py, (pdf_path, page_num, rect.to_vec()))
                 .map_err(|e| e.to_string())?;
 
-            let (is_simple, avg_color): (bool, (f32, f32, f32)) =
-                bg_result.extract(py).map_err(|e: pyo3::PyErr| e.to_string())?;
+            let (is_simple, avg_color): (bool, (f32, f32, f32)) = bg_result
+                .extract(py)
+                .map_err(|e: pyo3::PyErr| e.to_string())?;
 
             let mut warning: Option<String> = None;
             if !is_simple {
@@ -294,8 +296,12 @@ impl PyEngine {
         Self::safe_python_with_gil(|py| {
             let _json_mod = py.import("json").map_err(|e| e.to_string())?;
             let json_mod = py.import("json").map_err(|e: pyo3::PyErr| e.to_string())?;
-            let loads = json_mod.getattr("loads").map_err(|e: pyo3::PyErr| e.to_string())?;
-            let edits_obj = loads.call1((edits_json,)).map_err(|e: pyo3::PyErr| e.to_string())?;
+            let loads = json_mod
+                .getattr("loads")
+                .map_err(|e: pyo3::PyErr| e.to_string())?;
+            let edits_obj = loads
+                .call1((edits_json,))
+                .map_err(|e: pyo3::PyErr| e.to_string())?;
 
             let func = self
                 .module
@@ -459,14 +465,26 @@ mod tests {
         pyo3::Python::initialize();
         let res: Result<(), String> = PyEngine::safe_python_with_gil(|py| {
             // Trigger a Python exception deliberately
-            let _ = py.run(c"raise ValueError('Intentional Python Exception')", None, None)
+            let _ = py
+                .run(
+                    c"raise ValueError('Intentional Python Exception')",
+                    None,
+                    None,
+                )
                 .map_err(|e| e.to_string())?;
             Ok(())
         });
-        
-        assert!(res.is_err(), "Python exception should be caught and returned as an Err");
+
+        assert!(
+            res.is_err(),
+            "Python exception should be caught and returned as an Err"
+        );
         let err_msg = res.unwrap_err();
-        assert!(err_msg.contains("ValueError: Intentional Python Exception") || err_msg.contains("Intentional Python Exception"), "Error message should contain Python exception details");
+        assert!(
+            err_msg.contains("ValueError: Intentional Python Exception")
+                || err_msg.contains("Intentional Python Exception"),
+            "Error message should contain Python exception details"
+        );
     }
 
     #[test]
@@ -476,10 +494,19 @@ mod tests {
             // Simulate a raw Rust panic inside the GIL closure
             panic!("Raw Rust panic inside python worker thread");
         });
-        
-        assert!(res.is_err(), "Rust panic should be caught by catch_unwind and returned as an Err");
+
+        assert!(
+            res.is_err(),
+            "Rust panic should be caught by catch_unwind and returned as an Err"
+        );
         let err_msg = res.unwrap_err();
-        assert!(err_msg.contains("Python panic"), "Should correctly wrap the panic into a Python panic error");
-        assert!(err_msg.contains("Raw Rust panic"), "Should contain the inner panic message");
+        assert!(
+            err_msg.contains("Python panic"),
+            "Should correctly wrap the panic into a Python panic error"
+        );
+        assert!(
+            err_msg.contains("Raw Rust panic"),
+            "Should contain the inner panic message"
+        );
     }
 }

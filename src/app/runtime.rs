@@ -903,27 +903,22 @@ impl Runtime {
                             let started_at = std::time::Instant::now();
                             let _corrections_applied = 0usize;
 
-                            // Construct AI clients from config
-                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => std::sync::Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::TransferFailed {
-                                        stage: "Init".into(),
-                                        message: "Transfer requires Document AI configuration.".into(),
-                                    });
-                                    return;
-                                }
-                            };
+                            // Construct AI mapping client — Transfer requires an AI provider
+                            // for format mapping (this is an intentional AI-required exception;
+                            // see AGENTS.md "Fallback chain rules").
                             let gemini = match crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                 Ok(c) => std::sync::Arc::new(c),
                                 Err(_) => {
                                     let _ = res_tx.send(JobResult::TransferFailed {
                                         stage: "Init".into(),
-                                        message: "Transfer requires Gemini API configuration.".into(),
+                                        message: "Transfer requires an AI provider for format mapping — set GEMINI_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY) and select a provider in Backend Preferences.".into(),
                                     });
                                     return;
                                 }
                             };
+
+                            // Helper: parse a statement via DocAI with offline fallback.
+                            let doc_ai_opt = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(std::sync::Arc::new);
 
                             // Helper to send progress
                             let send_progress = |res_tx: &std::sync::mpsc::Sender<JobResult>, stage: TransferStage| {
@@ -938,14 +933,56 @@ impl Runtime {
                             send_progress(&res_tx, TransferStage::AnalyzeSource);
                             tracing::info!("[TRANSFER] Stage 1: Analyzing source PDF: {:?}", source_pdf);
 
-                            let source_stmt = match doc_ai.parse_entire_statement(&source_pdf, None).await {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::TransferFailed {
-                                        stage: "AnalyzeSource".into(),
-                                        message: format!("Failed to parse source statement: {e}"),
-                                    });
-                                    return;
+                            let source_stmt = if let Some(ref doc_ai) = doc_ai_opt {
+                                match doc_ai.parse_entire_statement(&source_pdf, None).await {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        tracing::warn!("[TRANSFER] DocAI source parse failed, trying offline: {e}");
+                                        let eng_clone = engine_for_tokio.clone();
+                                        let path_clone = source_pdf.clone();
+                                        match tokio::task::spawn_blocking(move || {
+                                            crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                        }).await {
+                                            Ok(Ok(s)) => s,
+                                            Ok(Err(e2)) => {
+                                                let _ = res_tx.send(JobResult::TransferFailed {
+                                                    stage: "AnalyzeSource".into(),
+                                                    message: format!("Failed to parse source (DocAI: {e}, offline: {e2})"),
+                                                });
+                                                return;
+                                            }
+                                            Err(e2) => {
+                                                let _ = res_tx.send(JobResult::TransferFailed {
+                                                    stage: "AnalyzeSource".into(),
+                                                    message: format!("Offline parser panicked: {e2}"),
+                                                });
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                tracing::info!("[TRANSFER] No Document AI configured, parsing source offline");
+                                let eng_clone = engine_for_tokio.clone();
+                                let path_clone = source_pdf.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                }).await {
+                                    Ok(Ok(s)) => s,
+                                    Ok(Err(e)) => {
+                                        let _ = res_tx.send(JobResult::TransferFailed {
+                                            stage: "AnalyzeSource".into(),
+                                            message: format!("Offline source parse failed: {e}"),
+                                        });
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::TransferFailed {
+                                            stage: "AnalyzeSource".into(),
+                                            message: format!("Offline source parser panicked: {e}"),
+                                        });
+                                        return;
+                                    }
                                 }
                             };
                             let source_transactions = source_stmt.transactions.clone();
@@ -968,14 +1005,56 @@ impl Runtime {
                             send_progress(&res_tx, TransferStage::AnalyzeTarget);
                             tracing::info!("[TRANSFER] Stage 2: Analyzing target PDF: {:?}", target_pdf);
 
-                            let target_stmt = match doc_ai.parse_entire_statement(&target_pdf, None).await {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::TransferFailed {
-                                        stage: "AnalyzeTarget".into(),
-                                        message: format!("Failed to parse target statement: {e}"),
-                                    });
-                                    return;
+                            let target_stmt = if let Some(ref doc_ai) = doc_ai_opt {
+                                match doc_ai.parse_entire_statement(&target_pdf, None).await {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        tracing::warn!("[TRANSFER] DocAI target parse failed, trying offline: {e}");
+                                        let eng_clone = engine_for_tokio.clone();
+                                        let path_clone = target_pdf.clone();
+                                        match tokio::task::spawn_blocking(move || {
+                                            crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                        }).await {
+                                            Ok(Ok(s)) => s,
+                                            Ok(Err(e2)) => {
+                                                let _ = res_tx.send(JobResult::TransferFailed {
+                                                    stage: "AnalyzeTarget".into(),
+                                                    message: format!("Failed to parse target (DocAI: {e}, offline: {e2})"),
+                                                });
+                                                return;
+                                            }
+                                            Err(e2) => {
+                                                let _ = res_tx.send(JobResult::TransferFailed {
+                                                    stage: "AnalyzeTarget".into(),
+                                                    message: format!("Offline parser panicked: {e2}"),
+                                                });
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                tracing::info!("[TRANSFER] No Document AI configured, parsing target offline");
+                                let eng_clone = engine_for_tokio.clone();
+                                let path_clone = target_pdf.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                }).await {
+                                    Ok(Ok(s)) => s,
+                                    Ok(Err(e)) => {
+                                        let _ = res_tx.send(JobResult::TransferFailed {
+                                            stage: "AnalyzeTarget".into(),
+                                            message: format!("Offline target parse failed: {e}"),
+                                        });
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::TransferFailed {
+                                            stage: "AnalyzeTarget".into(),
+                                            message: format!("Offline target parser panicked: {e}"),
+                                        });
+                                        return;
+                                    }
                                 }
                             };
                             let target_transactions = target_stmt.transactions.clone();
@@ -1547,7 +1626,28 @@ impl Runtime {
                                 let mut math_verified = false;
                                 let mut math_imbalance = rust_decimal::Decimal::ZERO;
                                 let mut math_err_msg = String::new();
-                                match doc_ai.parse_entire_statement(&output_pdf, None).await {
+
+                                let reparsed_stmt = if let Some(ref doc_ai) = doc_ai_opt {
+                                    match doc_ai.parse_entire_statement(&output_pdf, None).await {
+                                        Ok(s) => Ok(s),
+                                        Err(e) => {
+                                            tracing::warn!("[TRANSFER] DocAI target reparsing failed, trying offline: {e}");
+                                            let eng_clone = engine_for_tokio.clone();
+                                            let path_clone = output_pdf.clone();
+                                            tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                            }).await.unwrap_or_else(|e| Err(format!("Offline parser panicked: {e}")))
+                                        }
+                                    }
+                                } else {
+                                    let eng_clone = engine_for_tokio.clone();
+                                    let path_clone = output_pdf.clone();
+                                    tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                    }).await.unwrap_or_else(|e| Err(format!("Offline parser panicked: {e}")))
+                                };
+                                
+                                match reparsed_stmt {
                                     Ok(reparsed) => {
                                         let engine_txns: Vec<crate::engine::model::Transaction> = reparsed.transactions;
                                         match crate::engine::balance::process_and_reconcile(
@@ -1572,7 +1672,7 @@ impl Runtime {
                                     }
                                     Err(e) => {
                                         math_imbalance = rust_decimal_macros::dec!(0.01);
-                                        math_err_msg = format!("Re-parse failed: {e}");
+                                        math_err_msg = format!("Parse for verification failed: {e}");
                                         tracing::warn!("[TRANSFER] {}", math_err_msg);
                                     }
                                 }
@@ -1685,32 +1785,76 @@ impl Runtime {
                         let res_tx = result_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
+                        let eng = engine_for_tokio.clone();
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::Progress {
                                 label: "Parsing statement for date adjustment...".to_string(),
                                 fraction: 0.1,
                             });
 
-                            // Parse the statement to get transactions
-                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => std::sync::Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::Error {
-                                        job_label: "adjust_dates".into(),
-                                        message: "Date adjustment requires Document AI.".into(),
-                                    });
-                                    return;
+                            // Parse the statement — try Document AI, fall back to offline parser.
+                            let stmt = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(c) => {
+                                    let doc_ai = std::sync::Arc::new(c);
+                                    match doc_ai.parse_entire_statement(&input, None).await {
+                                        Ok(s) => s,
+                                        Err(e) => {
+                                            tracing::warn!("[adjust_dates] Document AI parse failed, falling back to offline parser: {e}");
+                                            let _ = res_tx.send(JobResult::Progress {
+                                                label: "Document AI failed, using offline parser...".to_string(),
+                                                fraction: 0.2,
+                                            });
+                                            let eng_clone = eng.clone();
+                                            let input_clone = input.clone();
+                                            match tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&input_clone, eng_clone)
+                                            }).await {
+                                                Ok(Ok(s)) => s,
+                                                Ok(Err(e2)) => {
+                                                    let _ = res_tx.send(JobResult::Error {
+                                                        job_label: "adjust_dates".into(),
+                                                        message: format!("Offline parser also failed: {e2}"),
+                                                    });
+                                                    return;
+                                                }
+                                                Err(e2) => {
+                                                    let _ = res_tx.send(JobResult::Error {
+                                                        job_label: "adjust_dates".into(),
+                                                        message: format!("Offline parser panicked: {e2}"),
+                                                    });
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            };
-
-                            let stmt = match doc_ai.parse_entire_statement(&input, None).await {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::Error {
-                                        job_label: "adjust_dates".into(),
-                                        message: format!("Parse failed: {e}"),
+                                Err(_) => {
+                                    tracing::info!("[adjust_dates] Document AI not configured, using offline parser");
+                                    let _ = res_tx.send(JobResult::Progress {
+                                        label: "Using offline parser (no Document AI)...".to_string(),
+                                        fraction: 0.2,
                                     });
-                                    return;
+                                    let eng_clone = eng.clone();
+                                    let input_clone = input.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&input_clone, eng_clone)
+                                    }).await {
+                                        Ok(Ok(s)) => s,
+                                        Ok(Err(e)) => {
+                                            let _ = res_tx.send(JobResult::Error {
+                                                job_label: "adjust_dates".into(),
+                                                message: format!("Offline extraction failed: {e}"),
+                                            });
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::Error {
+                                                job_label: "adjust_dates".into(),
+                                                message: format!("Offline extraction panicked: {e}"),
+                                            });
+                                            return;
+                                        }
+                                    }
                                 }
                             };
 
@@ -1739,8 +1883,11 @@ impl Runtime {
                             }
 
                             let total = records.len();
+                            let mut skipped = 0usize;
                             for (i, rec) in records.iter().enumerate() {
-                                // Find the bbox for this transaction's date field
+                                // Find the bbox for this transaction's date field.
+                                // Offline-parsed transactions have empty FieldBboxes, so
+                                // date_bbox may be None — skip gracefully and warn.
                                 if let Some(tx) = transactions.iter().find(|t| t.page == rec.page && t.line_on_page == rec.line_on_page) {
                                     if let Some(date_bbox) = tx.field_bboxes.date {
                                         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -1756,6 +1903,12 @@ impl Runtime {
                                             reply_tx,
                                         ));
                                         let _ = reply_rx.await;
+                                    } else {
+                                        tracing::warn!(
+                                            "[adjust_dates] No date bbox for page {} line {} — skipping PDF edit (offline parser limitation)",
+                                            rec.page, rec.line_on_page,
+                                        );
+                                        skipped += 1;
                                     }
                                 }
                                 let frac = 0.4 + (0.5 * (i + 1) as f32 / total.max(1) as f32);
@@ -1765,10 +1918,17 @@ impl Runtime {
                                 });
                             }
 
-                            let _ = res_tx.send(JobResult::Progress {
-                                label: "Dates adjusted ✓".to_string(),
-                                fraction: 1.0,
-                            });
+                            if skipped > 0 {
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: format!("Dates adjusted ✓ ({skipped} skipped — no bbox from offline parser)"),
+                                    fraction: 1.0,
+                                });
+                            } else {
+                                let _ = res_tx.send(JobResult::Progress {
+                                    label: "Dates adjusted ✓".to_string(),
+                                    fraction: 1.0,
+                                });
+                            }
 
                             let _ = res_tx.send(JobResult::DatesAdjusted {
                                 records,
@@ -1824,6 +1984,7 @@ impl Runtime {
                         let res_tx = result_tx_clone.clone();
                         let cfg = config_for_tokio.clone();
                         let _py_tx = python_tx_clone.clone();
+                        let engine_for_tokio = engine_for_tokio.clone();
                         tokio::spawn(async move {
                             use crate::engine::transfer_test_harness::*;
 
@@ -1836,22 +1997,13 @@ impl Runtime {
                                 fraction: 0.0,
                             });
 
-                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => std::sync::Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::Error {
-                                        job_label: "transfer_tests".into(),
-                                        message: "Transfer tests require Document AI.".into(),
-                                    });
-                                    return;
-                                }
-                            };
+                            let doc_ai_opt = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(std::sync::Arc::new);
                             let gemini = match crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                 Ok(c) => std::sync::Arc::new(c),
                                 Err(_) => {
                                     let _ = res_tx.send(JobResult::Error {
                                         job_label: "transfer_tests".into(),
-                                        message: "Transfer tests require Gemini API.".into(),
+                                        message: "Transfer tests require an AI provider for format mapping — set GEMINI_API_KEY (or GROQ_API_KEY / OPENROUTER_API_KEY) and select a provider in Backend Preferences.".into(),
                                     });
                                     return;
                                 }
@@ -1878,33 +2030,94 @@ impl Runtime {
                                     fraction: pair_idx as f32 / total_pairs as f32,
                                 });
 
-                                // Parse both statements
-                                let source_stmt = match doc_ai.parse_entire_statement(source, None).await {
-                                    Ok(s) => s,
-                                    Err(e) => {
-                                        corrections.push(format!("Source parse failed: {e}"));
-                                        results.push(TransferTestResult {
-                                            source: source.clone(), target: target.clone(),
-                                            output: output.clone(), iterations: 0,
-                                            final_math_ok: false, final_visual_score: 1.0,
-                                            corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
-                                            converged: false,
-                                        });
-                                        continue;
+                                // Parse both statements — DocAI with offline fallback
+                                let source_stmt = if let Some(ref doc_ai) = doc_ai_opt {
+                                    match doc_ai.parse_entire_statement(source, None).await {
+                                        Ok(s) => s,
+                                        Err(_e) => {
+                                            // DocAI failed, try offline
+                                            let eng_clone = engine_for_tokio.clone();
+                                            let src_clone = source.clone();
+                                            match tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&src_clone, eng_clone)
+                                            }).await {
+                                                Ok(Ok(s)) => s,
+                                                _ => {
+                                                    corrections.push(format!("Source parse failed (DocAI + offline)"));
+                                                    results.push(TransferTestResult {
+                                                        source: source.clone(), target: target.clone(),
+                                                        output: output.clone(), iterations: 0,
+                                                        final_math_ok: false, final_visual_score: 1.0,
+                                                        corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
+                                                        converged: false,
+                                                    });
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    let eng_clone = engine_for_tokio.clone();
+                                    let src_clone = source.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&src_clone, eng_clone)
+                                    }).await {
+                                        Ok(Ok(s)) => s,
+                                        _ => {
+                                            corrections.push("Source parse failed (offline)".to_string());
+                                            results.push(TransferTestResult {
+                                                source: source.clone(), target: target.clone(),
+                                                output: output.clone(), iterations: 0,
+                                                final_math_ok: false, final_visual_score: 1.0,
+                                                corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
+                                                converged: false,
+                                            });
+                                            continue;
+                                        }
                                     }
                                 };
-                                let target_stmt = match doc_ai.parse_entire_statement(target, None).await {
-                                    Ok(s) => s,
-                                    Err(e) => {
-                                        corrections.push(format!("Target parse failed: {e}"));
-                                        results.push(TransferTestResult {
-                                            source: source.clone(), target: target.clone(),
-                                            output: output.clone(), iterations: 0,
-                                            final_math_ok: false, final_visual_score: 1.0,
-                                            corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
-                                            converged: false,
-                                        });
-                                        continue;
+                                let target_stmt = if let Some(ref doc_ai) = doc_ai_opt {
+                                    match doc_ai.parse_entire_statement(target, None).await {
+                                        Ok(s) => s,
+                                        Err(_e) => {
+                                            let eng_clone = engine_for_tokio.clone();
+                                            let tgt_clone = target.clone();
+                                            match tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&tgt_clone, eng_clone)
+                                            }).await {
+                                                Ok(Ok(s)) => s,
+                                                _ => {
+                                                    corrections.push("Target parse failed (DocAI + offline)".to_string());
+                                                    results.push(TransferTestResult {
+                                                        source: source.clone(), target: target.clone(),
+                                                        output: output.clone(), iterations: 0,
+                                                        final_math_ok: false, final_visual_score: 1.0,
+                                                        corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
+                                                        converged: false,
+                                                    });
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    let eng_clone = engine_for_tokio.clone();
+                                    let tgt_clone = target.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&tgt_clone, eng_clone)
+                                    }).await {
+                                        Ok(Ok(s)) => s,
+                                        _ => {
+                                            corrections.push("Target parse failed (offline)".to_string());
+                                            results.push(TransferTestResult {
+                                                source: source.clone(), target: target.clone(),
+                                                output: output.clone(), iterations: 0,
+                                                final_math_ok: false, final_visual_score: 1.0,
+                                                corrections, duration_secs: pair_started.elapsed().as_secs_f64(),
+                                                converged: false,
+                                            });
+                                            continue;
+                                        }
                                     }
                                 };
 
@@ -2427,19 +2640,51 @@ impl Runtime {
                             let _permit = semaphore.acquire().await.unwrap();
                             let _ = res_tx.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
 
-                            let doc_ai = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => Arc::new(c),
-                                Err(_) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: "Extract requires GEMINI_API_KEY + Document AI configuration.".into() });
-                                    return;
+                            // Try Document AI first, fall back to offline parser.
+                            let transactions = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                Ok(c) => {
+                                    let doc_ai = Arc::new(c);
+                                    match doc_ai.parse_entire_statement(&path, None).await {
+                                        Ok(stmt) => stmt.transactions,
+                                        Err(e) => {
+                                            tracing::warn!("[extract] Document AI parse failed, falling back to offline parser: {e}");
+                                            let _ = res_tx.send(JobResult::Progress { label: "Document AI failed, using offline parser...".to_string(), fraction: 0.3 });
+                                            let eng_clone = eng.clone();
+                                            let path_clone = path.clone();
+                                            match tokio::task::spawn_blocking(move || {
+                                                crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                            }).await {
+                                                Ok(Ok(stmt)) => stmt.transactions,
+                                                Ok(Err(e2)) => {
+                                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline parser also failed: {e2}") });
+                                                    return;
+                                                }
+                                                Err(e2) => {
+                                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline parser panicked: {e2}") });
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            };
-
-                            let bank_stmt = match doc_ai.parse_entire_statement(&path, None).await {
-                                Ok(stmt) => stmt,
-                                Err(e) => {
-                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Document AI failed: {e}") });
-                                    return;
+                                Err(_) => {
+                                    tracing::info!("[extract] Document AI not configured, using offline parser");
+                                    let _ = res_tx.send(JobResult::Progress { label: "Using offline parser (no Document AI)...".to_string(), fraction: 0.3 });
+                                    let eng_clone = eng.clone();
+                                    let path_clone = path.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                    }).await {
+                                        Ok(Ok(stmt)) => stmt.transactions,
+                                        Ok(Err(e)) => {
+                                            let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline extraction failed: {e}") });
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline extraction panicked: {e}") });
+                                            return;
+                                        }
+                                    }
                                 }
                             };
 
@@ -2456,7 +2701,7 @@ impl Runtime {
                                 }
                             }
 
-                            let report = merger.merge(bank_stmt.transactions, geometries);
+                            let report = merger.merge(transactions, geometries);
                             let _ = res_tx.send(JobResult::TransactionsExtracted(report.transactions));
                         });
                     }
