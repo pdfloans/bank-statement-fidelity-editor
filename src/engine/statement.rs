@@ -119,6 +119,9 @@ impl SmartDocumentEngine {
             .await
             .map_err(|e| EngineError::AiPlanFailed(format!("Document AI failed: {e}")))?;
 
+        let opening_balance = bank_stmt.opening_balance;
+        let closing_balance = bank_stmt.closing_balance;
+
         // 2. Geometry Extraction
         let mut geometries = Vec::new();
         for provider in &self.merger.providers {
@@ -151,55 +154,85 @@ impl SmartDocumentEngine {
 
         // Gemini's REST contract returns JSON-numbers; convert to f64 at the
         // network boundary, back to Decimal for storage.
-        let plan = self
+        let plan_result = self
             .ai_backend
             .propose_balance_adjustments(&self.all_transactions, dec_to_f64(imbalance), layout)
-            .await
-            .map_err(|e| match e {
-                crate::ai::backend::AiBackendError::Gemini(
-                    crate::ai::gemini_client::GeminiError::LowConfidence(c),
-                ) => EngineError::AiPlanFailed(format!("AI low confidence ({c:.2})")),
-                _ => EngineError::AiPlanFailed(format!("AI failed: {e}")),
-            })?;
+            .await;
 
-        // 6. Map adjustments to ProposedChange. Format with two-decimal
-        // precision via Decimal so the user-visible diff text isn't subject
-        // to f64 representation noise.
-        //
-        // CRITICAL: resolve a redaction bbox for every adjustment by matching
-        // it back to its source transaction (by page + line_on_page). The
-        // apply path skips any change with `bbox: None`, so without this the
-        // "Adjust & apply all" pipeline would propose changes but write none.
-        // Prefer the per-field running-balance bbox; fall back to the whole
-        // row bbox so an edit still lands even when per-cell geometry is absent.
-        let changes: Vec<ProposedChange> = plan
-            .adjustments
-            .into_iter()
-            .map(|adj| {
-                let resolved_bbox = self
-                    .all_transactions
-                    .iter()
-                    .find(|t| t.page == adj.page && t.line_on_page == adj.line_on_page)
-                    .and_then(|t| t.field_bboxes.running_balance.or(t.bbox));
-                if resolved_bbox.is_none() {
-                    tracing::warn!(
-                        "[DOCUMENT ENGINE] no bbox for adjustment on page {} line {}; \
-                         it will be reported but cannot be auto-applied",
-                        adj.page,
-                        adj.line_on_page
-                    );
+        let changes: Vec<ProposedChange> = match plan_result {
+            Ok(plan) => {
+                plan.adjustments
+                    .into_iter()
+                    .map(|adj| {
+                        let resolved_bbox = self
+                            .all_transactions
+                            .iter()
+                            .find(|t| t.page == adj.page && t.line_on_page == adj.line_on_page)
+                            .and_then(|t| t.field_bboxes.running_balance.or(t.bbox));
+                        if resolved_bbox.is_none() {
+                            tracing::warn!(
+                                "[DOCUMENT ENGINE] no bbox for adjustment on page {} line {}; \
+                                 it will be reported but cannot be auto-applied",
+                                adj.page,
+                                adj.line_on_page
+                            );
+                        }
+                        ProposedChange {
+                            page: adj.page,
+                            old_text: format!("{}", f64_to_dec(adj.old_running_balance)),
+                            new_text: format!("{}", f64_to_dec(adj.new_running_balance)),
+                            reason: adj.reason,
+                            confidence: adj.confidence,
+                            affects_subsequent_balances: true,
+                            bbox: resolved_bbox,
+                        }
+                    })
+                    .collect()
+            }
+            Err(e) => {
+                tracing::warn!("[DOCUMENT ENGINE] AI balance failed ({e}); falling back to local balance engine");
+                let expected_closing = Some(closing_balance);
+                match crate::engine::balance::process_and_reconcile(
+                    self.all_transactions.clone(),
+                    opening_balance,
+                    expected_closing,
+                ) {
+                    Ok((fixed_txs, msg)) => {
+                        let mut local_changes = Vec::new();
+                        for (orig, fixed) in self.all_transactions.iter().zip(fixed_txs.iter()) {
+                            if orig.debit != fixed.debit {
+                                local_changes.push(ProposedChange {
+                                    page: orig.page,
+                                    old_text: orig.debit.map(|d| d.to_string()).unwrap_or_default(),
+                                    new_text: fixed.debit.map(|d| d.to_string()).unwrap_or_default(),
+                                    reason: msg.clone().unwrap_or_else(|| "Local balance engine (debit)".into()),
+                                    confidence: 1.0,
+                                    affects_subsequent_balances: true,
+                                    bbox: orig.field_bboxes.debit.or(orig.bbox),
+                                });
+                            }
+                            if orig.credit != fixed.credit {
+                                local_changes.push(ProposedChange {
+                                    page: orig.page,
+                                    old_text: orig.credit.map(|d| d.to_string()).unwrap_or_default(),
+                                    new_text: fixed.credit.map(|d| d.to_string()).unwrap_or_default(),
+                                    reason: msg.clone().unwrap_or_else(|| "Local balance engine (credit)".into()),
+                                    confidence: 1.0,
+                                    affects_subsequent_balances: true,
+                                    bbox: orig.field_bboxes.credit.or(orig.bbox),
+                                });
+                            }
+                        }
+                        local_changes
+                    }
+                    Err(e2) => {
+                        return Err(EngineError::AiPlanFailed(format!(
+                            "AI failed: {e}. Local fallback also failed: {e2}"
+                        )));
+                    }
                 }
-                ProposedChange {
-                    page: adj.page,
-                    old_text: format!("{}", f64_to_dec(adj.old_running_balance)),
-                    new_text: format!("{}", f64_to_dec(adj.new_running_balance)),
-                    reason: adj.reason,
-                    confidence: adj.confidence,
-                    affects_subsequent_balances: true,
-                    bbox: resolved_bbox,
-                }
-            })
-            .collect();
+            }
+        };
 
         self.proposed_changes = changes.clone();
         tracing::info!(

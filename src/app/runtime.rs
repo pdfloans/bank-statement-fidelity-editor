@@ -3373,7 +3373,9 @@ impl Runtime {
 
                     Job::WorkflowParseAndValidate { input, version, parser_mode, ai_provider } => {
                         let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowParseAndValidate");
-                        let cfg = config_for_tokio.clone();
+                        let mut cfg_override = (*config_for_tokio).clone();
+                        cfg_override.ai_provider = ai_provider;
+                        let cfg = std::sync::Arc::new(cfg_override);
                         let engine_for_tokio = engine_for_tokio.clone();
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {

@@ -375,6 +375,7 @@ impl AppModals for MyApp {
 
                         // ── 2. AI Provider ──
                         ui.label("\u{1f916} AI Provider:");
+                        let old_ai_provider = self.settings.ai_provider;
                         egui::ComboBox::from_id_salt("bp_ai_provider")
                             .selected_text(self.settings.ai_provider.label())
                             .show_ui(ui, |ui| {
@@ -440,6 +441,9 @@ impl AppModals for MyApp {
                                     }
                                 });
                             });
+                        if old_ai_provider != self.settings.ai_provider {
+                            self.save_credentials();
+                        }
                         ui.end_row();
 
                         // ── 3. Document Parser ──
