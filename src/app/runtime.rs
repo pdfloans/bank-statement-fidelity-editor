@@ -2656,7 +2656,13 @@ impl Runtime {
                         let semaphore = api_semaphore.clone();
 
                         tokio::spawn(async move {
-                            let _permit = semaphore.acquire().await.unwrap();
+                            let _permit = match semaphore.acquire().await {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "API Execution".into(), message: format!("Semaphore closed: {e}") });
+                                    return;
+                                }
+                            };
                             let _ = res_tx.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
 
                             let mut final_txs = None;
@@ -2750,7 +2756,13 @@ impl Runtime {
                         let semaphore = api_semaphore.clone();
 
                         tokio::spawn(async move {
-                            let _permit = semaphore.acquire().await.unwrap();
+                            let _permit = match semaphore.acquire().await {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "API Execution".into(), message: format!("Semaphore closed: {e}") });
+                                    return;
+                                }
+                            };
                             let _ = res_tx.send(JobResult::Progress { label: "Smart Balance Analysis".to_string(), fraction: 0.1 });
 
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
@@ -2846,7 +2858,13 @@ impl Runtime {
                         let semaphore = api_semaphore.clone();
 
                         tokio::spawn(async move {
-                            let _permit = semaphore.acquire().await.unwrap();
+                            let _permit = match semaphore.acquire().await {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "API Execution".into(), message: format!("Semaphore closed: {e}") });
+                                    return;
+                                }
+                            };
                             // Determine page count: cascaded balance changes
                             // routinely land MANY pages from the edited row -
                             // often >3 pages away. A direct full-document apply
@@ -3209,7 +3227,13 @@ impl Runtime {
                         let semaphore = api_semaphore.clone();
 
                         tokio::spawn(async move {
-                            let _permit = semaphore.acquire().await.unwrap();
+                            let _permit = match semaphore.acquire().await {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "API Execution".into(), message: format!("Semaphore closed: {e}") });
+                                    return;
+                                }
+                            };
                             let _ = res_tx.send(JobResult::Progress { label: "Adjusting entire statement...".to_string(), fraction: 0.1 });
 
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
@@ -5211,7 +5235,9 @@ mod tests {
             res => panic!("Expected bridge error, got {res:?}"),
         }
 
-        handle.join().unwrap();
+        if let Err(e) = handle.join() {
+            tracing::error!("Worker thread panicked during shutdown: {:?}", e);
+        }
 
         // Subsequent send should fail because job_rx is dropped
         assert!(job_tx.send(Job::Ping).is_err());
