@@ -5,6 +5,7 @@ edition = "2021"
 description = "Bank Statement Fidelity Editor v0.5.1 — Smart Balance Engine + high-fidelity targeted text editing"
 authors = ["Grok xAI"]
 license = "MIT OR Apache-2.0"
+default-run = "dual-core-pdf-pipeline"
 
 [features]
 default = ["otel"]
