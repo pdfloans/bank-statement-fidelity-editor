@@ -361,13 +361,12 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
 /// End-to-end self-test: render -> edit a real text span -> re-render, asserting
 /// the edit changed the page (and only locally). Drives the same Job runtime
 /// the GUI uses. Returns a process exit code (0 = PASS).
-fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Option<PathBuf>) -> i32 {
+fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Option<PathBuf>) -> anyhow::Result<i32> {
     use crate::app::runtime::{PythonJob, PythonJobResult};
 
     let input = input.unwrap_or_else(|| PathBuf::from("examples/sample.pdf"));
     if let Err(e) = validate_pdf_path(&input, "Self-test input") {
-        eprintln!("❌ {e}");
-        return exit_code::VALIDATION;
+        anyhow::bail!("{e}");
     }
     println!("▶ Self-test on {}", input.display());
 
@@ -377,7 +376,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         Ok(JobResult::Pong) => println!("  ✅ runtime ping"),
         _ => {
             eprintln!("  ❌ runtime did not respond to ping");
-            return exit_code::GENERAL;
+            return Ok(exit_code::GENERAL);
         }
     }
 
@@ -395,7 +394,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         }
         other => {
             eprintln!("  ❌ baseline render failed: {other:?}");
-            return exit_code::GENERAL;
+            return Ok(exit_code::GENERAL);
         }
     };
 
@@ -421,7 +420,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         Ok(PythonJobResult::Json(j)) => j,
         other => {
             eprintln!("  ❌ get_text_blocks failed: {other:?}");
-            return exit_code::GENERAL;
+            return Ok(exit_code::GENERAL);
         }
     };
     let blocks: serde_json::Value = serde_json::from_str(&blocks_json).unwrap_or_default();
@@ -440,14 +439,14 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         }
         None => {
             eprintln!("  ❌ no text spans found on page 0; cannot self-test the edit path");
-            return exit_code::GENERAL;
+            return Ok(exit_code::GENERAL);
         }
     };
     let bbox = match bbox {
         Some(b) if b[0] < b[2] && b[1] < b[3] => b,
         _ => {
             eprintln!("  ❌ first span had an invalid bbox");
-            return exit_code::GENERAL;
+            return Ok(exit_code::GENERAL);
         }
     };
     println!("  ✅ found target span: {old_text:?} @ {bbox:?}");
@@ -469,7 +468,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         Ok(JobResult::ChangeApplied { .. }) => println!("  ✅ edit applied -> {}", out.display()),
         other => {
             eprintln!("  ❌ edit failed: {other:?}");
-            return exit_code::GENERAL;
+            return Ok(exit_code::GENERAL);
         }
     }
 
@@ -484,13 +483,13 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         Ok(JobResult::PageRendered { png_bytes, .. }) => png_bytes,
         other => {
             eprintln!("  ❌ re-render failed: {other:?}");
-            return exit_code::GENERAL;
+            return Ok(exit_code::GENERAL);
         }
     };
 
     if after == before {
         eprintln!("  ❌ edited render is identical to baseline - the edit did not land");
-        return exit_code::GENERAL;
+        return Ok(exit_code::GENERAL);
     }
     println!(
         "  ✅ edited render differs from baseline ({} vs {} bytes)",
@@ -498,7 +497,7 @@ fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Optio
         before.len()
     );
     println!("✅ SELF-TEST PASSED - render, text-edit, and re-render all work end-to-end.");
-    exit_code::SUCCESS
+    Ok(exit_code::SUCCESS)
 }
 
 /// Status of a single diagnostic check.
@@ -527,7 +526,7 @@ fn run_doctor(
     config: &crate::app::config::AppConfig,
     job_tx: &Sender<Job>,
     job_rx: &Receiver<JobResult>,
-) -> i32 {
+) -> anyhow::Result<i32> {
     println!("══════════════════════════════════════════════════════════");
     println!("  Bank Statement Fidelity Editor - Doctor");
     println!("══════════════════════════════════════════════════════════");
@@ -643,7 +642,7 @@ fn run_doctor(
         if !fs_ok {
             println!("  • One or more required directories are not writable.");
         }
-        return exit_code::CONFIG;
+        return Ok(exit_code::CONFIG);
     }
 
     if !missing_recommended.is_empty() {
@@ -654,11 +653,11 @@ fn run_doctor(
             }
         }
         println!("\n Run with these set to unlock the full feature set.");
-        return exit_code::PARTIAL;
+        return Ok(exit_code::PARTIAL);
     }
 
     println!(" Doctor: ✅ Ready for use. All systems go.");
-    exit_code::SUCCESS
+    Ok(exit_code::SUCCESS)
 }
 
 /// Returns whether a given environment variable is effectively present,
@@ -687,12 +686,28 @@ fn indent_block(text: &str) -> String {
         .join("\n")
 }
 
+
 pub fn run(
     cli: Cli,
     job_tx: Sender<Job>,
     job_rx: Receiver<JobResult>,
     config: std::sync::Arc<crate::app::config::AppConfig>,
 ) -> i32 {
+    match run_inner(cli, job_tx, job_rx, config) {
+        Ok(code) => code,
+        Err(e) => {
+            tracing::error!("CLI Error: {e}");
+            1
+        }
+    }
+}
+
+pub fn run_inner(
+    cli: Cli,
+    job_tx: Sender<Job>,
+    job_rx: Receiver<JobResult>,
+    config: std::sync::Arc<crate::app::config::AppConfig>,
+) -> anyhow::Result<i32> {
     // Pre-flight: input file existence checks for subcommands that take an input.
     let preflight = match &cli.command {
         Commands::Text { input, .. }
@@ -710,18 +725,18 @@ pub fn run(
         } => {
             if !original.exists() {
                 eprintln!("❌ Original PDF not found: {}", original.display());
-                return exit_code::NOT_FOUND;
+                return Ok(exit_code::NOT_FOUND);
             }
             if !edited.exists() {
                 eprintln!("❌ Edited PDF not found: {}", edited.display());
-                return exit_code::NOT_FOUND;
+                return Ok(exit_code::NOT_FOUND);
             }
             None
         }
         Commands::ExportHistory { from_log, .. } => {
             if !from_log.exists() {
                 eprintln!("❌ Audit log not found: {}", from_log.display());
-                return exit_code::NOT_FOUND;
+                return Ok(exit_code::NOT_FOUND);
             }
             None
         }
@@ -732,11 +747,11 @@ pub fn run(
         } => {
             if !source_pdf.exists() {
                 eprintln!("❌ Source PDF not found: {}", source_pdf.display());
-                return exit_code::NOT_FOUND;
+                return Ok(exit_code::NOT_FOUND);
             }
             if !target_pdf.exists() {
                 eprintln!("❌ Target PDF not found: {}", target_pdf.display());
-                return exit_code::NOT_FOUND;
+                return Ok(exit_code::NOT_FOUND);
             }
             None
         }
@@ -744,7 +759,7 @@ pub fn run(
             for stmt in statements {
                 if !stmt.exists() {
                     eprintln!("❌ Statement PDF not found: {}", stmt.display());
-                    return exit_code::NOT_FOUND;
+                    return Ok(exit_code::NOT_FOUND);
                 }
             }
             None
@@ -754,7 +769,7 @@ pub fn run(
     if let Some(path) = preflight {
         if !path.exists() {
             eprintln!("❌ Input file not found: {}", path.display());
-            return exit_code::NOT_FOUND;
+            return Ok(exit_code::NOT_FOUND);
         }
         if path
             .extension()
@@ -763,7 +778,7 @@ pub fn run(
             != Some("pdf".into())
         {
             eprintln!("❌ Input must be a .pdf file: {}", path.display());
-            return exit_code::VALIDATION;
+            return Ok(exit_code::VALIDATION);
         }
     }
 
@@ -774,15 +789,15 @@ pub fn run(
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::ReconstructComplete { output_path }) => {
                     tracing::info!("Reconstruction successful! Saved to {:?}", output_path);
-                    exit_code::SUCCESS
+                    Ok(exit_code::SUCCESS)
                 }
                 Ok(other) => {
                     tracing::error!("Unexpected terminal result: {:?}", other);
-                    exit_code::GENERAL
+                    Ok(exit_code::GENERAL)
                 }
                 Err((label, err)) => {
                     tracing::error!("Job '{}' failed: {}", label, err);
-                    exit_code::GENERAL
+                    Ok(exit_code::GENERAL)
                 }
             }
         }
@@ -802,9 +817,9 @@ pub fn run(
                         crate::app::server::run_server(job_tx, job_rx, config.clone())
                     {
                         tracing::error!("Fallback server also failed: {}", serve_err);
-                        return exit_code::GENERAL;
+                        return Ok(exit_code::GENERAL);
                     }
-                    return exit_code::SUCCESS;
+                    return Ok(exit_code::SUCCESS);
                 }
             }
 
@@ -819,7 +834,7 @@ pub fn run(
                     Ok(log) => log,
                     Err(e) => {
                         tracing::error!("[AUDIT] Failed to open audit log for fallback: {}", e);
-                        return exit_code::IO;
+                        return Ok(exit_code::IO);
                     }
                 };
                 let (_new_rt, new_tx, new_rx) =
@@ -829,17 +844,17 @@ pub fn run(
                     crate::app::server::run_server(new_tx, new_rx, config.clone())
                 {
                     tracing::error!("Fallback server also failed: {}", serve_err);
-                    return exit_code::GENERAL;
+                    return Ok(exit_code::GENERAL);
                 }
             }
-            exit_code::SUCCESS
+            Ok(exit_code::SUCCESS)
         }
         Commands::Serve => {
             if let Err(e) = crate::app::server::run_server(job_tx, job_rx, config.clone()) {
                 tracing::error!("Headless server exited with error: {}", e);
-                return exit_code::GENERAL;
+                return Ok(exit_code::GENERAL);
             }
-            exit_code::SUCCESS
+            Ok(exit_code::SUCCESS)
         }
         Commands::Text {
             input,
@@ -851,16 +866,14 @@ pub fn run(
         } => {
             // Validate input file first
             if let Err(e) = validate_pdf_path(&input, "Input PDF") {
-                eprintln!("❌ {e}");
-                return exit_code::VALIDATION;
+                anyhow::bail!("{e}");
             }
 
             // Parse bbox with proper error handling
             let coords = match parse_bbox(&bbox) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("❌ [cli_text] Invalid bbox: {e}");
-                    return exit_code::VALIDATION;
+                    anyhow::bail!("[cli_text] Invalid bbox: {e}");
                 }
             };
 
@@ -877,15 +890,15 @@ pub fn run(
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::ChangeApplied { .. }) => {
                     println!("✅ Change applied successfully.");
-                    0
+                    Ok(0)
                 }
                 Err((lbl, msg)) => {
                     tracing::error!("❌ [{}] {}", lbl, msg);
-                    1
+                    Ok(1)
                 }
                 _ => {
                     tracing::error!("Unexpected result from runtime");
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -903,7 +916,7 @@ pub fn run(
                         println!(
                             "✅ Statement is already perfectly balanced (imbalance: ${imbalance})."
                         );
-                        return 0;
+                        return Ok(0);
                     }
 
                     println!("Imbalance detected: ${imbalance}");
@@ -942,32 +955,32 @@ pub fn run(
                                     for (i, f) in failures.iter().enumerate() {
                                         eprintln!("   {}. {}", i + 1, f);
                                     }
-                                    return 1;
+                                    return Ok(1);
                                 }
                                 println!("Output saved to: {output:?}");
-                                0
+                                Ok(0)
                             }
                             Err((lbl, msg)) => {
                                 tracing::error!("❌ [{}] {}", lbl, msg);
-                                1
+                                Ok(1)
                             }
                             _ => {
                                 tracing::error!("Unexpected result from runtime");
-                                1
+                                Ok(1)
                             }
                         }
                     } else {
                         println!("\nRun with --auto-approve to apply these changes.");
-                        0
+                        Ok(0)
                     }
                 }
                 Err((lbl, msg)) => {
                     tracing::error!("❌ [{}] {}", lbl, msg);
-                    1
+                    Ok(1)
                 }
                 _ => {
                     tracing::error!("Unexpected result from runtime");
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -985,34 +998,34 @@ pub fn run(
                                 Ok(j) => j,
                                 Err(e) => {
                                     tracing::error!("❌ Failed to serialize: {e}");
-                                    return 1;
+                                    return Ok(1);
                                 }
                             };
                             if std::fs::write(&output, json).is_ok() {
                                 println!("✅ Data extraction successful. Saved to: {output:?}");
-                                0
+                                Ok(0)
                             } else {
                                 tracing::error!("❌ Failed to write output file");
-                                1
+                                Ok(1)
                             }
                         }
                         Err((lbl, msg)) => {
                             tracing::error!("❌ [{}] {}", lbl, msg);
-                            1
+                            Ok(1)
                         }
                         _ => {
                             tracing::error!("Unexpected result from runtime");
-                            1
+                            Ok(1)
                         }
                     }
                 }
                 Err((lbl, msg)) => {
                     tracing::error!("❌ [{}] {}", lbl, msg);
-                    1
+                    Ok(1)
                 }
                 _ => {
                     tracing::error!("Unexpected result from runtime");
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -1052,21 +1065,21 @@ pub fn run(
                         Ok(j) => j,
                         Err(e) => {
                             tracing::error!("❌ Failed to serialize report: {e}");
-                            return 1;
+                            return Ok(1);
                         }
                     };
                     let _ = std::fs::write(&json_path, json);
                     println!("{}", report.message);
                     println!("Report saved to: {json_path:?}");
-                    0
+                    Ok(0)
                 }
                 Err((lbl, msg)) => {
                     tracing::error!("❌ [{}] {}", lbl, msg);
-                    1
+                    Ok(1)
                 }
                 _ => {
                     tracing::error!("Unexpected result from runtime");
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -1099,19 +1112,19 @@ pub fn run(
                     let _ = std::fs::create_dir_all(&output_dir);
                     if std::fs::write(&path, png_bytes).is_ok() {
                         println!("✅ Rendered to: {path:?}");
-                        0
+                        Ok(0)
                     } else {
                         tracing::error!("❌ Failed to write output file");
-                        1
+                        Ok(1)
                     }
                 }
                 Err((lbl, msg)) => {
                     tracing::error!("❌ [{}] {}", lbl, msg);
-                    1
+                    Ok(1)
                 }
                 _ => {
                     tracing::error!("Unexpected result from runtime");
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -1123,15 +1136,15 @@ pub fn run(
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::FontCompleted(json)) => {
                     println!("{json}");
-                    0
+                    Ok(0)
                 }
                 Err((lbl, msg)) => {
                     tracing::error!("❌ [{}] {}", lbl, msg);
-                    1
+                    Ok(1)
                 }
                 _ => {
                     tracing::error!("Unexpected result from runtime");
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -1144,15 +1157,15 @@ pub fn run(
                     }
                     if std::fs::write(&output, history.to_json_pretty_string()).is_ok() {
                         println!("✅ Reconstructed history exported to: {output:?}");
-                        0
+                        Ok(0)
                     } else {
                         tracing::error!("❌ Failed to write output file");
-                        1
+                        Ok(1)
                     }
                 }
                 Err(e) => {
                     tracing::error!("❌ Failed to parse audit log: {}", e);
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -1161,9 +1174,9 @@ pub fn run(
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::Pong) => {
                     println!("pong");
-                    0
+                    Ok(0)
                 }
-                _ => 1,
+                _ => Ok(1),
             }
         }
         Commands::Selftest { input } => run_selftest(&job_tx, &job_rx, input),
@@ -1177,14 +1190,14 @@ pub fn run(
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("❌ failed to start tokio runtime: {e}");
-                    return 1;
+                    return Ok(1);
                 }
             };
             let cfg = config.clone();
-            rt.block_on(async move {
+            Ok(rt.block_on(async move {
                 let report = crate::app::api_verification::verify_all_api_keys(&cfg, json).await;
                 report.exit_code()
-            })
+            }))
         }
         Commands::DocaiTrain {
             display_name,
@@ -1202,7 +1215,7 @@ pub fn run(
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("❌ failed to start tokio runtime: {e}");
-                    return 1;
+                    return Ok(1);
                 }
             };
             let cfg = config.clone();
@@ -1211,7 +1224,7 @@ pub fn run(
                     Ok(c) => c,
                     Err(e) => {
                         eprintln!("❌ Document AI not configured: {e}");
-                        return 1;
+                        return Ok(1);
                     }
                 };
                 println!("Polling dataset...");
@@ -1219,18 +1232,18 @@ pub fn run(
                     Ok(t) => t,
                     Err(e) => {
                         eprintln!("❌ failed to list dataset: {e}");
-                        return 1;
+                        return Ok(1);
                     }
                 };
                 println!("  Dataset: {labeled} / {total} labelled");
                 if report_only {
-                    return 0;
+                    return Ok(0);
                 }
                 if labeled < min_labelled {
                     eprintln!(
                         "⚠️ only {labeled} labelled doc(s); need ≥{min_labelled}. Label more in the Console."
                     );
-                    return 1;
+                    return Ok(1);
                 }
                 let name = display_name.unwrap_or_else(|| {
                     format!("au-bank-{}", chrono::Utc::now().format("%Y%m%d-%H%M"))
@@ -1240,7 +1253,7 @@ pub fn run(
                     Ok(o) => o,
                     Err(e) => {
                         eprintln!("❌ training kickoff failed: {e}");
-                        return 1;
+                        return Ok(1);
                     }
                 };
                 println!("Operation: {op}");
@@ -1254,7 +1267,7 @@ pub fn run(
                         }
                         Ok((true, Some(err))) => {
                             eprintln!("❌ Training failed: {err}");
-                            return 1;
+                            return Ok(1);
                         }
                         Ok((false, _)) => {
                             print!(".");
@@ -1272,7 +1285,7 @@ pub fn run(
                     // the user to set it themselves. Surface a clear message.
                     println!("ℹ️ --set-default requested. Inspect the operation response for the new version ID, then set it in the Console (Manage versions -> Set default).");
                 }
-                0
+                Ok(0)
             })
         }
         Commands::FontcacheInit { force, dir } => {
@@ -1292,16 +1305,16 @@ pub fn run(
                         println!(
                             "✅ Font cache ready. Stage 11 cascade Tier 2/3 will use these donors."
                         );
-                        0
+                        Ok(0)
                     } else {
                         println!();
                         println!("⚠️ Some downloads failed. The cache is usable but coverage is partial.");
-                        2
+                        Ok(2)
                     }
                 }
                 Err(e) => {
                     eprintln!("❌ bootstrap failed: {e}");
-                    1
+                    Ok(1)
                 }
             }
         }
@@ -1311,13 +1324,13 @@ pub fn run(
                 match job_rx.recv() {
                     Ok(JobResult::FontAnalysisReady(report)) => {
                         println!("✅ Font Analysis Ready:\n{}", report.one_line_summary());
-                        return 0;
+                        return Ok(0);
                     }
                     Ok(JobResult::Error { job_label, message }) => {
                         eprintln!("❌ [{job_label}] {message}");
-                        return 1;
+                        return Ok(1);
                     }
-                    Err(_) => return 1,
+                    Err(_) => return Ok(1),
                     _ => {}
                 }
             }
@@ -1336,21 +1349,21 @@ pub fn run(
                     println!("✅ Applied {changes_applied} changes to {output:?}");
                     if !failures.is_empty() {
                         eprintln!("⚠️ {} failure(s)", failures.len());
-                        return 1;
+                        return Ok(1);
                     }
-                    0
+                    Ok(0)
                 }
                 Err((lbl, msg)) => {
                     eprintln!("❌ [{lbl}] {msg}");
-                    1
+                    Ok(1)
                 }
-                _ => 1,
+                _ => Ok(1),
             }
         }
         Commands::AiFixVisual { input, page } => {
             let _ = job_tx.send(Job::AiFixVisualFidelity { input, page });
             println!("AiFixVisualFidelity is a stub.");
-            0
+            Ok(0)
         }
         Commands::TransferTransactions {
             source_pdf,
@@ -1368,17 +1381,17 @@ pub fn run(
                         "✅ Transfer complete. Target has {} transactions.",
                         result.target_tx_count
                     );
-                    0
+                    Ok(0)
                 }
                 Ok(JobResult::TransferFailed { stage, message }) => {
                     eprintln!("❌ Transfer failed at {stage}: {message}");
-                    1
+                    Ok(1)
                 }
                 Err((lbl, msg)) => {
                     eprintln!("❌ [{lbl}] {msg}");
-                    1
+                    Ok(1)
                 }
-                _ => 1,
+                _ => Ok(1),
             }
         }
         Commands::AdjustDates {
@@ -1404,13 +1417,13 @@ pub fn run(
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::DatesAdjusted { records, .. }) => {
                     println!("✅ Adjusted {} dates.", records.len());
-                    0
+                    Ok(0)
                 }
                 Err((lbl, msg)) => {
                     eprintln!("❌ [{lbl}] {msg}");
-                    1
+                    Ok(1)
                 }
-                _ => 1,
+                _ => Ok(1),
             }
         }
         Commands::RunTransferTests {
@@ -1424,13 +1437,13 @@ pub fn run(
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::TransferTestsComplete(report)) => {
                     println!("✅ Transfer Tests Complete:\n{report:?}");
-                    0
+                    Ok(0)
                 }
                 Err((lbl, msg)) => {
                     eprintln!("❌ [{lbl}] {msg}");
-                    1
+                    Ok(1)
                 }
-                _ => 1,
+                _ => Ok(1),
             }
         }
     }

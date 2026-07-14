@@ -3201,11 +3201,11 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
                         });
                     }
-                    Job::BalanceAndApplyAll { input, output, auto_apply } => {
+                    Job::BalanceAndApplyAll { input, output: _, auto_apply } => {
                         let res_tx = TerminalTracker::new(result_tx_clone.clone(), "BalanceAndApplyAll");
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
-                        let job_tx_ref = tokio_job_tx_clone.clone();
+                        let _job_tx_ref = tokio_job_tx_clone.clone();
                         let semaphore = api_semaphore.clone();
 
                         tokio::spawn(async move {
@@ -3461,7 +3461,7 @@ impl Runtime {
                         }
                     }
 
-                    Job::WorkflowParseAndValidate { input, version, parser_mode, ai_provider, ignore_offline_fallback } => {
+                    Job::WorkflowParseAndValidate { input, version, parser_mode, ai_provider, ignore_offline_fallback: _ } => {
                         let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowParseAndValidate");
                         let mut cfg_override = (*config_for_tokio).clone();
                         cfg_override.ai_provider = ai_provider;
@@ -3540,7 +3540,7 @@ impl Runtime {
                                                 Err(e) => {
                                                     // Auto-fallback to Mindee
                                                     tracing::warn!("[workflow] Document AI parse failed: {e}; falling back to Mindee");
-                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Document AI failed, falling back to Mindee..."), fraction: 0.3 });
+                                                    let _ = res_tx.send(JobResult::Progress { label: "Document AI failed, falling back to Mindee...".to_string(), fraction: 0.3 });
                                                     let mut final_s = None;
                                                     match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
                                                         Ok(client) => match client.parse_statement(&input).await {
@@ -3554,7 +3554,7 @@ impl Runtime {
                                                         s
                                                     } else {
                                                         tracing::warn!("[workflow] Mindee fallback failed/unavailable; falling back to offline parser");
-                                                        let _ = res_tx.send(JobResult::Progress { label: format!("Mindee failed, falling back to offline parser..."), fraction: 0.35 });
+                                                        let _ = res_tx.send(JobResult::Progress { label: "Mindee failed, falling back to offline parser...".to_string(), fraction: 0.35 });
                                                         let eng = engine_for_tokio.clone();
                                                         let path = input.clone();
                                                         match tokio::task::spawn_blocking(move || {

@@ -18,7 +18,7 @@ use crate::app::modals::AppModals;
 use crate::app::runtime::{Job, JobResult, PythonJob, PythonJobResult};
 use crate::engine::history::ChangeHistory;
 use crate::engine::verification::VerificationReport;
-use egui_plot::{Line, Plot, PlotPoints};
+use egui_plot::PlotPoints;
 
 // ---------------------------------------------------------------------------
 // Theme palette (Catppuccin-inspired) + helpers
@@ -1016,6 +1016,7 @@ impl MyApp {
     }
     /// G2: Build a real `.tar.gz` artifact bundle containing the input PDF,
     /// edited output PDF, audit log, and change history JSON.
+    #[allow(dead_code)]
     fn build_artifact_bundle(
         input_path: &str,
         output_path: &std::path::Path,
@@ -2888,7 +2889,6 @@ impl MyApp {
     /// them to `.env`, push them into the process environment, and hot-reload
     /// the runtime config (`Job::ReloadConfig`) so they take effect with no
     /// restart.
-
     /// Stage 5 / Item #6 + #8: inline editable table of parsed transactions.
     /// Each numeric cell becomes a `TextEdit`; on change we upsert the
     /// matching `UserEdit` in `self.workflow_edits`. The "↶" button on each
@@ -4179,8 +4179,12 @@ impl MyApp {
                 }
             });
             let mut dock = egui::Area::new(egui::Id::new("floating_action_dock")).order(egui::Order::Foreground);
-            if self.selected_block.is_some() && self.last_click_pos.is_some() {
-                dock = dock.current_pos(self.last_click_pos.unwrap() + egui::vec2(20.0, 20.0));
+            if self.selected_block.is_some() {
+                if let Some(pos) = self.last_click_pos {
+                    dock = dock.current_pos(pos + egui::vec2(20.0, 20.0));
+                } else {
+                    dock = dock.anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0));
+                }
             } else {
                 dock = dock.anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0));
             }
@@ -4515,7 +4519,6 @@ impl MyApp {
     }
 
     /// Stage 13 / Item #12: confirmation modals.
-
     fn draw_toasts(&mut self, ctx: &egui::Context) -> Option<String> {
         let mut clicked_id = None;
         // Drop expired

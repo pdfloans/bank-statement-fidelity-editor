@@ -6,7 +6,7 @@
       "fidelity": 96,
       "avg": 98.0,
       "details": "Found 30/30 txn lines in markdown",
-      "elapsed_ms": 10347
+      "elapsed_ms": 10678
     },
     {
       "tool": "Offline Heuristic",
@@ -14,7 +14,7 @@
       "fidelity": 98,
       "avg": 93.0,
       "details": "Found 25/30 txns, closing=Y",
-      "elapsed_ms": 40
+      "elapsed_ms": 34
     },
     {
       "tool": "PyMuPDF Built-in",
@@ -22,7 +22,7 @@
       "fidelity": 95,
       "avg": 47.5,
       "details": "Found 0/30 txns, 0 decimal errors",
-      "elapsed_ms": 51
+      "elapsed_ms": 92
     },
     {
       "tool": "Mindee API",
@@ -30,7 +30,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error: HTTP 401",
-      "elapsed_ms": 2230
+      "elapsed_ms": 2141
     },
     {
       "tool": "Document AI",
@@ -38,7 +38,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "No auth available",
-      "elapsed_ms": 5959
+      "elapsed_ms": 5923
     }
   ],
   "Test 2: Fidelity Edit": [
@@ -48,7 +48,7 @@
       "fidelity": 85,
       "avg": 87.5,
       "details": "Found 18 '7' glyphs, 18 successful edits, restored=Y",
-      "elapsed_ms": 645
+      "elapsed_ms": 967
     },
     {
       "tool": "Pdfium",
@@ -56,7 +56,7 @@
       "fidelity": 92,
       "avg": 76.0,
       "details": "Rendered 2480x3509px @ 300DPI, content=Y",
-      "elapsed_ms": 577
+      "elapsed_ms": 952
     },
     {
       "tool": "Typst Reconstruct",
@@ -64,7 +64,7 @@
       "fidelity": 65,
       "avg": 70.0,
       "details": "26/26 spans extractable, 1 fonts: {'Helvetica'}",
-      "elapsed_ms": 76
+      "elapsed_ms": 61
     }
   ],
   "Test 3: Math Balance": [
@@ -74,7 +74,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21",
-      "elapsed_ms": 18
+      "elapsed_ms": 19
     },
     {
       "tool": "OpenRouter AI",
@@ -82,7 +82,7 @@
       "fidelity": 100,
       "avg": 50.0,
       "details": "Found=N, amount=$0, line=0",
-      "elapsed_ms": 4525
+      "elapsed_ms": 5249
     },
     {
       "tool": "Groq AI",
@@ -90,7 +90,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400",
-      "elapsed_ms": 1213
+      "elapsed_ms": 1677
     },
     {
       "tool": "Gemini AI",
@@ -98,7 +98,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400: {\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/googl",
-      "elapsed_ms": 1470
+      "elapsed_ms": 1935
     },
     {
       "tool": "Document AI",
@@ -106,7 +106,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "CRASH: Command '['gcloud.cmd']' returned non-zero exit status 2.",
-      "elapsed_ms": 4759
+      "elapsed_ms": 6387
     }
   ],
   "Test 4: Visual QA": [
@@ -116,7 +116,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "SSIM\u22480.997970, max_tile=0.583347, diff_px=72852, region_detect=Y",
-      "elapsed_ms": 13729
+      "elapsed_ms": 14372
     },
     {
       "tool": "pdfRest Cloud",
@@ -124,7 +124,7 @@
       "fidelity": 98,
       "avg": 86.5,
       "details": "Adobe-tier render at 300DPI, manual diff required",
-      "elapsed_ms": 5184
+      "elapsed_ms": 5468
     },
     {
       "tool": "Applitools Eyes",
@@ -132,7 +132,7 @@
       "fidelity": 100,
       "avg": 70.0,
       "details": "Visual AI diff=MISSED, output_len=111",
-      "elapsed_ms": 2618
+      "elapsed_ms": 2534
     },
     {
       "tool": "Gemini Vision",
@@ -140,7 +140,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400",
-      "elapsed_ms": 3419
+      "elapsed_ms": 3466
     }
   ],
   "Test 5: Transfer Transactions": [
@@ -150,7 +150,7 @@
       "fidelity": 100,
       "avg": 100,
       "details": "Transfer mapped perfectly",
-      "elapsed_ms": 1952
+      "elapsed_ms": 1807
     },
     {
       "tool": "Gemini 1.5 Flash",
@@ -158,7 +158,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error No response",
-      "elapsed_ms": 1175
+      "elapsed_ms": 1353
     },
     {
       "tool": "OpenRouter",
@@ -166,7 +166,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error No response",
-      "elapsed_ms": 1567
+      "elapsed_ms": 2398
     }
   ],
   "Test 6: E2E GUI Testing": [
@@ -176,7 +176,7 @@
       "fidelity": 100,
       "avg": 100,
       "details": "GUI launched and tree attached correctly",
-      "elapsed_ms": 6762
+      "elapsed_ms": 7296
     }
   ],
   "Test 7: PII Anonymization": [
@@ -186,7 +186,7 @@
       "fidelity": 100,
       "avg": 100,
       "details": "PII Masked Successfully",
-      "elapsed_ms": 1822
+      "elapsed_ms": 1717
     },
     {
       "tool": "Gemini 1.5 PII",
@@ -194,7 +194,33 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error No response",
-      "elapsed_ms": 1368
+      "elapsed_ms": 1142
+    }
+  ],
+  "Test 8: Forensic Evasion": [
+    {
+      "tool": "PyMuPDF Pro",
+      "correctness": 100,
+      "fidelity": 100,
+      "avg": 100,
+      "details": "Producer: '', Creator: '', EOF markers: 1",
+      "elapsed_ms": 4
+    },
+    {
+      "tool": "Typst Reconstruct",
+      "correctness": 80,
+      "fidelity": 100,
+      "avg": 90,
+      "details": "Clean rebuild, single %%EOF, but likely leaves Typst metadata tag",
+      "elapsed_ms": 0
+    },
+    {
+      "tool": "Pdfium",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "Output is an image raster, not a vector PDF. Fails structural forensics completely.",
+      "elapsed_ms": 0
     }
   ]
 }

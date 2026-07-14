@@ -545,7 +545,6 @@ impl DocumentAiClient {
 
         let mut attempts = 0;
         let max_attempts = 5;
-        let mut resp = None;
         loop {
             attempts += 1;
             // We have to recreate the file and stream for each retry since stream is consumed
@@ -559,6 +558,7 @@ impl DocumentAiClient {
                 .bearer_auth(access_token)
                 .header("Content-Type", "application/pdf")
                 .body(body)
+                .timeout(std::time::Duration::from_secs(300))
                 .send()
                 .await
             {
@@ -576,7 +576,6 @@ impl DocumentAiClient {
                             r.text().await.unwrap_or_default(),
                         ));
                     }
-                    resp = Some(r);
                     break;
                 }
                 Err(e) => {
@@ -593,7 +592,6 @@ impl DocumentAiClient {
                 }
             }
         }
-        let resp = resp.unwrap();
 
         Ok(format!("gs://{bucket}/{object_name}"))
     }
@@ -632,14 +630,14 @@ impl DocumentAiClient {
 
         let mut attempts = 0;
         let max_attempts = 5;
-        let mut resp = None;
-        loop {
+        let resp = loop {
             attempts += 1;
             match self
                 .http
                 .post(&url)
                 .bearer_auth(&access_token)
                 .json(&body)
+                .timeout(std::time::Duration::from_secs(300))
                 .send()
                 .await
             {
@@ -657,8 +655,7 @@ impl DocumentAiClient {
                             r.text().await.unwrap_or_default(),
                         ));
                     }
-                    resp = Some(r);
-                    break;
+                    break r;
                 }
                 Err(e) => {
                     if attempts < max_attempts {
@@ -673,8 +670,7 @@ impl DocumentAiClient {
                     ));
                 }
             }
-        }
-        let resp = resp.unwrap();
+        };
 
         let json: serde_json::Value = resp.json().await?;
         let op_name = json["name"].as_str().unwrap_or_default().to_string();
@@ -900,45 +896,52 @@ impl DocumentAiClient {
         // bbox vertices in 0..1, so we need page dimensions to convert back
         // to PyMuPDF points. We must explicitly convert inches/cm/mm into
         // 72-dpi points, since PyMuPDF works strictly in points.
-        let pages_dim: Vec<(f32, f32, String)> = pages_node
-            .map(|pages| {
-                pages
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        if let Some(real_dims) = real_page_dims {
-                            if let Some(&(rw, rh)) = real_dims.get(&i) {
-                                return (rw, rh, "points".to_string());
-                            }
+        let pages_dim: Vec<(f32, f32, String)> = if let Some(pages) = pages_node {
+            pages
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    if let Some(real_dims) = real_page_dims {
+                        if let Some(&(rw, rh)) = real_dims.get(&i) {
+                            return Ok((rw, rh, "points".to_string()));
                         }
+                    }
 
-                        let mut w = p["dimension"]["width"].as_f64().unwrap_or(0.0) as f32;
-                        let mut h = p["dimension"]["height"].as_f64().unwrap_or(0.0) as f32;
-                        let unit = p["dimension"]["unit"].as_str().unwrap_or("").to_string();
+                    let w_opt = p["dimension"]["width"].as_f64();
+                    let h_opt = p["dimension"]["height"].as_f64();
 
-                        match unit.as_str() {
-                            "inch" | "inches" => {
-                                w *= 72.0;
-                                h *= 72.0;
-                            }
-                            "cm" => {
-                                w *= 72.0 / 2.54;
-                                h *= 72.0 / 2.54;
-                            }
-                            "mm" => {
-                                w *= 72.0 / 25.4;
-                                h *= 72.0 / 25.4;
-                            }
-                            // If it's already "points" or "pixels" (or missing), assume
-                            // PyMuPDF will align with it (PyMuPDF's default is 72 dpi points).
-                            _ => {}
+                    if w_opt.is_none() || h_opt.is_none() {
+                        return Err(DocAiError::Parse(serde::de::Error::custom(format!(
+                            "Missing physical page dimensions for page {} and no real dimensions provided", i
+                        ))));
+                    }
+
+                    let mut w = w_opt.unwrap() as f32;
+                    let mut h = h_opt.unwrap() as f32;
+                    let unit = p["dimension"]["unit"].as_str().unwrap_or("").to_string();
+
+                    match unit.as_str() {
+                        "inch" | "inches" => {
+                            w *= 72.0;
+                            h *= 72.0;
                         }
+                        "cm" => {
+                            w *= 72.0 / 2.54;
+                            h *= 72.0 / 2.54;
+                        }
+                        "mm" => {
+                            w *= 72.0 / 25.4;
+                            h *= 72.0 / 25.4;
+                        }
+                        _ => {}
+                    }
 
-                        (w, h, unit)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+                    Ok((w, h, unit))
+                })
+                .collect::<Result<Vec<_>, DocAiError>>()?
+        } else {
+            Vec::new()
+        };
 
         let mut transactions = Vec::new();
         let mut opening_balance = Decimal::ZERO;

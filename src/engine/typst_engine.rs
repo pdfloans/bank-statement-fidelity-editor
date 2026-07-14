@@ -63,7 +63,7 @@ impl TypstEngine {
             out.push_str(&format!("*Account Number:* {}\n\n", acc));
         }
 
-        out.push_str(&format!("*Opening Balance:* ${}\n\n", stmt.opening_balance));
+        out.push_str(&format!("*Opening Balance:* \\${}\n\n", stmt.opening_balance));
 
         out.push_str("#table(\n");
         out.push_str("  columns: (1fr, 3fr, 1fr, 1fr),\n");
@@ -72,8 +72,8 @@ impl TypstEngine {
         for tx in &stmt.transactions {
             let date = tx.date.clone();
             let desc = tx.raw_text.replace("[", "\\[").replace("]", "\\]");
-            let debit = tx.debit.map(|d| format!("${}", d)).unwrap_or_default();
-            let credit = tx.credit.map(|c| format!("${}", c)).unwrap_or_default();
+            let debit = tx.debit.map(|d| format!("\\${}", d)).unwrap_or_default();
+            let credit = tx.credit.map(|c| format!("\\${}", c)).unwrap_or_default();
 
             out.push_str(&format!(
                 "  [{}], [{}], [{}], [{}],\n",
@@ -82,7 +82,7 @@ impl TypstEngine {
         }
         out.push_str(")\n\n");
 
-        out.push_str(&format!("*Closing Balance:* ${}\n\n", stmt.closing_balance));
+        out.push_str(&format!("*Closing Balance:* \\${}\n\n", stmt.closing_balance));
 
         out
     }

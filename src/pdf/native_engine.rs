@@ -555,6 +555,7 @@ impl PdfEngine for OxidizePdfEngine {
         let mut tm = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
         let mut tlm = tm;
         let mut font_size: f32 = 12.0;
+        let mut text_leading: f32 = 0.0;
         let mut in_text = false;
         let mut replaced = false;
 
@@ -573,6 +574,11 @@ impl PdfEngine for OxidizePdfEngine {
                         font_size = operand_to_f32(&op.operands[1]).unwrap_or(12.0);
                     }
                 }
+                "Tl" if in_text => {
+                    if !op.operands.is_empty() {
+                        text_leading = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
+                    }
+                }
                 "Tm" if in_text => {
                     if op.operands.len() >= 6 {
                         for (i, operand) in op.operands.iter().enumerate().take(6) {
@@ -581,7 +587,7 @@ impl PdfEngine for OxidizePdfEngine {
                         tlm = tm;
                     }
                 }
-                "Td" | "TD" if in_text => {
+                "Td" if in_text => {
                     if op.operands.len() >= 2 {
                         let tx = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
                         let ty = operand_to_f32(&op.operands[1]).unwrap_or(0.0);
@@ -590,8 +596,19 @@ impl PdfEngine for OxidizePdfEngine {
                         tm = tlm;
                     }
                 }
+                "TD" if in_text => {
+                    if op.operands.len() >= 2 {
+                        let tx = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
+                        let ty = operand_to_f32(&op.operands[1]).unwrap_or(0.0);
+                        text_leading = -ty;
+                        tlm[4] += tx;
+                        tlm[5] += ty;
+                        tm = tlm;
+                    }
+                }
                 "T*" if in_text => {
-                    tlm[5] -= font_size;
+                    let shift = if text_leading == 0.0 { font_size } else { text_leading };
+                    tlm[5] -= shift;
                     tm = tlm;
                 }
                 "Tj" if in_text && !replaced => {
@@ -813,6 +830,7 @@ impl PdfEngine for OxidizePdfEngine {
             let mut tm = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
             let mut tlm = tm;
             let mut font_size: f32 = 12.0;
+            let mut text_leading: f32 = 0.0;
             let mut in_text = false;
 
             for op in &mut content.operations {
@@ -830,6 +848,11 @@ impl PdfEngine for OxidizePdfEngine {
                             font_size = operand_to_f32(&op.operands[1]).unwrap_or(12.0);
                         }
                     }
+                    "Tl" if in_text => {
+                        if !op.operands.is_empty() {
+                            text_leading = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
+                        }
+                    }
                     "Tm" if in_text => {
                         if op.operands.len() >= 6 {
                             for (i, operand) in op.operands.iter().enumerate().take(6) {
@@ -838,7 +861,7 @@ impl PdfEngine for OxidizePdfEngine {
                             tlm = tm;
                         }
                     }
-                    "Td" | "TD" if in_text => {
+                    "Td" if in_text => {
                         if op.operands.len() >= 2 {
                             let tx = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
                             let ty = operand_to_f32(&op.operands[1]).unwrap_or(0.0);
@@ -847,8 +870,19 @@ impl PdfEngine for OxidizePdfEngine {
                             tm = tlm;
                         }
                     }
+                    "TD" if in_text => {
+                        if op.operands.len() >= 2 {
+                            let tx = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
+                            let ty = operand_to_f32(&op.operands[1]).unwrap_or(0.0);
+                            text_leading = -ty;
+                            tlm[4] += tx;
+                            tlm[5] += ty;
+                            tm = tlm;
+                        }
+                    }
                     "T*" if in_text => {
-                        tlm[5] -= font_size;
+                        let shift = if text_leading == 0.0 { font_size } else { text_leading };
+                        tlm[5] -= shift;
                         tm = tlm;
                     }
                     "Tj" | "TJ" if in_text => {

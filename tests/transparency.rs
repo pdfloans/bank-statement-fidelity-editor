@@ -203,6 +203,8 @@ fn test_batch_edit_transparency() {
             deep_font_replication: false,
             max_visual_attempts: 1,
             visual_threshold: 0.1,
+            ignore_font_coverage: false,
+            ignore_visual_fidelity: false,
         })
         .unwrap();
 

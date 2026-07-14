@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Automated Stress Testing Harness:** Added a comprehensive stress testing benchmark suite (`au_transfer_stress.rs`) and result evaluation framework (`tests/stress_results/stress_test_evaluation.md`) for document processing backends. Evaluates PyMuPDF, Document AI, Mindee, LlamaParse, pdfRest, Applitools, and various LLMs for correctness, fidelity, and latency across 7 axes.
+
 ## [v0.5.1] - 2026-07-05
 
 ### Added

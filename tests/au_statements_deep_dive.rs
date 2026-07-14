@@ -90,6 +90,7 @@ fn test_all_au_statements() {
                 version: Some("pretrained-bankstatement-v5.0-2023-12-06".to_string()),
                 parser_mode: dual_core_pdf_pipeline::app::config::DocumentParserMode::DocumentAi,
                 ai_provider: dual_core_pdf_pipeline::app::config::AiProviderMode::GeminiApiKey,
+                ignore_offline_fallback: false,
             })
             .unwrap();
 
@@ -236,6 +237,8 @@ fn test_all_au_statements() {
                 deep_font_replication: false,
                 max_visual_attempts: 5, // Increased from 3
                 visual_threshold: 0.05, // Relaxed from 0.02 for robustness
+                ignore_font_coverage: false,
+                ignore_visual_fidelity: false,
             })
             .unwrap();
 

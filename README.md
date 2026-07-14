@@ -151,6 +151,9 @@ dual-core-pdf-pipeline transfer-transactions --source-pdf a.pdf --target-pdf b.p
 dual-core-pdf-pipeline adjust-dates -i in.pdf -o out.pdf --mode shift-forward-1-month
 dual-core-pdf-pipeline run-transfer-tests --statements a.pdf,b.pdf
 dual-core-pdf-pipeline export-history --from-log audit/2026.log -o history.json
+
+### Stress Testing
+cargo test --test au_transfer_stress -- --ignored --nocapture
 ```
 
 ## GUI shortcuts

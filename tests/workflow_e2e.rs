@@ -80,6 +80,7 @@ fn end_to_end_workflow_against_au_statement() {
             version: None,
             parser_mode: dual_core_pdf_pipeline::app::config::DocumentParserMode::DocumentAi,
             ai_provider: dual_core_pdf_pipeline::app::config::AiProviderMode::GeminiApiKey,
+            ignore_offline_fallback: false,
         })
         .unwrap();
     let parse = drain_until(
@@ -191,6 +192,8 @@ fn end_to_end_workflow_against_au_statement() {
             deep_font_replication: false,
             max_visual_attempts: 3,
             visual_threshold: 0.02,
+            ignore_font_coverage: false,
+            ignore_visual_fidelity: false,
         })
         .unwrap();
 
