@@ -19,10 +19,12 @@ impl GeometryProvider for PyMuPdfHeuristicProvider {
             .analyze_layout(pdf_path)
             .map_err(|e| ExtractorError::ExtractionFailed(e.to_string()))?;
 
-        let date_pattern =
+        static DATE_PATTERN: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
             Regex::new(r"(?i)(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}/\d{1,2})")
-                .unwrap();
-        let amount_pattern = Regex::new(r"-?\$?[\d,]+\.\d{2}").unwrap();
+                .unwrap()
+        });
+        static AMOUNT_PATTERN: std::sync::LazyLock<Regex> =
+            std::sync::LazyLock::new(|| Regex::new(r"-?\$?[\d,]+\.\d{2}").unwrap());
 
         for page in 0..layout.total_pages {
             let blocks = self
@@ -50,8 +52,8 @@ impl GeometryProvider for PyMuPdfHeuristicProvider {
                             page,
                             row_idx,
                             &mut geometries,
-                            &date_pattern,
-                            &amount_pattern,
+                            &DATE_PATTERN,
+                            &AMOUNT_PATTERN,
                         );
                         current_row.clear();
                         current_row.push(block);
@@ -66,8 +68,8 @@ impl GeometryProvider for PyMuPdfHeuristicProvider {
                     page,
                     row_idx,
                     &mut geometries,
-                    &date_pattern,
-                    &amount_pattern,
+                    &DATE_PATTERN,
+                    &AMOUNT_PATTERN,
                 );
             }
         }
