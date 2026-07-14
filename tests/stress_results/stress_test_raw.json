@@ -6,7 +6,7 @@
       "fidelity": 96,
       "avg": 98.0,
       "details": "Found 30/30 txn lines in markdown",
-      "elapsed_ms": 13173
+      "elapsed_ms": 12289
     },
     {
       "tool": "Offline Heuristic",
@@ -14,7 +14,7 @@
       "fidelity": 98,
       "avg": 93.0,
       "details": "Found 25/30 txns, closing=Y",
-      "elapsed_ms": 26
+      "elapsed_ms": 83
     },
     {
       "tool": "PyMuPDF Built-in",
@@ -22,23 +22,23 @@
       "fidelity": 95,
       "avg": 47.5,
       "details": "Found 0/30 txns, 0 decimal errors",
-      "elapsed_ms": 199
-    },
-    {
-      "tool": "Mindee API",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
+      "elapsed_ms": 167
     },
     {
       "tool": "Document AI",
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
-      "details": "Not configured",
-      "elapsed_ms": 0
+      "details": "No auth available",
+      "elapsed_ms": 897
+    },
+    {
+      "tool": "Mindee API",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API Error: HTTP 422 - Invalid fields in form :: 422-009 - One or more fields failed validation.",
+      "elapsed_ms": 10315
     }
   ],
   "Test 2: Fidelity Edit": [
@@ -48,7 +48,7 @@
       "fidelity": 85,
       "avg": 87.5,
       "details": "Found 18 '7' glyphs, 18 successful edits, restored=Y",
-      "elapsed_ms": 218
+      "elapsed_ms": 1755
     },
     {
       "tool": "Pdfium",
@@ -56,7 +56,7 @@
       "fidelity": 92,
       "avg": 76.0,
       "details": "Rendered 2480x3509px @ 300DPI, content=Y",
-      "elapsed_ms": 1309
+      "elapsed_ms": 1523
     },
     {
       "tool": "Typst Reconstruct",
@@ -64,7 +64,7 @@
       "fidelity": 65,
       "avg": 70.0,
       "details": "26/26 spans extractable, 1 fonts: {'Helvetica'}",
-      "elapsed_ms": 33
+      "elapsed_ms": 196
     }
   ],
   "Test 3: Math Balance": [
@@ -74,7 +74,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21",
-      "elapsed_ms": 20
+      "elapsed_ms": 56
     },
     {
       "tool": "Groq AI",
@@ -97,8 +97,8 @@
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
-      "details": "Not configured",
-      "elapsed_ms": 0
+      "details": "CRASH: [WinError 2] The system cannot find the file specified",
+      "elapsed_ms": 47
     },
     {
       "tool": "Gemini AI",
@@ -106,7 +106,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400: {\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/googl",
-      "elapsed_ms": 1731
+      "elapsed_ms": 2767
     }
   ],
   "Test 4: Visual QA": [
@@ -116,7 +116,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "SSIM\u22480.997970, max_tile=0.583347, diff_px=72852, region_detect=Y",
-      "elapsed_ms": 35856
+      "elapsed_ms": 50671
     },
     {
       "tool": "pdfRest Cloud",
@@ -124,7 +124,7 @@
       "fidelity": 98,
       "avg": 86.5,
       "details": "Adobe-tier render at 300DPI, manual diff required",
-      "elapsed_ms": 6767
+      "elapsed_ms": 9080
     },
     {
       "tool": "Applitools Eyes",
@@ -132,7 +132,7 @@
       "fidelity": 100,
       "avg": 70.0,
       "details": "Visual AI diff=MISSED, output_len=111",
-      "elapsed_ms": 10950
+      "elapsed_ms": 7745
     },
     {
       "tool": "Gemini Vision",
@@ -140,7 +140,43 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400",
-      "elapsed_ms": 8273
+      "elapsed_ms": 7496
+    }
+  ],
+  "Test 5: Transfer Transactions": [
+    {
+      "tool": "Groq (Llama 3)",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
+    },
+    {
+      "tool": "OpenRouter",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
+    },
+    {
+      "tool": "Gemini 1.5 Flash",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API Error No response",
+      "elapsed_ms": 2218
+    }
+  ],
+  "Test 6: E2E GUI Testing": [
+    {
+      "tool": "Rust UIAutomation",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "CRASH: Command '['cargo', 'test', '--test', 'e2e_rust_uiautomation']' timed out after 120 seconds",
+      "elapsed_ms": 120056
     }
   ]
 }
