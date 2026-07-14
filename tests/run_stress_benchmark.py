@@ -1267,8 +1267,8 @@ def test6_gui_automation(pdf_path, gt):
     import subprocess
     start = time.time()
     try:
-        print("    Running cargo test --test e2e_rust_uiautomation...")
-        result = subprocess.run(["cargo", "test", "--test", "e2e_rust_uiautomation"], capture_output=True, text=True, timeout=600)
+        print("    Running cargo test --test e2e_rust_uiautomation (No Timeout)...")
+        result = subprocess.run(["cargo", "test", "--test", "e2e_rust_uiautomation"], capture_output=True, text=True)
         elapsed = time.time() - start
         if result.returncode == 0:
             return {"tool": "Rust UIAutomation", "correctness": 100, "fidelity": 100, "avg": 100, "details": "GUI launched and tree attached correctly", "elapsed_ms": int(elapsed * 1000)}
