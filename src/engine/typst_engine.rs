@@ -7,8 +7,6 @@ pub enum TypstEngineError {
     Io(#[from] std::io::Error),
     #[error("Typst Compilation Error: {0}")]
     Typst(String),
-    #[error("Font Subsetting Error: {0}")]
-    Subsetting(String),
 }
 
 #[derive(Default)]
@@ -19,121 +17,46 @@ impl TypstEngine {
         Self
     }
 
-    /// Reconstructs a bank statement as a brand new PDF using Typst.
+    /// Reconstructs a bank statement as a brand new PDF using Typst in-process.
     pub async fn reconstruct_pdf(
         &self,
         statement: &BankStatement,
         output_path: &Path,
     ) -> Result<(), TypstEngineError> {
-        let temp_dir = std::env::temp_dir().join("typst_reconstruct");
-        std::fs::create_dir_all(&temp_dir)?;
-
-        // Write the JSON data
-        let json_data = serde_json::json!({
-            "account_number": statement.account_number.as_deref().unwrap_or("XXXX-XXXX"),
-            "opening_balance": statement.opening_balance.to_string(),
-            "closing_balance": statement.closing_balance.to_string(),
-            "period": "Statement Period",
-            "transactions": statement.transactions.iter().map(|tx| {
-                serde_json::json!({
-                    "date": tx.date,
-                    "description": tx.raw_text,
-                    "debit": tx.debit.map(|d| d.to_string()),
-                    "credit": tx.credit.map(|c| c.to_string()),
-                    "balance": tx.running_balance.map(|b| b.to_string()),
-                })
-            }).collect::<Vec<_>>()
-        });
-
-        let json_path = temp_dir.join("data.json");
-        std::fs::write(&json_path, serde_json::to_string(&json_data).unwrap())?;
-
-        // Copy the template
-        let typ_path = temp_dir.join("generic_bank_statement.typ");
-        if Path::new("assets/generic_bank_statement.typ").exists() {
-            std::fs::copy("assets/generic_bank_statement.typ", &typ_path)?;
-        } else {
-            // Fallback inline if not found
-            let typ_markup = self.generate_markup(statement);
-            std::fs::write(&typ_path, &typ_markup)?;
-        }
-
-        // Font subsetting using pure Rust `subsetter`
-        tracing::info!(
-            "[typst_engine] Subsetting fonts for reconstructed document ({} transactions)",
-            statement.transactions.len()
-        );
-
-        let font_path = std::path::PathBuf::from("assets/bank_font.ttf");
-        if font_path.exists() {
-            let font_data = std::fs::read(&font_path)?;
-            if let Ok(face) = ttf_parser::Face::parse(&font_data, 0) {
-                let mut glyphs = vec![];
-                let all_text = serde_json::to_string(&json_data).unwrap_or_default();
-                for ch in all_text.chars() {
-                    if let Some(glyph_id) = face.glyph_index(ch) {
-                        glyphs.push(glyph_id.0);
-                    }
+        tracing::info!("[typst_engine] Starting in-process PDF reconstruction");
+        let markup = self.generate_markup(statement);
+        
+        // We use spawn_blocking because typst compilation is CPU intensive
+        let out_path = output_path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            let world = ReconstructWorld::new(markup);
+            
+            match typst::compile(&world).output {
+                Ok(document) => {
+                    // Generate PDF
+                    let pdf_bytes = typst_pdf::pdf(&document, &typst_pdf::PdfOptions::default())
+                        .map_err(|e| TypstEngineError::Typst(format!("PDF generation failed: {:?}", e)))?;
+                    
+                    std::fs::write(&out_path, pdf_bytes).map_err(TypstEngineError::Io)?;
+                    tracing::info!("[typst_engine] Successfully compiled PDF in-process");
+                    Ok(())
                 }
-                let mapper = subsetter::GlyphRemapper::new_from_glyphs_sorted(&glyphs);
-
-                if let Ok(subset) = subsetter::subset(&font_data, 0, &mapper) {
-                    let subset_path = temp_dir.join("bank_font_subset.ttf");
-                    std::fs::write(&subset_path, subset)?;
-                    tracing::info!(
-                        "[typst_engine] Font successfully subsetted and saved to {:?}",
-                        subset_path
-                    );
-                } else {
-                    tracing::warn!(
-                        "[typst_engine] Subsetter failed, relying on default font embedding"
-                    );
+                Err(diags) => {
+                    let errs = diags.into_iter().map(|d| d.message.to_string()).collect::<Vec<_>>().join(", ");
+                    tracing::error!("[typst_engine] Typst compilation failed: {}", errs);
+                    Err(TypstEngineError::Typst(errs))
                 }
             }
-        } else {
-            tracing::warn!("[typst_engine] Source font not found at {:?}", font_path);
-        }
-
-        // Note: Full programmatic Typst compilation requires implementing the `World` trait
-        // which provides fonts, files, and standard library primitives.
-        // For now, we will shell out to the typst CLI if available, or just save the `.typ` file.
-        // We added `typst` to Cargo.toml so we can theoretically compile it in-process, but
-        // bootstrapping the default fonts and `World` is complex.
-
-        let out = std::process::Command::new("python")
-            .arg("-c")
-            .arg("import typst, sys; typst.compile(sys.argv[1], output=sys.argv[2], root=sys.argv[3])")
-            .arg(&typ_path)
-            .arg(output_path)
-            .arg(&temp_dir)
-            .output();
-
-        match out {
-            Ok(output) if output.status.success() => {
-                tracing::info!("[typst_engine] Successfully compiled PDF via Python Typst");
-                Ok(())
-            }
-            Ok(output) => {
-                let err = String::from_utf8_lossy(&output.stderr);
-                Err(TypstEngineError::Typst(err.to_string()))
-            }
-            Err(e) => {
-                // Python / Typst not available - return an actionable error
-                // instead of silently copying the .typ source as a fake PDF.
-                tracing::error!("[typst_engine] Python/Typst compilation unavailable: {}", e);
-                Err(TypstEngineError::Typst(format!(
-                    "Typst/Python compilation unavailable ({e}). \
-                     Install Python + the `typst` package, or switch to a \
-                     different PDF Engine mode in Settings -> Backend Preferences."
-                )))
-            }
-        }
+        })
+        .await
+        .map_err(|e| TypstEngineError::Typst(format!("Panic in typst thread: {}", e)))?
     }
 
     fn generate_markup(&self, stmt: &BankStatement) -> String {
         let mut out = String::new();
         out.push_str("#set page(margin: 1in)\n");
-        out.push_str("#set text(font: \"Helvetica\", size: 10pt)\n\n");
+        // We embed Inter, so let's use it
+        out.push_str("#set text(font: \"Inter\", size: 10pt)\n\n");
         out.push_str("= Bank Statement\n\n");
 
         if let Some(ref acc) = stmt.account_number {
@@ -162,5 +85,63 @@ impl TypstEngine {
         out.push_str(&format!("*Closing Balance:* ${}\n\n", stmt.closing_balance));
 
         out
+    }
+}
+
+// Minimal Typst World for in-process compilation
+use typst::World;
+use typst::text::{Font, FontBook};
+use typst::syntax::{FileId, Source, VirtualPath};
+use typst::foundations::Datetime;
+use typst::diag::{FileResult, FileError};
+
+struct ReconstructWorld {
+    library: typst::utils::LazyHash<typst::Library>,
+    book: typst::utils::LazyHash<FontBook>,
+    fonts: Vec<Font>,
+    source: Source,
+}
+
+impl ReconstructWorld {
+    fn new(source_text: String) -> Self {
+        let font_data = include_bytes!("../../assets/Inter-Regular.ttf");
+        let font = Font::new(typst::foundations::Bytes::new(font_data.to_vec()), 0).expect("Failed to parse Inter-Regular");
+        
+        let font_bold_data = include_bytes!("../../assets/Inter-Bold.ttf");
+        let font_bold = Font::new(typst::foundations::Bytes::new(font_bold_data.to_vec()), 0).expect("Failed to parse Inter-Bold");
+        
+        let fonts = vec![font, font_bold];
+        let book = typst::utils::LazyHash::new(FontBook::from_fonts(&fonts));
+        use typst::LibraryExt;
+        let library = typst::utils::LazyHash::new(typst::Library::builder().build());
+        let source = Source::new(FileId::new(None, VirtualPath::new("main.typ")), source_text);
+        
+        Self { library, book, fonts, source }
+    }
+}
+
+impl World for ReconstructWorld {
+    fn library(&self) -> &typst::utils::LazyHash<typst::Library> { &self.library }
+    fn book(&self) -> &typst::utils::LazyHash<FontBook> { &self.book }
+    fn main(&self) -> FileId { self.source.id() }
+    
+    fn source(&self, id: FileId) -> FileResult<Source> {
+        if id == self.source.id() {
+            Ok(self.source.clone())
+        } else {
+            Err(FileError::NotFound(id.vpath().as_rootless_path().to_path_buf()))
+        }
+    }
+    
+    fn file(&self, id: FileId) -> FileResult<typst::foundations::Bytes> {
+        Err(FileError::NotFound(id.vpath().as_rootless_path().to_path_buf()))
+    }
+    
+    fn font(&self, id: usize) -> Option<Font> {
+        self.fonts.get(id).cloned()
+    }
+    
+    fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
+        None
     }
 }

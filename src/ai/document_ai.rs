@@ -543,25 +543,57 @@ impl DocumentAiClient {
             urlencoding::encode(&object_name)
         );
 
-        let file = tokio::fs::File::open(pdf_path).await?;
-        let stream = tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
-        let body = reqwest::Body::wrap_stream(stream);
-
-        let resp = self
-            .http
-            .post(&url)
-            .bearer_auth(access_token)
-            .header("Content-Type", "application/pdf")
-            .body(body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            return Err(DocAiError::Api(
-                resp.status(),
-                resp.text().await.unwrap_or_default(),
-            ));
+        let mut attempts = 0;
+        let max_attempts = 5;
+        let mut resp = None;
+        loop {
+            attempts += 1;
+            // We have to recreate the file and stream for each retry since stream is consumed
+            let file = tokio::fs::File::open(pdf_path).await?;
+            let stream = tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
+            let body = reqwest::Body::wrap_stream(stream);
+            
+            match self
+                .http
+                .post(&url)
+                .bearer_auth(access_token)
+                .header("Content-Type", "application/pdf")
+                .body(body)
+                .send()
+                .await
+            {
+                Ok(r) => {
+                    let status = r.status();
+                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && attempts < max_attempts {
+                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
+                        tracing::warn!("[doc_ai] GCS upload error {}, retrying in {:?}...", status, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    if !status.is_success() {
+                        return Err(DocAiError::Api(
+                            status,
+                            r.text().await.unwrap_or_default(),
+                        ));
+                    }
+                    resp = Some(r);
+                    break;
+                }
+                Err(e) => {
+                    if attempts < max_attempts {
+                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
+                        tracing::warn!("[doc_ai] GCS upload network error {}, retrying in {:?}...", e, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    return Err(DocAiError::Api(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("GCS upload failed: {}", e),
+                    ));
+                }
+            }
         }
+        let resp = resp.unwrap();
 
         Ok(format!("gs://{bucket}/{object_name}"))
     }
@@ -598,20 +630,51 @@ impl DocumentAiClient {
             }
         });
 
-        let resp = self
-            .http
-            .post(&url)
-            .bearer_auth(&access_token)
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            return Err(DocAiError::Api(
-                resp.status(),
-                resp.text().await.unwrap_or_default(),
-            ));
+        let mut attempts = 0;
+        let max_attempts = 5;
+        let mut resp = None;
+        loop {
+            attempts += 1;
+            match self
+                .http
+                .post(&url)
+                .bearer_auth(&access_token)
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => {
+                    let status = r.status();
+                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && attempts < max_attempts {
+                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
+                        tracing::warn!("[doc_ai] LRO start error {}, retrying in {:?}...", status, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    if !status.is_success() {
+                        return Err(DocAiError::Api(
+                            status,
+                            r.text().await.unwrap_or_default(),
+                        ));
+                    }
+                    resp = Some(r);
+                    break;
+                }
+                Err(e) => {
+                    if attempts < max_attempts {
+                        let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
+                        tracing::warn!("[doc_ai] LRO start network error {}, retrying in {:?}...", e, delay);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    return Err(DocAiError::Api(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("LRO start failed: {}", e),
+                    ));
+                }
+            }
         }
+        let resp = resp.unwrap();
 
         let json: serde_json::Value = resp.json().await?;
         let op_name = json["name"].as_str().unwrap_or_default().to_string();
@@ -622,12 +685,44 @@ impl DocumentAiClient {
                 "https://{}-documentai.googleapis.com/v1/{}",
                 self.config.location, op_name
             );
-            let op_resp = self
-                .http
-                .get(&op_url)
-                .bearer_auth(&access_token)
-                .send()
-                .await?;
+            let mut poll_attempts = 0;
+            let op_resp = loop {
+                poll_attempts += 1;
+                match self
+                    .http
+                    .get(&op_url)
+                    .bearer_auth(&access_token)
+                    .send()
+                    .await
+                {
+                    Ok(r) => {
+                        let status = r.status();
+                        if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && poll_attempts < 5 {
+                            tracing::warn!("[doc_ai] Polling error {}, retrying...", status);
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            continue;
+                        }
+                        break Ok(r);
+                    }
+                    Err(e) => {
+                        if poll_attempts < 5 {
+                            tracing::warn!("[doc_ai] Polling network error {}, retrying...", e);
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            continue;
+                        }
+                        break Err(e);
+                    }
+                }
+            };
+            
+            let op_resp = match op_resp {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!("[doc_ai] Polling failed definitively: {}", e);
+                    continue;
+                }
+            };
+
             if !op_resp.status().is_success() {
                 continue;
             }
@@ -667,18 +762,44 @@ impl DocumentAiClient {
             bucket,
             urlencoding::encode(prefix)
         );
-        let list_resp = self
-            .http
-            .get(&list_url)
-            .bearer_auth(access_token)
-            .send()
-            .await?;
-        if !list_resp.status().is_success() {
-            return Err(DocAiError::Api(
-                list_resp.status(),
-                list_resp.text().await.unwrap_or_default(),
-            ));
-        }
+        let mut list_attempts = 0;
+        let list_resp = loop {
+            list_attempts += 1;
+            match self
+                .http
+                .get(&list_url)
+                .bearer_auth(access_token)
+                .send()
+                .await
+            {
+                Ok(r) => {
+                    let status = r.status();
+                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && list_attempts < 5 {
+                        tracing::warn!("[doc_ai] GCS list error {}, retrying...", status);
+                        tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (list_attempts - 1)))).await;
+                        continue;
+                    }
+                    if !status.is_success() {
+                        return Err(DocAiError::Api(
+                            status,
+                            r.text().await.unwrap_or_default(),
+                        ));
+                    }
+                    break r;
+                }
+                Err(e) => {
+                    if list_attempts < 5 {
+                        tracing::warn!("[doc_ai] GCS list network error {}, retrying...", e);
+                        tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (list_attempts - 1)))).await;
+                        continue;
+                    }
+                    return Err(DocAiError::Api(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("GCS list failed: {}", e),
+                    ));
+                }
+            }
+        };
         let list_json: serde_json::Value = list_resp.json().await?;
 
         let mut statements = Vec::new();
@@ -691,12 +812,44 @@ impl DocumentAiClient {
                         bucket,
                         urlencoding::encode(name)
                     );
-                    let dl_resp = self
-                        .http
-                        .get(&dl_url)
-                        .bearer_auth(access_token)
-                        .send()
-                        .await?;
+                    let mut dl_attempts = 0;
+                    let dl_resp = loop {
+                        dl_attempts += 1;
+                        match self
+                            .http
+                            .get(&dl_url)
+                            .bearer_auth(access_token)
+                            .send()
+                            .await
+                        {
+                            Ok(r) => {
+                                let status = r.status();
+                                if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && dl_attempts < 5 {
+                                    tracing::warn!("[doc_ai] GCS download error {}, retrying...", status);
+                                    tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (dl_attempts - 1)))).await;
+                                    continue;
+                                }
+                                break Ok(r);
+                            }
+                            Err(e) => {
+                                if dl_attempts < 5 {
+                                    tracing::warn!("[doc_ai] GCS download network error {}, retrying...", e);
+                                    tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (dl_attempts - 1)))).await;
+                                    continue;
+                                }
+                                break Err(e);
+                            }
+                        }
+                    };
+                    
+                    let dl_resp = match dl_resp {
+                        Ok(r) => r,
+                        Err(e) => {
+                            tracing::error!("[doc_ai] Download definitively failed for {}: {}", name, e);
+                            continue;
+                        }
+                    };
+                    
                     if !dl_resp.status().is_success() {
                         continue;
                     }

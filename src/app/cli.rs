@@ -76,6 +76,14 @@ pub enum Commands {
         output: PathBuf,
     },
 
+    /// Reconstruct a bank statement via Typst (fallback mechanism)
+    TypstReconstruct {
+        #[arg(short, long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
     /// Verify visual and mathematical integrity (T7)
     Verify {
         #[arg(short, long)]
@@ -696,6 +704,7 @@ pub fn run(
         | Commands::AutoBalance { input, .. }
         | Commands::AiFixVisual { input, .. }
         | Commands::AdjustDates { input, .. } => Some(input.clone()),
+        Commands::TypstReconstruct { input, .. } => Some(input.clone()),
         Commands::Verify {
             original, edited, ..
         } => {
@@ -759,6 +768,24 @@ pub fn run(
     }
 
     match cli.command {
+        Commands::TypstReconstruct { input, output } => {
+            tracing::info!("Triggering Typst Reconstruction...");
+            let _ = job_tx.send(Job::TypstReconstruct { input: input.clone(), output: output.clone() });
+            match wait_for_terminal_result(&job_rx) {
+                Ok(JobResult::ReconstructComplete { output_path }) => {
+                    tracing::info!("Reconstruction successful! Saved to {:?}", output_path);
+                    exit_code::SUCCESS
+                }
+                Ok(other) => {
+                    tracing::error!("Unexpected terminal result: {:?}", other);
+                    exit_code::GENERAL
+                }
+                Err((label, err)) => {
+                    tracing::error!("Job '{}' failed: {}", label, err);
+                    exit_code::GENERAL
+                }
+            }
+        }
         Commands::Gui => {
             // [Phase 0.1] Environment & Memory Assertions
             if let Err(e) = crate::app::preflight::verify_environment(&config) {

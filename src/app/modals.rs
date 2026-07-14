@@ -84,6 +84,7 @@ pub(crate) trait AppModals {
     fn draw_transfer_dialog(&mut self, ctx: &egui::Context);
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context);
     fn draw_ai_confirmation_dialog(&mut self, ctx: &egui::Context);
+    fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context);
     fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context);
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui);
     fn draw_modals(&mut self, ctx: &egui::Context);
@@ -686,112 +687,163 @@ impl AppModals for MyApp {
         let mut open = self.show_transfer_dialog;
         egui::Window::new("🔄 Transfer Transactions")
             .open(&mut open)
-            .default_size(egui::vec2(440.0, 280.0))
+            .default_size(egui::vec2(1200.0, 750.0))
             .collapsible(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
 
-                ui.heading("Transfer transactions between statements");
+                ui.vertical_centered(|ui| {
+                    ui.heading("Transfer transactions between statements");
+                });
                 ui.separator();
 
-                ui.label("Source Statement PDF (transactions to take):");
-                ui.horizontal(|ui| {
-                    ui.text_edit_singleline(&mut self.transfer_source_path);
-                    if ui.button("Browse...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("PDF", &["pdf"])
-                            .pick_file()
-                        {
-                            self.transfer_source_path = path.to_string_lossy().to_string();
+                ui.columns(3, |cols| {
+                    // --- LEFT COLUMN: SOURCE ---
+                    cols[0].vertical_centered(|ui| {
+                        ui.heading("Source Document");
+                        ui.label(egui::RichText::new("Extract transactions from here").weak());
+                        ui.add_space(8.0);
+                        if ui.button("📂 Upload Source PDF").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("PDF", &["pdf"])
+                                .pick_file()
+                            {
+                                self.transfer_source_path = path.to_string_lossy().to_string();
+                                if let Err(e) = self.job_tx.send(Job::RenderPage {
+                                    path,
+                                    page: 1,
+                                    dpi: 72.0,
+                                    tag: "transfer_source".to_string(),
+                                }) { tracing::error!("Runtime disconnected: {}", e); }
+                                self.in_flight += 1;
+                            }
                         }
-                    }
-                });
+                        
+                        if let Some(tex) = &self.transfer_source_texture {
+                            ui.add_space(10.0);
+                            let max_size = ui.available_size() - egui::vec2(0.0, 20.0);
+                            let tex_size = tex.size_vec2();
+                            let scale = (max_size.x / tex_size.x).min(max_size.y / tex_size.y).min(1.0);
+                            ui.add(egui::Image::new(tex).fit_to_exact_size(tex_size * scale));
+                        } else if !self.transfer_source_path.is_empty() {
+                            ui.add_space(20.0);
+                            ui.spinner();
+                            ui.label("Rendering preview...");
+                        }
+                    });
 
-                ui.add_space(4.0);
-                ui.label("Target Statement PDF (format to use):");
-                let target_display = if self.input_path.is_empty() {
-                    "(no PDF loaded)".to_string()
-                } else {
-                    self.input_path.clone()
-                };
-                ui.label(
-                    egui::RichText::new(&target_display)
-                        .color(self.settings.theme.palette().text)
-                        .monospace(),
-                );
+                    // --- MIDDLE COLUMN: ACTIONS ---
+                    cols[1].vertical_centered(|ui| {
+                        ui.add_space(ui.available_height() / 2.0 - 60.0);
+                        
+                        let source_ok = !self.transfer_source_path.is_empty()
+                            && std::path::Path::new(&self.transfer_source_path).exists();
+                        let target_ok = !self.input_path.is_empty() 
+                            && std::path::Path::new(&self.input_path).exists()
+                            && self.input_path != "examples/sample.pdf";
+                        let can_start = source_ok && target_ok;
 
-                ui.add_space(8.0);
-                ui.separator();
-
-                let source_ok = !self.transfer_source_path.is_empty()
-                    && std::path::Path::new(&self.transfer_source_path).exists();
-                let target_ok =
-                    !self.input_path.is_empty() && std::path::Path::new(&self.input_path).exists();
-
-                ui.horizontal(|ui| {
-                    let can_start = source_ok && target_ok;
-
-                    let btn = ui.add_enabled(
-                        can_start,
-                        egui::Button::new(egui::RichText::new("▶ Begin Transfer").color(
-                            if can_start {
-                                self.settings.theme.palette().bg
-                            } else {
-                                self.settings.theme.palette().text
-                            },
-                        ))
-                        .fill(if can_start {
-                            self.settings.theme.palette().accent
-                        } else {
-                            self.settings.theme.palette().panel
-                        }),
-                    );
-
-                    if btn.clicked() {
-                        let source = std::path::PathBuf::from(&self.transfer_source_path);
-                        let target = std::path::PathBuf::from(&self.input_path);
-                        let output = if self.output_path.is_empty() {
-                            target.with_file_name(format!(
-                                "{}_transferred.pdf",
-                                target.file_stem().unwrap_or_default().to_string_lossy()
+                        let btn = ui.add_enabled(
+                            can_start,
+                            egui::Button::new(egui::RichText::new("▶ Begin Transfer").size(20.0).color(
+                                if can_start {
+                                    self.settings.theme.palette().bg
+                                } else {
+                                    self.settings.theme.palette().text
+                                }
                             ))
-                        } else {
-                            std::path::PathBuf::from(&self.output_path)
-                        };
-
-                        let _ = self.job_tx.send(Job::TransferTransactions {
-                            source_pdf: source,
-                            target_pdf: target,
-                            output_pdf: output,
-                        });
-                        self.in_flight += 1;
-                        self.status = "Starting transaction transfer...".into();
-                        self.toast(
-                            ToastKind::Info,
-                            "Transaction transfer started - this may take 2–3 minutes.",
+                            .fill(if can_start {
+                                self.settings.theme.palette().accent
+                            } else {
+                                self.settings.theme.palette().panel
+                            })
+                            .min_size(egui::vec2(180.0, 56.0))
+                            .rounding(8.0),
                         );
-                        self.show_transfer_dialog = false;
-                    }
 
-                    if ui.button("Cancel").clicked() {
-                        self.show_transfer_dialog = false;
-                    }
+                        if btn.clicked() {
+                            let source = std::path::PathBuf::from(&self.transfer_source_path);
+                            let target = std::path::PathBuf::from(&self.input_path);
+                            let output = if self.output_path.is_empty() {
+                                target.with_file_name(format!(
+                                    "{}_transferred.pdf",
+                                    target.file_stem().unwrap_or_default().to_string_lossy()
+                                ))
+                            } else {
+                                std::path::PathBuf::from(&self.output_path)
+                            };
+
+                            if let Err(e) = self.job_tx.send(Job::TransferTransactions {
+                                source_pdf: source,
+                                target_pdf: target,
+                                output_pdf: output,
+                            }) {
+                                tracing::error!("Runtime disconnected: {}", e);
+                            }
+                            self.in_flight += 1;
+                            self.status = "Starting transaction transfer...".into();
+                            self.toast(
+                                ToastKind::Info,
+                                "Transaction transfer started - this may take 2-3 minutes.",
+                            );
+                            self.show_transfer_dialog = false;
+                        }
+                        
+                        ui.add_space(10.0);
+                        
+                        if !source_ok && !self.transfer_source_path.is_empty() {
+                            ui.colored_label(self.settings.theme.palette().warn, "⚠ Source not found");
+                        }
+                        if !target_ok && !self.input_path.is_empty() && self.input_path != "examples/sample.pdf" {
+                            ui.colored_label(self.settings.theme.palette().warn, "⚠ Target not found");
+                        }
+                        
+                        ui.add_space(20.0);
+                        if ui.button("Cancel").clicked() {
+                            self.show_transfer_dialog = false;
+                        }
+                    });
+
+                    // --- RIGHT COLUMN: TARGET ---
+                    cols[2].vertical_centered(|ui| {
+                        ui.heading("Target Document");
+                        ui.label(egui::RichText::new("Format to apply to transactions").weak());
+                        ui.add_space(8.0);
+                        if ui.button("📂 Upload Target PDF").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("PDF", &["pdf"])
+                                .pick_file()
+                            {
+                                self.input_path = path.to_string_lossy().to_string();
+                                if let Err(e) = self.job_tx.send(Job::RenderPage {
+                                    path,
+                                    page: 1,
+                                    dpi: 72.0,
+                                    tag: "transfer_target".to_string(),
+                                }) { tracing::error!("Runtime disconnected: {}", e); }
+                                self.in_flight += 1;
+                            }
+                        }
+                        
+                        if let Some(tex) = &self.transfer_target_texture {
+                            ui.add_space(10.0);
+                            let max_size = ui.available_size() - egui::vec2(0.0, 20.0);
+                            let tex_size = tex.size_vec2();
+                            let scale = (max_size.x / tex_size.x).min(max_size.y / tex_size.y).min(1.0);
+                            ui.add(egui::Image::new(tex).fit_to_exact_size(tex_size * scale));
+                        } else if !self.input_path.is_empty() && self.input_path != "examples/sample.pdf" {
+                            ui.add_space(20.0);
+                            ui.spinner();
+                            ui.label("Rendering preview...");
+                        }
+                    });
                 });
-
-                if !source_ok && !self.transfer_source_path.is_empty() {
-                    ui.colored_label(
-                        self.settings.theme.palette().warn,
-                        "⚠ Source file not found",
-                    );
-                }
-                if !target_ok {
-                    ui.colored_label(
-                        self.settings.theme.palette().warn,
-                        "⚠ Load a target PDF first (File -> Open)",
-                    );
-                }
             });
+
+        if !open {
+            self.show_transfer_dialog = false;
+        }
         self.show_transfer_dialog = open;
     }
 
@@ -958,6 +1010,94 @@ impl AppModals for MyApp {
                 let _ = self.job_tx.send(Job::AiConfirmationResponse(response));
                 self.pending_ai_confirmations.remove(0);
             }
+        }
+    }
+
+    fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context) {
+        let mut keep_open = self.show_workflow_hitl_modal;
+        let mut resolved = false;
+
+        egui::Window::new("⚠️ Workflow Human-in-the-Loop Required")
+            .open(&mut keep_open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 8.0;
+
+                match &self.workflow_stage {
+                    crate::engine::workflow::WorkflowStage::FontCoverageWarning { missing_chars } => {
+                        ui.heading("Font Coverage Warning");
+                        ui.label("The requested font does not cover all characters in your edits.");
+                        ui.label(format!("Missing characters: {:?}", missing_chars));
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel Workflow").clicked() {
+                                let _ = self.job_tx.send(Job::Cancel { id: 0 });
+                                resolved = true;
+                            }
+                            if ui.button("Proceed with Generic Font (Helvetica)").clicked() {
+                                // Add job dispatch here if needed
+                                // let _ = self.job_tx.send(Job::...);
+                                resolved = true;
+                            }
+                        });
+                    }
+                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { score, threshold, attempt } => {
+                        ui.heading("Visual Fidelity Warning");
+                        ui.label(format!("The visual difference score {:.4} exceeds the threshold {:.4} (Attempt {})", score, threshold, attempt));
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked() {
+                                let _ = self.job_tx.send(Job::Cancel { id: 0 });
+                                resolved = true;
+                            }
+                            if ui.button("Accept Overlap & Proceed").clicked() {
+                                resolved = true;
+                            }
+                        });
+                    }
+                    crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning { imbalance, proposed_changes } => {
+                        ui.heading("Imbalance Correction Proposal");
+                        ui.label(format!("The statement has an imbalance of {}.", imbalance));
+                        ui.label("The AI has proposed the following corrections:");
+                        for change in proposed_changes {
+                            ui.label(format!("- Page {}: {} -> {}", change.page + 1, change.old_text, change.new_text));
+                        }
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel").clicked() {
+                                let _ = self.job_tx.send(Job::Cancel { id: 0 });
+                                resolved = true;
+                            }
+                            if ui.button("Accept Proposed Corrections").clicked() {
+                                resolved = true;
+                            }
+                        });
+                    }
+                    crate::engine::workflow::WorkflowStage::OfflineFallbackWarning => {
+                        ui.heading("Offline Fallback");
+                        ui.label("All cloud parsers have failed or timed out.");
+                        ui.label("The system will proceed using the Offline OCR Parser.");
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Cancel Workflow").clicked() {
+                                let _ = self.job_tx.send(Job::Cancel { id: 0 });
+                                resolved = true;
+                            }
+                            if ui.button("Proceed Offline").clicked() {
+                                resolved = true;
+                            }
+                        });
+                    }
+                    _ => {
+                        ui.label("Waiting...");
+                    }
+                }
+            });
+
+        if resolved || !keep_open {
+            self.show_workflow_hitl_modal = false;
         }
     }
 
@@ -1322,6 +1462,9 @@ impl AppModals for MyApp {
         }
         if !self.pending_ai_confirmations.is_empty() {
             self.draw_ai_confirmation_dialog(ctx);
+        }
+        if self.show_workflow_hitl_modal {
+            self.draw_workflow_hitl_modal(ctx);
         }
         if self.show_transfer_test_dialog {
             self.draw_transfer_test_dialog(ctx);

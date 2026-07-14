@@ -43,6 +43,7 @@ struct MarkdownResponse {
 
 pub struct LlamaParseClient {
     http: ClientWithMiddleware,
+    raw_http: reqwest::Client,
     api_key: String,
     passphrase: Option<String>,
 }
@@ -58,9 +59,14 @@ impl LlamaParseClient {
             ))?;
 
         let http = crate::app::config::global_http_client();
+        let raw_http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default();
 
         Ok(Self {
             http,
+            raw_http,
             api_key,
             passphrase: if cfg.passphrase.is_empty() {
                 None
@@ -122,34 +128,54 @@ impl LlamaParseClient {
             .to_string_lossy()
             .into_owned();
 
-        let part = reqwest::multipart::Part::bytes(pdf_bytes)
-            .file_name(filename)
-            .mime_str("application/pdf")
-            .unwrap_or_else(|_| reqwest::multipart::Part::bytes(Vec::new()));
-
-        let form = reqwest::multipart::Form::new().part("file", part);
-
         let url = format!("{LLAMAPARSE_API_BASE}/upload");
-        let resp = self
-            .http
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await?;
+        let mut delay_ms = 1000;
+        let max_attempts = 3;
 
-        if !resp.status().is_success() {
-            return Err(LlamaParseError::Api(
-                resp.status(),
-                resp.text().await.unwrap_or_default(),
-            ));
+        for attempt in 1..=max_attempts {
+            let part = reqwest::multipart::Part::bytes(pdf_bytes.clone())
+                .file_name(filename.clone())
+                .mime_str("application/pdf")
+                .unwrap_or_else(|_| reqwest::multipart::Part::bytes(Vec::new()));
+
+            let form = reqwest::multipart::Form::new().part("file", part);
+
+            match self
+                .raw_http
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .multipart(form)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_default();
+                        if attempt == max_attempts {
+                            return Err(LlamaParseError::Api(status, text));
+                        }
+                        tracing::warn!("[llamaparse] Upload failed (attempt {}): HTTP {} - {}", attempt, status, text);
+                    } else {
+                        let upload_resp: UploadResponse = resp.json().await.map_err(|e| {
+                            LlamaParseError::ExtractionFailed(format!("Failed to parse upload response: {}", e))
+                        })?;
+                        return Ok(upload_resp.id);
+                    }
+                }
+                Err(e) => {
+                    if attempt == max_attempts {
+                        return Err(e.into());
+                    }
+                    tracing::warn!("[llamaparse] Upload network error (attempt {}): {}", attempt, e);
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            delay_ms *= 2;
         }
 
-        let upload_resp: UploadResponse = resp.json().await.map_err(|e| {
-            LlamaParseError::ExtractionFailed(format!("Failed to parse upload response: {}", e))
-        })?;
-
-        Ok(upload_resp.id)
+        Err(LlamaParseError::ExtractionFailed("Upload retries exhausted".into()))
     }
 
     async fn poll_until_complete(&self, job_id: &str) -> Result<(), LlamaParseError> {
@@ -159,18 +185,30 @@ impl LlamaParseClient {
         for attempt in 1..=MAX_POLL_ATTEMPTS {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
 
-            let resp = self
+            let resp = match self
                 .http
                 .get(&url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
                 .send()
-                .await?;
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("[llamaparse] Network error polling job (attempt {}): {}", attempt, e);
+                    delay_ms = (delay_ms * 2).min(10000);
+                    continue;
+                }
+            };
 
             if !resp.status().is_success() {
-                return Err(LlamaParseError::Api(
-                    resp.status(),
-                    resp.text().await.unwrap_or_default(),
-                ));
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                if attempt == MAX_POLL_ATTEMPTS {
+                    return Err(LlamaParseError::Api(status, text));
+                }
+                tracing::warn!("[llamaparse] Poll failed (attempt {}): HTTP {} - {}", attempt, status, text);
+                delay_ms = (delay_ms * 2).min(10000);
+                continue;
             }
 
             let status_resp: JobStatusResponse = resp.json().await.map_err(|e| {
@@ -199,25 +237,47 @@ impl LlamaParseClient {
     async fn fetch_markdown(&self, job_id: &str) -> Result<String, LlamaParseError> {
         let url = format!("{LLAMAPARSE_API_BASE}/job/{job_id}/result/markdown");
 
-        let resp = self
-            .http
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await?;
+        let mut delay_ms = 1000;
+        for attempt in 1..=3 {
+            let resp = match self
+                .http
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    if attempt == 3 {
+                        return Err(e.into());
+                    }
+                    tracing::warn!("[llamaparse] Network error fetching markdown (attempt {}): {}", attempt, e);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    delay_ms *= 2;
+                    continue;
+                }
+            };
 
-        if !resp.status().is_success() {
-            return Err(LlamaParseError::Api(
-                resp.status(),
-                resp.text().await.unwrap_or_default(),
-            ));
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                if attempt == 3 {
+                    return Err(LlamaParseError::Api(status, text));
+                }
+                tracing::warn!("[llamaparse] Fetch failed (attempt {}): HTTP {} - {}", attempt, status, text);
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                delay_ms *= 2;
+                continue;
+            }
+
+            let md_resp: MarkdownResponse = resp.json().await.map_err(|e| {
+                LlamaParseError::ExtractionFailed(format!("Failed to parse markdown response: {}", e))
+            })?;
+
+            return Ok(md_resp.markdown);
         }
-
-        let md_resp: MarkdownResponse = resp.json().await.map_err(|e| {
-            LlamaParseError::ExtractionFailed(format!("Failed to parse markdown response: {}", e))
-        })?;
-
-        Ok(md_resp.markdown)
+        
+        Err(LlamaParseError::ExtractionFailed("Fetch retries exhausted".into()))
     }
 
     fn parse_markdown_to_statement(

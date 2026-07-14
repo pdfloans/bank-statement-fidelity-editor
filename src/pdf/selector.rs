@@ -111,8 +111,10 @@ impl PdfEngineSelector {
         match self.current_mode() {
             crate::app::config::PdfEngineMode::NativeOnly => run_safe(&*self.fallback),
             crate::app::config::PdfEngineMode::PyMuPdfOnly => run_safe(&*self.primary),
+            crate::app::config::PdfEngineMode::TypstReconstruct => {
+                Err(EngineError::EncryptedOrRasterized("Typst Reconstruct mode explicitly requested".into()))
+            }
             crate::app::config::PdfEngineMode::Auto
-            | crate::app::config::PdfEngineMode::TypstReconstruct
             | crate::app::config::PdfEngineMode::DualConcurrent => {
                 // SOTA Robust Plan: Try PyMuPDF (primary) first for maximum fidelity editing.
                 // If the python bridge fails or throws an exception, seamlessly fallback to Native.

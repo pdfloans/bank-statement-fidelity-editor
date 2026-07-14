@@ -76,6 +76,23 @@ pub enum WorkflowStage {
     Complete(WorkflowOutcome),
     /// Terminal failure with a structured reason.
     Failed(WorkflowFailure),
+    /// Font coverage missing characters alert. Requires human-in-the-loop decision.
+    FontCoverageWarning {
+        missing_chars: Vec<char>,
+    },
+    /// Visual fidelity failed to converge. Requires human-in-the-loop decision.
+    VisualFidelityWarning {
+        score: f64,
+        threshold: f64,
+        attempt: u32,
+    },
+    /// Global imbalance correction proposed by AI. Requires human-in-the-loop decision.
+    ImbalanceCorrectionWarning {
+        imbalance: rust_decimal::Decimal,
+        proposed_changes: Vec<crate::engine::model::ProposedChange>,
+    },
+    /// All cloud parsers failed; falling back to offline parser. Requires human-in-the-loop decision.
+    OfflineFallbackWarning,
 }
 
 /// Result of stage 1 - what DocAI got + Gemini's opinion of completeness.
@@ -140,7 +157,7 @@ pub fn cross_validate_with_template(
 
 /// Result of stage 3 - every row, with the user's edits applied, plus the
 /// running balance recomputed top-to-bottom.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct BalancePreview {
     pub rows: Vec<PreviewRow>,
     /// Sum of credits - sum of debits + opening balance, vs. reported closing.
@@ -451,6 +468,10 @@ impl WorkflowStage {
             Self::FinalChecking => "Final math check",
             Self::Complete(_) => "Complete",
             Self::Failed(_) => "Failed",
+            Self::FontCoverageWarning { .. } => "Font coverage warning",
+            Self::VisualFidelityWarning { .. } => "Visual fidelity warning",
+            Self::ImbalanceCorrectionWarning { .. } => "Imbalance correction warning",
+            Self::OfflineFallbackWarning => "Offline fallback warning",
         }
     }
 
@@ -465,6 +486,10 @@ impl WorkflowStage {
             Self::FinalChecking => 6,
             Self::Complete(_) => 7,
             Self::Failed(_) => 8,
+            Self::FontCoverageWarning { .. } => 3,
+            Self::VisualFidelityWarning { .. } => 5, // Happens after render
+            Self::ImbalanceCorrectionWarning { .. } => 3, // Happens during preview
+            Self::OfflineFallbackWarning => 1, // Happens during initial parsing // Paused in preview stage
         }
     }
 }

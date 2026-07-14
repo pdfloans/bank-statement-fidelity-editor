@@ -128,7 +128,7 @@ pub enum PythonJob {
         edits_json: String,
         font_path: Option<String>,
     },
-    /// Stage 3 / Item #16: split a PDF into chunks â‰¤30 pages so Document AI
+    /// Stage 3 / Item #16: split a PDF into chunks <= 30 pages so Document AI
     /// can parse documents above its single-request page cap.
     ChunkPdfForDocai {
         pdf_path: String,
@@ -249,6 +249,10 @@ pub enum Job {
     Cancel {
         id: JobId,
     },
+    TypstReconstruct {
+        input: std::path::PathBuf,
+        output: std::path::PathBuf,
+    },
 
     /// Hot-reload the runtime's `AppConfig` from the current process
     /// environment. The GUI sends this after the user updates API keys /
@@ -281,6 +285,7 @@ pub enum Job {
         parser_mode: crate::app::config::DocumentParserMode,
         /// Which AI provider the user selected (used for completeness validation).
         ai_provider: crate::app::config::AiProviderMode,
+        ignore_offline_fallback: bool,
     },
     /// Stage 3: build a balance preview from edits without writing the PDF.
     WorkflowPreview {
@@ -301,6 +306,8 @@ pub enum Job {
         deep_font_replication: bool,
         max_visual_attempts: u32,
         visual_threshold: f64,
+        ignore_font_coverage: bool,
+        ignore_visual_fidelity: bool,
     },
     /// Use AI to fix text box issues and visual fidelity differences
     AiFixVisualFidelity {
@@ -422,6 +429,9 @@ pub enum JobResult {
     /// A job tagged with this `JobId` was cancelled before it finished.
     Cancelled {
         id: JobId,
+    },
+    ReconstructComplete {
+        output_path: std::path::PathBuf,
     },
 
     // ----- Multi-stage workflow ------------------------------------------
@@ -2649,50 +2659,60 @@ impl Runtime {
                             let _permit = semaphore.acquire().await.unwrap();
                             let _ = res_tx.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
 
-                            // Try Document AI first, fall back to offline parser.
-                            let transactions = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                Ok(c) => {
-                                    let doc_ai = Arc::new(c);
-                                    match doc_ai.parse_entire_statement(&path, None).await {
-                                        Ok(stmt) => stmt.transactions,
-                                        Err(e) => {
-                                            tracing::warn!("[extract] Document AI parse failed, falling back to offline parser: {e}");
-                                            let _ = res_tx.send(JobResult::Progress { label: "Document AI failed, using offline parser...".to_string(), fraction: 0.3 });
-                                            let eng_clone = eng.clone();
-                                            let path_clone = path.clone();
-                                            match tokio::task::spawn_blocking(move || {
-                                                crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
-                                            }).await {
-                                                Ok(Ok(stmt)) => stmt.transactions,
-                                                Ok(Err(e2)) => {
-                                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline parser also failed: {e2}") });
-                                                    return;
-                                                }
-                                                Err(e2) => {
-                                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline parser panicked: {e2}") });
-                                                    return;
-                                                }
-                                            }
-                                        }
+                            let mut final_txs = None;
+
+                            // 1. Try LlamaParse
+                            if final_txs.is_none() {
+                                let _ = res_tx.send(JobResult::Progress { label: "Extracting with LlamaParse...".to_string(), fraction: 0.1 });
+                                if let Ok(client) = crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
+                                    match client.parse_statement(&path).await {
+                                        Ok(stmt) => final_txs = Some(stmt.transactions),
+                                        Err(e) => tracing::warn!("[extract] LlamaParse failed: {}", e),
                                     }
                                 }
-                                Err(_) => {
-                                    tracing::info!("[extract] Document AI not configured, using offline parser");
-                                    let _ = res_tx.send(JobResult::Progress { label: "Using offline parser (no Document AI)...".to_string(), fraction: 0.3 });
-                                    let eng_clone = eng.clone();
-                                    let path_clone = path.clone();
-                                    match tokio::task::spawn_blocking(move || {
-                                        crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
-                                    }).await {
-                                        Ok(Ok(stmt)) => stmt.transactions,
-                                        Ok(Err(e)) => {
-                                            let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline extraction failed: {e}") });
-                                            return;
-                                        }
-                                        Err(e) => {
-                                            let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline extraction panicked: {e}") });
-                                            return;
-                                        }
+                            }
+
+                            // 2. Try Document AI
+                            if final_txs.is_none() {
+                                let _ = res_tx.send(JobResult::Progress { label: "Extracting with Document AI...".to_string(), fraction: 0.15 });
+                                if let Ok(client) = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                    let doc_ai = Arc::new(client);
+                                    match doc_ai.parse_entire_statement(&path, None).await {
+                                        Ok(stmt) => final_txs = Some(stmt.transactions),
+                                        Err(e) => tracing::warn!("[extract] Document AI failed: {}", e),
+                                    }
+                                }
+                            }
+
+                            // 3. Try Mindee
+                            if final_txs.is_none() {
+                                let _ = res_tx.send(JobResult::Progress { label: "Extracting with Mindee...".to_string(), fraction: 0.2 });
+                                if let Ok(client) = crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
+                                    match client.parse_statement(&path).await {
+                                        Ok(stmt) => final_txs = Some(stmt.transactions),
+                                        Err(e) => tracing::warn!("[extract] Mindee failed: {}", e),
+                                    }
+                                }
+                            }
+
+                            // 4. Try Offline Parser
+                            let transactions = if let Some(txs) = final_txs {
+                                txs
+                            } else {
+                                let _ = res_tx.send(JobResult::Progress { label: "Using offline parser...".to_string(), fraction: 0.3 });
+                                let eng_clone = eng.clone();
+                                let path_clone = path.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                }).await {
+                                    Ok(Ok(stmt)) => stmt.transactions,
+                                    Ok(Err(e)) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline extraction failed: {e}") });
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Offline extraction panicked: {e}") });
+                                        return;
                                     }
                                 }
                             };
@@ -2703,14 +2723,23 @@ impl Runtime {
                                 template_provider as Arc<dyn crate::extractors::GeometryProvider>,
                             ]);
 
-                            let mut geometries = Vec::new();
-                            for provider in &merger.providers {
-                                if let Ok(geo) = provider.extract_line_geometry(&path) {
-                                    geometries.extend(geo);
+                            let path_clone = path.clone();
+                            let report = match tokio::task::spawn_blocking(move || {
+                                let mut geometries = Vec::new();
+                                for provider in &merger.providers {
+                                    if let Ok(geo) = provider.extract_line_geometry(&path_clone) {
+                                        geometries.extend(geo);
+                                    }
                                 }
-                            }
+                                merger.merge(transactions, geometries)
+                            }).await {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "extract_transactions".into(), message: format!("Geometry extraction panicked: {e}") });
+                                    return;
+                                }
+                            };
 
-                            let report = merger.merge(transactions, geometries);
                             let _ = res_tx.send(JobResult::TransactionsExtracted(report.transactions));
                         });
                     }
@@ -3084,6 +3113,39 @@ impl Runtime {
                             tracing::debug!(job.id = id, "[runtime] cancel for unknown job");
                         }
                     }
+                    Job::TypstReconstruct { input, output } => {
+                        let _ = result_tx_clone.send(JobResult::Progress { label: "Parsing for Typst reconstruct...".into(), fraction: 0.1 });
+                        let eng = engine_for_tokio.clone();
+                        let res_tx = result_tx_clone.clone();
+                        tokio::spawn(async move {
+                            match tokio::task::spawn_blocking(move || {
+                                crate::engine::offline_parser::parse_statement_offline(&input, eng)
+                            }).await {
+                                Ok(Ok(stmt)) => {
+                                    if stmt.transactions.is_empty() {
+                                        tracing::warn!("Statement parsed for Typst is empty or near-empty.");
+                                    }
+                                    let _ = res_tx.send(JobResult::Progress { label: "Compiling Typst PDF...".into(), fraction: 0.5 });
+                                    let typst_engine = crate::engine::typst_engine::TypstEngine::new();
+                                    match typst_engine.reconstruct_pdf(&stmt, &output).await {
+                                        Ok(_) => {
+                                            let _ = res_tx.send(JobResult::ReconstructComplete { output_path: output });
+                                            let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::Error { job_label: "typst_reconstruct".into(), message: e.to_string() });
+                                        }
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "typst_parse".into(), message: e.to_string() });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "typst_parse_panic".into(), message: e.to_string() });
+                                }
+                            }
+                        });
+                    }
                     Job::ReloadConfig => {
                         let res_tx = result_tx_clone.clone();
                         match crate::app::config::AppConfig::from_env() {
@@ -3175,25 +3237,11 @@ impl Runtime {
                                         let imbalance = smart_engine.calculate_global_imbalance();
                                         let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes: changes.clone() });
                                         if auto_apply && !changes.is_empty() {
-                                            let edits = changes.into_iter().map(|c| crate::engine::workflow::UserEdit {
-                                                page: c.page,
-                                                line_on_page: 0,
-                                                bbox: c.bbox.unwrap_or([0.0, 0.0, 0.0, 0.0]),
-                                                old_text: c.old_text,
-                                                new_text: c.new_text,
-                                                field: crate::engine::workflow::EditField::RunningBalance,
-                                            }).collect();
-
-                                            let _ = job_tx_ref.send(Job::WorkflowConfirmAndRender {
-                                                input: input.clone(),
-                                                output: output.clone(),
-                                                edits,
-                                                original_transactions: vec![],
-                                                opening_balance: rust_decimal::Decimal::ZERO,
-                                                expected_closing: None,
-                                                deep_font_replication: true,
-                                                max_visual_attempts: 5,
-                                                visual_threshold: 0.02,
+                                            let _ = res_tx.send(JobResult::WorkflowStageChanged { stage:
+                                                crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning {
+                                                    imbalance,
+                                                    proposed_changes: changes.clone(),
+                                                }
                                             });
                                         } else if changes.is_empty() {
                                             let _ = res_tx.send(JobResult::Progress { label: "Already balanced - nothing to apply".to_string(), fraction: 1.0 });
@@ -3253,25 +3301,11 @@ impl Runtime {
                                 let _ = res_tx.send(JobResult::BalanceProposed { imbalance, changes: changes.clone() });
 
                                 if auto_apply && !changes.is_empty() {
-                                    let edits = changes.into_iter().map(|c| crate::engine::workflow::UserEdit {
-                                        page: c.page,
-                                        line_on_page: 0,
-                                        bbox: c.bbox.unwrap_or([0.0, 0.0, 0.0, 0.0]),
-                                        old_text: c.old_text,
-                                        new_text: c.new_text,
-                                        field: crate::engine::workflow::EditField::RunningBalance,
-                                    }).collect();
-
-                                    let _ = job_tx_ref.send(Job::WorkflowConfirmAndRender {
-                                        input: input.clone(),
-                                        output: output.clone(),
-                                        edits,
-                                        original_transactions: vec![],
-                                        opening_balance: rust_decimal::Decimal::ZERO,
-                                        expected_closing: None,
-                                        deep_font_replication: true,
-                                        max_visual_attempts: 5,
-                                        visual_threshold: 0.02,
+                                    let _ = res_tx.send(JobResult::WorkflowStageChanged { stage:
+                                        crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning {
+                                            imbalance,
+                                            proposed_changes: changes.clone(),
+                                        }
                                     });
                                 } else if changes.is_empty() {
                                     let _ = res_tx.send(JobResult::Progress { label: "Already balanced - nothing to apply (offline)".to_string(), fraction: 1.0 });
@@ -3427,7 +3461,7 @@ impl Runtime {
                         }
                     }
 
-                    Job::WorkflowParseAndValidate { input, version, parser_mode, ai_provider } => {
+                    Job::WorkflowParseAndValidate { input, version, parser_mode, ai_provider, ignore_offline_fallback } => {
                         let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowParseAndValidate");
                         let mut cfg_override = (*config_for_tokio).clone();
                         cfg_override.ai_provider = ai_provider;
@@ -3504,57 +3538,84 @@ impl Runtime {
                                                     s
                                                 }
                                                 Err(e) => {
-                                                    // Auto-fallback to offline parsing
-                                                    tracing::warn!("[workflow] Document AI parse failed: {e}; falling back to offline parser");
-                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Document AI failed ({e}), falling back to offline parser..."), fraction: 0.3 });
-
-                                                    let eng = engine_for_tokio.clone();
-                                                    let path = input.clone();
-                                                    match tokio::task::spawn_blocking(move || {
-                                                        crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                                    }).await {
-                                                        Ok(Ok(s)) => s,
-                                                        Ok(Err(e2)) => {
-                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                                format!("Document AI failed: {e}. Offline fallback also failed: {e2}")
-                                                            )));
-                                                            return;
+                                                    // Auto-fallback to Mindee
+                                                    tracing::warn!("[workflow] Document AI parse failed: {e}; falling back to Mindee");
+                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Document AI failed, falling back to Mindee..."), fraction: 0.3 });
+                                                    let mut final_s = None;
+                                                    match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
+                                                        Ok(client) => match client.parse_statement(&input).await {
+                                                            Ok(s) => final_s = Some(s),
+                                                            Err(me) => tracing::warn!("Mindee fallback failed: {me}"),
                                                         }
-                                                        Err(e2) => {
-                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                                format!("Document AI failed: {e}. Offline fallback panicked: {e2}")
-                                                            )));
-                                                            return;
+                                                        Err(me) => tracing::warn!("Mindee not configured for fallback: {me}"),
+                                                    }
+
+                                                    if let Some(s) = final_s {
+                                                        s
+                                                    } else {
+                                                        tracing::warn!("[workflow] Mindee fallback failed/unavailable; falling back to offline parser");
+                                                        let _ = res_tx.send(JobResult::Progress { label: format!("Mindee failed, falling back to offline parser..."), fraction: 0.35 });
+                                                        let eng = engine_for_tokio.clone();
+                                                        let path = input.clone();
+                                                        match tokio::task::spawn_blocking(move || {
+                                                            crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                                        }).await {
+                                                            Ok(Ok(s)) => s,
+                                                            Ok(Err(e2)) => {
+                                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                    format!("Document AI failed: {e}. Offline fallback also failed: {e2}")
+                                                                )));
+                                                                return;
+                                                            }
+                                                            Err(e2) => {
+                                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                                    format!("Document AI failed: {e}. Offline fallback panicked: {e2}")
+                                                                )));
+                                                                return;
+                                                            }
                                                         }
                                                     }
                                                 }
-                                            }
                                         }
+                                        } // closes Ok(client)
                                         Err(e) => {
-                                            // Document AI not configured - auto-fallback to offline
-                                            tracing::warn!("[workflow] Document AI not configured: {e}; auto-falling back to offline parser");
-                                            let _ = res_tx.send(JobResult::Progress { label: "Document AI not configured, using offline parser...".into(), fraction: 0.3 });
-
-                                            let eng = engine_for_tokio.clone();
-                                            let path = input.clone();
-                                            match tokio::task::spawn_blocking(move || {
-                                                crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                            }).await {
-                                                Ok(Ok(s)) => s,
-                                                Ok(Err(e2)) => {
-                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                        format!("Document AI not configured ({e}) and offline parser failed: {e2}")
-                                                    )));
-                                                    return;
+                                            // Document AI not configured - auto-fallback to Mindee
+                                            tracing::warn!("[workflow] Document AI not configured: {e}; auto-falling back to Mindee");
+                                            let _ = res_tx.send(JobResult::Progress { label: "Document AI not configured, trying Mindee...".into(), fraction: 0.3 });
+                                            let mut final_s = None;
+                                            match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
+                                                Ok(client) => match client.parse_statement(&input).await {
+                                                    Ok(s) => final_s = Some(s),
+                                                    Err(me) => tracing::warn!("Mindee fallback failed: {me}"),
                                                 }
-                                                Err(e2) => {
-                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                        format!("Offline parser panicked: {e2}")
-                                                    )));
-                                                    return;
-                                                }
+                                                Err(me) => tracing::warn!("Mindee not configured for fallback: {me}"),
                                             }
 
+                                            if let Some(s) = final_s {
+                                                s
+                                            } else {
+                                                tracing::warn!("[workflow] Mindee fallback failed/unavailable; falling back to offline parser");
+                                                let _ = res_tx.send(JobResult::Progress { label: "Mindee not configured, using offline parser...".into(), fraction: 0.35 });
+                                                let eng = engine_for_tokio.clone();
+                                                let path = input.clone();
+                                                match tokio::task::spawn_blocking(move || {
+                                                    crate::engine::offline_parser::parse_statement_offline(&path, eng)
+                                                }).await {
+                                                    Ok(Ok(s)) => s,
+                                                    Ok(Err(e2)) => {
+                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                            format!("Document AI not configured ({e}) and offline parser failed: {e2}")
+                                                        )));
+                                                        return;
+                                                    }
+                                                    Err(e2) => {
+                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
+                                                            format!("Offline parser panicked: {e2}")
+                                                        )));
+                                                        return;
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -3926,7 +3987,7 @@ impl Runtime {
                     // Stages 4 + 5 + 6: apply, render, validate visually in a loop,
                     // then do a final Document AI math sanity pass.
                     // -----------------------------------------------------------------
-                    Job::WorkflowConfirmAndRender { input, output, edits, deep_font_replication, max_visual_attempts, visual_threshold, original_transactions, opening_balance, expected_closing } => {
+                    Job::WorkflowConfirmAndRender { input, output, edits, deep_font_replication, max_visual_attempts, visual_threshold, original_transactions, opening_balance, expected_closing, ignore_font_coverage, ignore_visual_fidelity } => {
                         let res_tx = TerminalTracker::new(result_tx_clone.clone(), "WorkflowConfirmAndRender");
                         let eng = engine_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
@@ -4021,6 +4082,30 @@ impl Runtime {
                                         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json) {
                                             if v["success"].as_bool().unwrap_or(false) {
                                                 font_path = v["metrics"]["font_path"].as_str().map(PathBuf::from);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // --- Pre-flight Font Coverage Check ---
+                                if !ignore_font_coverage {
+                                    if let Some(ref fp) = font_path {
+                                        if let Ok(bytes) = std::fs::read(fp) {
+                                            let mut all_new_text = String::new();
+                                            for e in &edits {
+                                                all_new_text.push_str(&e.new_text);
+                                            }
+                                            if let Ok((_, missing)) = crate::engine::font_replication::check_glyph_coverage(&bytes, &all_new_text) {
+                                                if !missing.is_empty() {
+                                                    tracing::warn!("[font_coverage] Missing characters detected: {:?}", missing);
+                                                    let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                                        stage: crate::engine::workflow::WorkflowStage::FontCoverageWarning {
+                                                            missing_chars: missing,
+                                                        }
+                                                    });
+                                                    // Abort the current job, wait for user to decide (Proceed or Cancel)
+                                                    return;
+                                                }
                                             }
                                         }
                                     }
@@ -4773,15 +4858,16 @@ impl Runtime {
                                         Err(_) => true, // Gemini not configured -> skip
                                     };
 
-                                    if vision_ok {
+                                    if vision_ok || ignore_visual_fidelity {
                                         break;
                                     } else if attempt >= max_visual_attempts {
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(
-                                            crate::engine::workflow::WorkflowFailure::VisualNotConverged {
-                                                last_score: report.visual_diff_score,
-                                                attempts: attempt,
+                                        let _ = res_tx.send(JobResult::WorkflowStageChanged {
+                                            stage: crate::engine::workflow::WorkflowStage::VisualFidelityWarning {
+                                                score: report.visual_diff_score,
+                                                threshold: visual_threshold,
+                                                attempt,
                                             },
-                                        ));
+                                        });
                                         return;
                                     } else {
                                         // Vision flagged something -> retry with

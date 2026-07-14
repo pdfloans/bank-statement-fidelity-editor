@@ -117,7 +117,7 @@ pub enum Provenance {
     Computed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProposedChange {
     pub page: usize,
     pub old_text: String,

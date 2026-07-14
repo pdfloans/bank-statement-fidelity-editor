@@ -462,6 +462,8 @@ pub struct MyApp {
     current_page_texture: Option<egui::TextureHandle>,
     before_texture: Option<egui::TextureHandle>,
     after_texture: Option<egui::TextureHandle>,
+    transfer_source_texture: Option<egui::TextureHandle>,
+    transfer_target_texture: Option<egui::TextureHandle>,
     current_page_dpi: f32,
     current_page_size_pts: Option<(f32, f32)>,
 
@@ -485,7 +487,7 @@ pub struct MyApp {
     last_render_request: Option<(String, usize, u32)>,
 
     // Multi-stage workflow state
-    workflow_stage: crate::engine::workflow::WorkflowStage,
+    pub workflow_stage: crate::engine::workflow::WorkflowStage,
     workflow_transactions: Vec<crate::engine::model::Transaction>,
     workflow_validation: Option<crate::engine::workflow::ParseValidation>,
     #[allow(dead_code)]
@@ -504,6 +506,7 @@ pub struct MyApp {
     /// Stage 13 / Item #12: pending modal confirmations. Each entry is
     /// (title, body, on_confirm action).
     pub show_discard_draft_confirm: bool,
+    pub show_workflow_hitl_modal: bool,
     pub show_settings_modal: bool,
     pub show_command_palette: bool,
     pub command_query: String,
@@ -637,6 +640,8 @@ impl MyApp {
             current_page_texture: None,
             before_texture: None,
             after_texture: None,
+            transfer_source_texture: None,
+            transfer_target_texture: None,
             current_page_dpi: settings.default_dpi,
             current_page_size_pts: None,
             status: "Ready".to_string(),
@@ -665,6 +670,7 @@ impl MyApp {
             font_analysis: None,
             font_cascade_reports: Vec::new(),
             show_discard_draft_confirm: false,
+            show_workflow_hitl_modal: false,
             show_settings_modal: false,
             show_transfer_dialog: false,
             transfer_source_path: String::new(),
@@ -886,6 +892,8 @@ impl MyApp {
             self.toasts.pop_front();
         }
     }
+
+
 
     /// Pair edited PDFs with their corresponding originals for batch verification.
     ///
@@ -1248,6 +1256,7 @@ impl MyApp {
                 version: Some(self.selected_parser_version.clone()),
                 parser_mode: self.settings.document_parser,
                 ai_provider: self.settings.ai_provider,
+                ignore_offline_fallback: false,
             }) {
                 tracing::error!("Runtime disconnected: {}", e);
             }
@@ -1302,6 +1311,8 @@ impl MyApp {
                     deep_font_replication: self.settings.deep_font_replication,
                     max_visual_attempts: self.settings.max_visual_attempts,
                     visual_threshold: self.settings.visual_diff_threshold,
+                    ignore_font_coverage: false,
+                    ignore_visual_fidelity: false,
                 }) {
                     tracing::error!("Runtime disconnected: {}", e);
                 }
@@ -1501,6 +1512,13 @@ impl MyApp {
         if let Some(action_id) = self.draw_toasts(ctx) {
             if action_id == "open_audit_explorer" {
                 self.current_view = AppView::AuditExplorer;
+            } else if action_id == "action_typst_reconstruct" {
+                let input = std::path::PathBuf::from(&self.input_path);
+                let output = input.with_extension("reconstructed.pdf");
+                self.in_flight += 1;
+                if let Err(e) = self.job_tx.send(crate::app::runtime::Job::TypstReconstruct { input, output }) {
+                    tracing::error!("Failed to send TypstReconstruct job: {}", e);
+                }
             }
         }
 
@@ -1551,6 +1569,7 @@ impl MyApp {
                     version: Some(self.selected_parser_version.clone()),
                     parser_mode: self.settings.document_parser,
                     ai_provider: self.settings.ai_provider,
+                    ignore_offline_fallback: false,
                 }) {
                     tracing::error!("Runtime disconnected: {}", e);
                 }
@@ -1586,6 +1605,8 @@ impl MyApp {
                     }
                     "before" => self.before_texture = texture,
                     "after" => self.after_texture = texture,
+                    "transfer_source" => self.transfer_source_texture = texture,
+                    "transfer_target" => self.transfer_target_texture = texture,
                     _ => {}
                 }
             }
@@ -1703,6 +1724,9 @@ impl MyApp {
                     format!("History exported: {}", path.display()),
                 );
             }
+            JobResult::ReconstructComplete { output_path } => {
+                self.toast(ToastKind::Success, format!("Typst Reconstruction Complete! Output saved to: {:?}", output_path));
+            }
             JobResult::VerificationReport(report) => {
                 self.last_verification = Some(report.clone());
                 let kind = if report.math_valid && report.only_intended_changes {
@@ -1794,7 +1818,16 @@ impl MyApp {
             // ---- Multi-stage workflow ----------------------------------
             JobResult::WorkflowStageChanged { stage } => {
                 self.status = format!("Workflow: {}", stage.label());
-                self.workflow_stage = stage;
+                self.workflow_stage = stage.clone();
+                match &stage {
+                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { .. } |
+                    crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning { .. } |
+                    crate::engine::workflow::WorkflowStage::FontCoverageWarning { .. } |
+                    crate::engine::workflow::WorkflowStage::OfflineFallbackWarning => {
+                        self.show_workflow_hitl_modal = true;
+                    }
+                    _ => {}
+                }
             }
             JobResult::WorkflowParseValidated {
                 validation,
@@ -2045,7 +2078,12 @@ impl MyApp {
                 self.in_flight = self.in_flight.saturating_sub(1);
                 self.status = format!("Nuclear Fallback Required: {}", msg);
                 let toast_msg = self.status.clone();
-                self.toast(ToastKind::Error, &toast_msg);
+                self.toast_with_action(
+                    ToastKind::Error,
+                    toast_msg,
+                    "Reconstruct Now",
+                    "action_typst_reconstruct",
+                );
             }
         }
     }
@@ -3199,120 +3237,6 @@ impl MyApp {
         }
     }
 
-    fn draw_transfer_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_transfer_dialog;
-        egui::Window::new("🔄 Transfer Transactions")
-            .open(&mut open)
-            .default_size(egui::vec2(440.0, 280.0))
-            .collapsible(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.spacing_mut().item_spacing.y = 8.0;
-
-                ui.heading("Transfer transactions between statements");
-                ui.separator();
-
-                ui.label("Source Statement PDF (transactions to take):");
-                ui.horizontal(|ui| {
-                    ui.text_edit_singleline(&mut self.transfer_source_path);
-                    if ui.button("Browse...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("PDF", &["pdf"])
-                            .pick_file()
-                        {
-                            self.transfer_source_path = path.to_string_lossy().to_string();
-                        }
-                    }
-                });
-
-                ui.add_space(4.0);
-                ui.label("Target Statement PDF (format to use):");
-                let target_display = if self.input_path.is_empty() {
-                    "(no PDF loaded)".to_string()
-                } else {
-                    self.input_path.clone()
-                };
-                ui.label(
-                    egui::RichText::new(&target_display)
-                        .color(self.settings.theme.palette().text)
-                        .monospace(),
-                );
-
-                ui.add_space(8.0);
-                ui.separator();
-
-                let source_ok = !self.transfer_source_path.is_empty()
-                    && std::path::Path::new(&self.transfer_source_path).exists();
-                let target_ok =
-                    !self.input_path.is_empty() && std::path::Path::new(&self.input_path).exists();
-
-                ui.horizontal(|ui| {
-                    let can_start = source_ok && target_ok;
-
-                    let btn = ui.add_enabled(
-                        can_start,
-                        egui::Button::new(egui::RichText::new("▶ Begin Transfer").color(
-                            if can_start {
-                                self.settings.theme.palette().bg
-                            } else {
-                                self.settings.theme.palette().text
-                            },
-                        ))
-                        .fill(if can_start {
-                            self.settings.theme.palette().accent
-                        } else {
-                            self.settings.theme.palette().panel
-                        }),
-                    );
-
-                    if btn.clicked() {
-                        let source = std::path::PathBuf::from(&self.transfer_source_path);
-                        let target = std::path::PathBuf::from(&self.input_path);
-                        let output = if self.output_path.is_empty() {
-                            target.with_file_name(format!(
-                                "{}_transferred.pdf",
-                                target.file_stem().unwrap_or_default().to_string_lossy()
-                            ))
-                        } else {
-                            std::path::PathBuf::from(&self.output_path)
-                        };
-
-                        if let Err(e) = self.job_tx.send(Job::TransferTransactions {
-                            source_pdf: source,
-                            target_pdf: target,
-                            output_pdf: output,
-                        }) {
-                            tracing::error!("Runtime disconnected: {}", e);
-                        }
-                        self.in_flight += 1;
-                        self.status = "Starting transaction transfer...".into();
-                        self.toast(
-                            ToastKind::Info,
-                            "Transaction transfer started - this may take 2â€“3 minutes.",
-                        );
-                        self.show_transfer_dialog = false;
-                    }
-
-                    if ui.button("Cancel").clicked() {
-                        self.show_transfer_dialog = false;
-                    }
-                });
-
-                if !source_ok && !self.transfer_source_path.is_empty() {
-                    ui.colored_label(
-                        self.settings.theme.palette().warn,
-                        "⚠ Source file not found",
-                    );
-                }
-                if !target_ok {
-                    ui.colored_label(
-                        self.settings.theme.palette().warn,
-                        "⚠ Load a target PDF first (File -> Open)",
-                    );
-                }
-            });
-        self.show_transfer_dialog = open;
-    }
 
     /// Generate a safe output path that never overwrites the input.
     pub fn safe_output_path(input: &std::path::Path, suffix: &str) -> std::path::PathBuf {
@@ -3509,7 +3433,7 @@ impl MyApp {
                 ui.spacing_mut().item_spacing.y = 8.0;
 
                 ui.heading("Cross-Statement Transfer Tests");
-                ui.label("Select PDFs to test all NÃ-(Nâˆ’1) transfer directions:");
+                ui.label("Select PDFs to test all Nx(N-1) transfer directions:");
                 ui.separator();
 
                 // List current paths
@@ -3618,7 +3542,7 @@ impl MyApp {
                                 if !r.corrections.is_empty() {
                                     for c in &r.corrections {
                                         ui.label(
-                                            egui::RichText::new(format!("  â†³ {c}"))
+                                            egui::RichText::new(format!("  ↳ {c}"))
                                                 .small()
                                                 .color(self.settings.theme.palette().weak),
                                         );
@@ -4350,7 +4274,7 @@ impl MyApp {
                                 }
                             }
                             ui.small(format!(
-                                "Sizes: {:.1}â€“{:.1}pt • Pages: {}",
+                                "Sizes: {:.1}-{:.1}pt • Pages: {}",
                                 font.size_range[0],
                                 font.size_range[1],
                                 font.pages_used_on
@@ -4422,6 +4346,7 @@ impl MyApp {
                         version: Some(self.selected_parser_version.clone()),
                         parser_mode: self.settings.document_parser,
                         ai_provider: self.settings.ai_provider,
+                        ignore_offline_fallback: false,
                     }) { tracing::error!("Runtime disconnected: {}", e); }
                     self.in_flight += 1;
                     self.workflow_edits.clear();
@@ -4538,7 +4463,7 @@ impl MyApp {
             // replication overhead (~3s per edit plus a fixed warm-up).
             let quick_eta = 2 + edit_count;
             let deep_eta = 5 + edit_count * 3;
-            ui.label("â‘¢ Apply edits - choose fidelity:");
+            ui.label("3. Apply edits - choose fidelity:");
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
@@ -4550,7 +4475,7 @@ impl MyApp {
                     )
                     .clicked()
                 {
-                    self.dispatch_confirm_and_render(false);
+                    self.dispatch_confirm_and_render(false, false);
                 }
                 if ui
                     .add_enabled(
@@ -4562,7 +4487,7 @@ impl MyApp {
                     )
                     .clicked()
                 {
-                    self.dispatch_confirm_and_render(true);
+                    self.dispatch_confirm_and_render(true, false);
                 }
             });
             ui.small(format!(
@@ -4591,6 +4516,21 @@ impl MyApp {
                     "Re-parsed transactions: {} • final imbalance ${:.2}",
                     o.transactions_re_parsed, o.final_imbalance
                 ));
+            }
+
+            if let crate::engine::workflow::WorkflowStage::FontCoverageWarning { missing_chars } = &self.workflow_stage {
+                ui.separator();
+                let palette = self.settings.theme.palette();
+                ui.colored_label(palette.warn, "⚠️ Font Coverage Warning");
+                ui.label(format!("The text you typed requires characters that are missing from the statement's subset font:\n{:?}", missing_chars));
+                ui.horizontal(|ui| {
+                    if ui.button("Proceed (Use Fallback Metrics)").clicked() {
+                        self.dispatch_confirm_and_render(true, true); // true for deep, true for ignore_font_coverage
+                    }
+                    if ui.button("Cancel Edits").clicked() {
+                        self.workflow_stage = crate::engine::workflow::WorkflowStage::Previewing(self.workflow_preview.clone().unwrap_or_default());
+                    }
+                });
             }
 
             // Stage 12 / Item #3: surface cascade results so the user can
@@ -4637,7 +4577,7 @@ impl MyApp {
     /// tiers share the redundant-edit pruning so the apply loop stays tight, and
     /// both run under the dual-engine safety net so a single engine failure
     /// falls back to the other rather than aborting the edit.
-    fn dispatch_confirm_and_render(&mut self, deep: bool) {
+    fn dispatch_confirm_and_render(&mut self, deep: bool, ignore_font_coverage: bool) {
         // Stage 2 / Item #7: drop edits whose typed value already matches the
         // cascade. Reduces visual noise (extra redactions) and shortens the
         // apply loop.
@@ -4682,6 +4622,8 @@ impl MyApp {
             deep_font_replication: deep,
             max_visual_attempts: self.settings.max_visual_attempts,
             visual_threshold: self.settings.visual_diff_threshold,
+            ignore_font_coverage,
+            ignore_visual_fidelity: false,
         }) {
             tracing::error!("Runtime disconnected: {}", e);
         }
@@ -5173,6 +5115,8 @@ impl MyApp {
                                                     deep_font_replication: self.settings.deep_font_replication,
                                                     max_visual_attempts: self.settings.max_visual_attempts.min(3),
                                                     visual_threshold: self.settings.visual_diff_threshold.max(0.05),
+                                                    ignore_font_coverage: false,
+                                                    ignore_visual_fidelity: false,
                                                 }) { tracing::error!("Runtime disconnected: {}", e); }
                                                 self.in_flight += 1;
                                             }
