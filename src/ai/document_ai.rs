@@ -1749,7 +1749,7 @@ mod tests {
         // empty one should be skipped by the parser because it has no money values.
         let json_str = r#"{
             "document": {
-                "pages": [{}],
+                "pages": [{"dimension": {"width": 612.0, "height": 792.0, "unit": "points"}}],
                 "entities": [
                     {
                         "type": "table_item",
@@ -1802,7 +1802,7 @@ mod tests {
         // Older / custom processors emit `type: "transaction"` directly.
         let json_str = r#"{
             "document": {
-                "pages": [{}],
+                "pages": [{"dimension": {"width": 612.0, "height": 792.0, "unit": "points"}}],
                 "entities": [
                     {
                         "type": "transaction",

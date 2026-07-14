@@ -64,7 +64,10 @@ impl PyEngine {
         let result = std::thread::scope(|s| {
             let handle = s.spawn(move || {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-                    pyo3::Python::try_attach(f).unwrap()
+                    match pyo3::Python::try_attach(f) {
+                        Some(res) => res,
+                        None => Err("Failed to attach Python GIL".to_string()),
+                    }
                 }))
             });
             handle.join()

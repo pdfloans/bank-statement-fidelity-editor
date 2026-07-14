@@ -123,7 +123,7 @@ impl OpenAiClient {
     ) -> Result<crate::ai::gemini_client::GeminiBalancePlan, OpenAiError> {
         let sys = "You are a mathematical auditor. You receive a JSON list of bank transactions. Identify OCR errors and return a JSON object containing an 'adjustments' array, 'overall_strategy' string, and 'confidence' number (0.0 to 1.0). Each adjustment needs 'page', 'line_on_page', 'old_running_balance', 'new_running_balance', 'reason', 'confidence'.";
 
-        let tx_json = serde_json::to_string(transactions).unwrap();
+        let tx_json = serde_json::to_string(transactions).map_err(|e| OpenAiError::Format(e.to_string()))?;
         let user = format!("Imbalance: {}\nTransactions: {}", imbalance, tx_json);
 
         let out = self.post_json(sys, &user).await?;
@@ -145,7 +145,7 @@ impl OpenAiClient {
             opening,
             closing,
             pages,
-            serde_json::to_string(transactions).unwrap()
+            serde_json::to_string(transactions).map_err(|e| OpenAiError::Format(e.to_string()))?
         );
         let out = self.post_json(sys, &user).await?;
         let plan: crate::ai::gemini_client::GeminiCompletenessReport =
