@@ -16,10 +16,10 @@ fn recv_blocking<T>(rx: oneshot::Receiver<T>) -> Result<T, oneshot::error::RecvE
 where
     T: Send + 'static,
 {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(rx)),
-        Err(_) => rx.blocking_recv(),
-    }
+    // PdfEngine methods are synchronous and executed inside `spawn_blocking` threads.
+    // Calling `block_in_place` from a blocking thread panics in tokio, so we just
+    // use `blocking_recv()` directly which correctly parks the current blocking thread.
+    rx.blocking_recv()
 }
 
 #[derive(Debug)]
