@@ -6,7 +6,7 @@
       "fidelity": 96,
       "avg": 98.0,
       "details": "Found 30/30 txn lines in markdown",
-      "elapsed_ms": 10096
+      "elapsed_ms": 10347
     },
     {
       "tool": "Offline Heuristic",
@@ -14,7 +14,7 @@
       "fidelity": 98,
       "avg": 93.0,
       "details": "Found 25/30 txns, closing=Y",
-      "elapsed_ms": 18
+      "elapsed_ms": 40
     },
     {
       "tool": "PyMuPDF Built-in",
@@ -22,7 +22,7 @@
       "fidelity": 95,
       "avg": 47.5,
       "details": "Found 0/30 txns, 0 decimal errors",
-      "elapsed_ms": 50
+      "elapsed_ms": 51
     },
     {
       "tool": "Mindee API",
@@ -30,7 +30,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error: HTTP 401",
-      "elapsed_ms": 1974
+      "elapsed_ms": 2230
     },
     {
       "tool": "Document AI",
@@ -38,7 +38,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "No auth available",
-      "elapsed_ms": 6184
+      "elapsed_ms": 5959
     }
   ],
   "Test 2: Fidelity Edit": [
@@ -48,7 +48,7 @@
       "fidelity": 85,
       "avg": 87.5,
       "details": "Found 18 '7' glyphs, 18 successful edits, restored=Y",
-      "elapsed_ms": 773
+      "elapsed_ms": 645
     },
     {
       "tool": "Pdfium",
@@ -56,7 +56,7 @@
       "fidelity": 92,
       "avg": 76.0,
       "details": "Rendered 2480x3509px @ 300DPI, content=Y",
-      "elapsed_ms": 748
+      "elapsed_ms": 577
     },
     {
       "tool": "Typst Reconstruct",
@@ -64,7 +64,7 @@
       "fidelity": 65,
       "avg": 70.0,
       "details": "26/26 spans extractable, 1 fonts: {'Helvetica'}",
-      "elapsed_ms": 75
+      "elapsed_ms": 76
     }
   ],
   "Test 3: Math Balance": [
@@ -74,23 +74,23 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21",
-      "elapsed_ms": 16
+      "elapsed_ms": 18
     },
     {
       "tool": "OpenRouter AI",
       "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
+      "fidelity": 100,
+      "avg": 50.0,
+      "details": "Found=N, amount=$0, line=0",
+      "elapsed_ms": 4525
     },
     {
       "tool": "Groq AI",
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
+      "details": "HTTP 400",
+      "elapsed_ms": 1213
     },
     {
       "tool": "Gemini AI",
@@ -98,7 +98,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400: {\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/googl",
-      "elapsed_ms": 1576
+      "elapsed_ms": 1470
     },
     {
       "tool": "Document AI",
@@ -106,7 +106,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "CRASH: Command '['gcloud.cmd']' returned non-zero exit status 2.",
-      "elapsed_ms": 5595
+      "elapsed_ms": 4759
     }
   ],
   "Test 4: Visual QA": [
@@ -116,7 +116,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "SSIM\u22480.997970, max_tile=0.583347, diff_px=72852, region_detect=Y",
-      "elapsed_ms": 19277
+      "elapsed_ms": 13729
     },
     {
       "tool": "pdfRest Cloud",
@@ -124,7 +124,7 @@
       "fidelity": 98,
       "avg": 86.5,
       "details": "Adobe-tier render at 300DPI, manual diff required",
-      "elapsed_ms": 5567
+      "elapsed_ms": 5184
     },
     {
       "tool": "Applitools Eyes",
@@ -132,7 +132,7 @@
       "fidelity": 100,
       "avg": 70.0,
       "details": "Visual AI diff=MISSED, output_len=111",
-      "elapsed_ms": 3317
+      "elapsed_ms": 2618
     },
     {
       "tool": "Gemini Vision",
@@ -140,25 +140,17 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400",
-      "elapsed_ms": 4260
+      "elapsed_ms": 3419
     }
   ],
   "Test 5: Transfer Transactions": [
     {
       "tool": "Groq (Llama 3)",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
-    },
-    {
-      "tool": "OpenRouter",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
+      "correctness": 100,
+      "fidelity": 100,
+      "avg": 100,
+      "details": "Transfer mapped perfectly",
+      "elapsed_ms": 1952
     },
     {
       "tool": "Gemini 1.5 Flash",
@@ -166,7 +158,15 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error No response",
-      "elapsed_ms": 1095
+      "elapsed_ms": 1175
+    },
+    {
+      "tool": "OpenRouter",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API Error No response",
+      "elapsed_ms": 1567
     }
   ],
   "Test 6: E2E GUI Testing": [
@@ -176,17 +176,17 @@
       "fidelity": 100,
       "avg": 100,
       "details": "GUI launched and tree attached correctly",
-      "elapsed_ms": 154591
+      "elapsed_ms": 6762
     }
   ],
   "Test 7: PII Anonymization": [
     {
       "tool": "Groq PII",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
+      "correctness": 100,
+      "fidelity": 100,
+      "avg": 100,
+      "details": "PII Masked Successfully",
+      "elapsed_ms": 1822
     },
     {
       "tool": "Gemini 1.5 PII",
@@ -194,7 +194,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error No response",
-      "elapsed_ms": 1576
+      "elapsed_ms": 1368
     }
   ]
 }
