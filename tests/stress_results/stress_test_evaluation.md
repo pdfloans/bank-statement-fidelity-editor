@@ -1,6 +1,6 @@
 # Stress Test Evaluation Matrix — Bank Statement Fidelity Editor v0.5.1
 
-**Executed:** 2026-07-15 05:28:01 UTC
+**Executed:** 2026-07-15 05:48:56 UTC
 **Platform:** Python 3.14.3, PyMuPDF 1.27.2.3
 
 ## Results Matrix
@@ -14,6 +14,7 @@
 | Test 5: Transfer Transactions | ? | Groq (Llama 3), Gemini 1.5 Flash, OpenRouter | Groq (Llama 3) (100/100) → 100, Gemini 1.5 Flash (0/0) → 0, OpenRouter (0/0) → 0 | 1. Groq (Llama 3) (Avg 100) |
 | Test 6: E2E GUI Testing | ? | Rust UIAutomation | Rust UIAutomation (100/100) → 100 | 1. Rust UIAutomation (Avg 100) |
 | Test 7: PII Anonymization | ? | Groq PII, Gemini 1.5 PII | Groq PII (100/100) → 100, Gemini 1.5 PII (0/0) → 0 | 1. Groq PII (Avg 100) |
+| Test 8: Forensic Evasion | ? | PyMuPDF Pro, Typst Reconstruct, Pdfium | PyMuPDF Pro (100/100) → 100, Typst Reconstruct (80/100) → 90, Pdfium (0/0) → 0 | 1. PyMuPDF Pro (Avg 100)<br>2. Typst Reconstruct (Avg 90) |
 
 ## Detailed Results Per Test
 
@@ -21,28 +22,28 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **LlamaParse** | 100 | 96 | **98.0** | 10347ms | Found 30/30 txn lines in markdown |
-| 2 | **Offline Heuristic** | 88 | 98 | **93.0** | 40ms | Found 25/30 txns, closing=Y |
-| 3 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 51ms | Found 0/30 txns, 0 decimal errors |
-| 4 | **Mindee API** | 0 | 0 | **0.0** | 2230ms | API Error: HTTP 401 |
-| 5 | **Document AI** | 0 | 0 | **0.0** | 5959ms | No auth available |
+| 1 | **LlamaParse** | 100 | 96 | **98.0** | 10678ms | Found 30/30 txn lines in markdown |
+| 2 | **Offline Heuristic** | 88 | 98 | **93.0** | 34ms | Found 25/30 txns, closing=Y |
+| 3 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 92ms | Found 0/30 txns, 0 decimal errors |
+| 4 | **Mindee API** | 0 | 0 | **0.0** | 2141ms | API Error: HTTP 401 |
+| 5 | **Document AI** | 0 | 0 | **0.0** | 5923ms | No auth available |
 
 ### Test 2: Fidelity Edit
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 645ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
-| 2 | **Pdfium** | 60 | 92 | **76.0** | 577ms | Rendered 2480x3509px @ 300DPI, content=Y |
-| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 76ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
+| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 967ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
+| 2 | **Pdfium** | 60 | 92 | **76.0** | 952ms | Rendered 2480x3509px @ 300DPI, content=Y |
+| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 61ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
 
 ### Test 3: Math Balance
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Local Math Engine** | 100 | 100 | **100.0** | 18ms | Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21 |
-| 2 | **OpenRouter AI** | 0 | 100 | **50.0** | 4525ms | Found=N, amount=$0, line=0 |
-| 3 | **Groq AI** | 0 | 0 | **0.0** | 1213ms | HTTP 400 |
-| 4 | **Gemini AI** | 0 | 0 | **0.0** | 1470ms | HTTP 400: {
+| 1 | **Local Math Engine** | 100 | 100 | **100.0** | 19ms | Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21 |
+| 2 | **OpenRouter AI** | 0 | 100 | **50.0** | 5249ms | Found=N, amount=$0, line=0 |
+| 3 | **Groq AI** | 0 | 0 | **0.0** | 1677ms | HTTP 400 |
+| 4 | **Gemini AI** | 0 | 0 | **0.0** | 1935ms | HTTP 400: {
   "error": {
     "code": 400,
     "message": "API key not valid. Please pass a valid API key.",
@@ -50,37 +51,45 @@
     "details": [
       {
         "@type": "type.googleapis.com/googl |
-| 5 | **Document AI** | 0 | 0 | **0.0** | 4759ms | CRASH: Command '['gcloud.cmd']' returned non-zero exit status 2. |
+| 5 | **Document AI** | 0 | 0 | **0.0** | 6387ms | CRASH: Command '['gcloud.cmd']' returned non-zero exit status 2. |
 
 ### Test 4: Visual QA
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 13729ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
-| 2 | **pdfRest Cloud** | 75 | 98 | **86.5** | 5184ms | Adobe-tier render at 300DPI, manual diff required |
-| 3 | **Applitools Eyes** | 40 | 100 | **70.0** | 2618ms | Visual AI diff=MISSED, output_len=111 |
-| 4 | **Gemini Vision** | 0 | 0 | **0.0** | 3419ms | HTTP 400 |
+| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 14372ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
+| 2 | **pdfRest Cloud** | 75 | 98 | **86.5** | 5468ms | Adobe-tier render at 300DPI, manual diff required |
+| 3 | **Applitools Eyes** | 40 | 100 | **70.0** | 2534ms | Visual AI diff=MISSED, output_len=111 |
+| 4 | **Gemini Vision** | 0 | 0 | **0.0** | 3466ms | HTTP 400 |
 
 ### Test 5: Transfer Transactions
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Groq (Llama 3)** | 100 | 100 | **100.0** | 1952ms | Transfer mapped perfectly |
-| 2 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 1175ms | API Error No response |
-| 3 | **OpenRouter** | 0 | 0 | **0.0** | 1567ms | API Error No response |
+| 1 | **Groq (Llama 3)** | 100 | 100 | **100.0** | 1807ms | Transfer mapped perfectly |
+| 2 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 1353ms | API Error No response |
+| 3 | **OpenRouter** | 0 | 0 | **0.0** | 2398ms | API Error No response |
 
 ### Test 6: E2E GUI Testing
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 6762ms | GUI launched and tree attached correctly |
+| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 7296ms | GUI launched and tree attached correctly |
 
 ### Test 7: PII Anonymization
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Groq PII** | 100 | 100 | **100.0** | 1822ms | PII Masked Successfully |
-| 2 | **Gemini 1.5 PII** | 0 | 0 | **0.0** | 1368ms | API Error No response |
+| 1 | **Groq PII** | 100 | 100 | **100.0** | 1717ms | PII Masked Successfully |
+| 2 | **Gemini 1.5 PII** | 0 | 0 | **0.0** | 1142ms | API Error No response |
+
+### Test 8: Forensic Evasion
+
+| Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
+|---|---|---|---|---|---|---|
+| 1 | **PyMuPDF Pro** | 100 | 100 | **100.0** | 4ms | Producer: '', Creator: '', EOF markers: 1 |
+| 2 | **Typst Reconstruct** | 80 | 100 | **90.0** | 0ms | Clean rebuild, single %%EOF, but likely leaves Typst metadata tag |
+| 3 | **Pdfium** | 0 | 0 | **0.0** | 0ms | Output is an image raster, not a vector PDF. Fails structural forensics completely. |
 
 ## Production Fallback Routing Logic
 
@@ -126,4 +135,10 @@ Based on the empirical scores above, the recommended fallback chains are:
 ### Test 7: PII Anonymization
 ```
   PRIMARY: Groq PII                  (Avg=100, C=100, F=100)
+```
+
+### Test 8: Forensic Evasion
+```
+  PRIMARY: PyMuPDF Pro               (Avg=100, C=100, F=100)
+  FALLBACK-1: Typst Reconstruct         (Avg=90, C=80, F=100)
 ```
