@@ -1355,6 +1355,74 @@ impl AppModals for MyApp {
 
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
+                    if ui.button("📤 Export .env").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .set_file_name(".env.export")
+                            .save_file()
+                        {
+                            let content = format!(
+                                "GEMINI_API_KEY={}\nDOCUMENT_AI_PROJECT_ID={}\nDOCUMENT_AI_LOCATION={}\nDOCUMENT_AI_PROCESSOR_ID={}\nGOOGLE_APPLICATION_CREDENTIALS={}\nDOCUMENT_AI_API_KEY={}\nPYMUPDF_PRO_KEY={}\nGEMINI_AUTH_MODE={}\nMINDEE_API_KEY={}\nLLAMAPARSE_API_KEY={}\nPDFREST_API_KEY={}\nAPPLITOOLS_API_KEY={}\nGROQ_API_KEY={}\nOPENROUTER_API_KEY={}\n",
+                                self.edit_gemini_api_key.trim(),
+                                self.edit_docai_project_id.trim(),
+                                self.edit_docai_location.trim(),
+                                self.edit_docai_processor_id.trim(),
+                                self.edit_docai_service_account.trim(),
+                                self.edit_docai_api_key.trim(),
+                                self.edit_pymupdf_pro_key.trim(),
+                                if self.edit_gemini_use_vertex { "vertex" } else { "api_key" },
+                                self.edit_mindee_api_key.trim(),
+                                self.edit_llamaparse_api_key.trim(),
+                                self.edit_pdfrest_api_key.trim(),
+                                self.edit_applitools_api_key.trim(),
+                                self.edit_groq_api_key.trim(),
+                                self.edit_openrouter_api_key.trim(),
+                            );
+                            if let Err(e) = std::fs::write(&path, content) {
+                                self.toast(ToastKind::Error, format!("Failed to export: {}", e));
+                            } else {
+                                self.toast(ToastKind::Success, "Exported .env successfully");
+                            }
+                        }
+                    }
+                    
+                    if ui.button("📥 Import .env").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_file() {
+                            if let Ok(iter) = dotenvy::from_path_iter(&path) {
+                                for item in iter {
+                                    if let Ok((key, val)) = item {
+                                        match key.as_str() {
+                                            "GEMINI_API_KEY" => self.edit_gemini_api_key = val,
+                                            "DOCUMENT_AI_PROJECT_ID" => self.edit_docai_project_id = val,
+                                            "DOCUMENT_AI_LOCATION" => self.edit_docai_location = val,
+                                            "DOCUMENT_AI_PROCESSOR_ID" => self.edit_docai_processor_id = val,
+                                            "GOOGLE_APPLICATION_CREDENTIALS" => self.edit_docai_service_account = val,
+                                            "DOCUMENT_AI_API_KEY" => self.edit_docai_api_key = val,
+                                            "PYMUPDF_PRO_KEY" => self.edit_pymupdf_pro_key = val,
+                                            "GEMINI_AUTH_MODE" => {
+                                                self.edit_gemini_use_vertex = matches!(
+                                                    val.trim().to_ascii_lowercase().as_str(),
+                                                    "vertex" | "vertex_ai" | "vertexai"
+                                                );
+                                            },
+                                            "MINDEE_API_KEY" => self.edit_mindee_api_key = val,
+                                            "LLAMAPARSE_API_KEY" => self.edit_llamaparse_api_key = val,
+                                            "PDFREST_API_KEY" => self.edit_pdfrest_api_key = val,
+                                            "APPLITOOLS_API_KEY" => self.edit_applitools_api_key = val,
+                                            "GROQ_API_KEY" => self.edit_groq_api_key = val,
+                                            "OPENROUTER_API_KEY" => self.edit_openrouter_api_key = val,
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                self.toast(ToastKind::Success, "Imported keys from file");
+                            } else {
+                                self.toast(ToastKind::Error, "Failed to read .env file");
+                            }
+                        }
+                    }
+                });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
                     if ui
                         .button("💾 Save & apply keys")
                         .on_hover_text("Write .env, update the environment, and hot-reload the engine")
