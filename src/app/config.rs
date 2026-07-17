@@ -503,6 +503,12 @@ impl AppConfig {
             interactive_fallbacks: env::var("INTERACTIVE_FALLBACKS")
                 .map(|v| v.to_lowercase() != "false" && v != "0")
                 .unwrap_or(true),
+            transfer_consensus_mode: env::var("TRANSFER_CONSENSUS_MODE")
+                .map(|v| v.to_lowercase() != "false" && v != "0")
+                .unwrap_or(true),
+            auto_match_dpi: env::var("AUTO_MATCH_DPI")
+                .map(|v| v.to_lowercase() != "false" && v != "0")
+                .unwrap_or(false),
         })
     }
 

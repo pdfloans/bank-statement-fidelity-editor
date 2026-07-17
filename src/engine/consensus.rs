@@ -1,11 +1,18 @@
-use crate::engine::model::{StatementResult, Transaction};
+use crate::ai::document_ai::BankStatement;
+use crate::engine::model::Transaction;
 use rust_decimal::Decimal;
 
-/// Takes up to 3 `StatementResult`s from different AI/Offline parsers and 
+/// Takes up to 3 `BankStatement`s from different AI/Offline parsers and 
 /// performs a majority-rule vote to synthesize the most accurate result.
-pub fn merge_consensus_statements(statements: Vec<StatementResult>) -> StatementResult {
+pub fn merge_consensus_statements(statements: Vec<BankStatement>) -> BankStatement {
     if statements.is_empty() {
-        return StatementResult::default();
+        return BankStatement {
+            total_pages: 0,
+            transactions: Vec::new(),
+            opening_balance: Decimal::ZERO,
+            closing_balance: Decimal::ZERO,
+            account_number: None,
+        };
     }
     
     // If only 1 statement, just return it.
@@ -29,13 +36,11 @@ pub fn merge_consensus_statements(statements: Vec<StatementResult>) -> Statement
 
     // For transactions, we will collect all transactions, and group them by (date, amount)
     let mut all_txs: Vec<Transaction> = Vec::new();
-    for s in statements {
+    for s in statements.clone() {
         all_txs.extend(s.transactions);
     }
     
     // Group transactions by simple heuristics to find identical ones across different parses.
-    // In a real advanced consensus engine, we'd use geometric IoU (Intersection over Union).
-    // For this implementation, we will assume transactions with identical (date, debit, credit) are the same.
     let mut grouped_txs: std::collections::HashMap<(String, Option<Decimal>, Option<Decimal>), Vec<Transaction>> = std::collections::HashMap::new();
     for tx in all_txs {
         let key = (tx.date.clone(), tx.debit, tx.credit);
@@ -50,16 +55,14 @@ pub fn merge_consensus_statements(statements: Vec<StatementResult>) -> Statement
         }
     }
     
-    // Sort transactions by date (very rudimentarily) or by page/line
+    // Sort transactions by page/line_on_page
     final_txs.sort_by(|a, b| a.page.cmp(&b.page).then(a.line_on_page.cmp(&b.line_on_page)));
 
-    StatementResult {
+    BankStatement {
         opening_balance: majority_opening,
         closing_balance: majority_closing,
         transactions: final_txs,
         account_number: statements[0].account_number.clone(),
-        bank_name: statements[0].bank_name.clone(),
-        statement_period: statements[0].statement_period.clone(),
         total_pages: statements[0].total_pages,
     }
 }
