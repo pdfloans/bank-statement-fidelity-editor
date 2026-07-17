@@ -316,6 +316,8 @@ pub struct AppConfig {
     pub applitools_api_key: Option<String>,
     /// Whether to prompt the user with a modal during semi-failures for manual fallback selection.
     pub interactive_fallbacks: bool,
+    pub transfer_consensus_mode: bool,
+    pub auto_match_dpi: bool,
 }
 
 impl Default for AppConfig {
@@ -342,6 +344,8 @@ impl Default for AppConfig {
             llamaparse_api_key: None,
             applitools_api_key: None,
             interactive_fallbacks: true,
+            transfer_consensus_mode: true,
+            auto_match_dpi: false,
         }
     }
 }
