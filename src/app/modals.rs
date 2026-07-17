@@ -84,6 +84,7 @@ pub(crate) trait AppModals {
     fn draw_transfer_dialog(&mut self, ctx: &egui::Context);
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context);
     fn draw_ai_confirmation_dialog(&mut self, ctx: &egui::Context);
+    fn draw_interactive_fallback_modal(&mut self, ctx: &egui::Context);
     fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context);
     fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context);
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui);
@@ -623,6 +624,12 @@ impl AppModals for MyApp {
                             .text("attempts"))
                             .on_hover_text("Max visual validation retries with progressive mask widening. Default 5.");
                         ui.end_row();
+
+                        // ── 8. Workflow Settings ──
+                        ui.label("\u{23f8}\u{fe0f} Interactive Fallbacks:");
+                        ui.checkbox(&mut self.settings.interactive_fallbacks, "Pause & prompt on semi-failures")
+                            .on_hover_text("When enabled, the app will pause on non-catastrophic errors (like parsing failure) and prompt you to manually select a fallback strategy or try again.");
+                        ui.end_row();
                     });
 
                 // ── Unified availability warnings ──
@@ -1030,6 +1037,57 @@ impl AppModals for MyApp {
                 let _ = crate::engine::ai_confirm::log_learning_response(&confirmation, &response);
                 let _ = self.job_tx.send(Job::AiConfirmationResponse(response));
                 self.pending_ai_confirmations.remove(0);
+            }
+        }
+    }
+
+    fn draw_interactive_fallback_modal(&mut self, ctx: &egui::Context) {
+        if let Some(req) = self.pending_interactive_fallback.clone() {
+            let mut keep_open = true;
+            let mut resolved_choice: Option<String> = None;
+
+            egui::Window::new(format!("⚠️ Interactive Fallback: {}", req.stage))
+                .open(&mut keep_open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.0;
+
+                    ui.label("An operation could not be completed successfully.");
+                    ui.label(egui::RichText::new(&req.error_details).color(egui::Color32::RED));
+                    ui.add_space(10.0);
+                    
+                    ui.heading("Would you like to try again using an alternative?");
+                    ui.add_space(5.0);
+
+                    for alt in &req.alternatives {
+                        let btn_text = egui::RichText::new(&alt.label).strong().size(14.0);
+                        if ui.add_sized([ui.available_width(), 36.0], egui::Button::new(btn_text)).clicked() {
+                            resolved_choice = Some(alt.id.clone());
+                        }
+                        if let Some(desc) = &alt.description {
+                            ui.small(egui::RichText::new(desc).color(ui.visuals().weak_text_color()));
+                        }
+                        ui.add_space(4.0);
+                    }
+                });
+
+            if !keep_open {
+                // If user clicks the 'X' to close, treat it as a cancellation if possible.
+                // We'll just route a generic 'cancel' or fallback ID if we can't do anything else.
+                // Alternatively, force them to pick a button by hiding the close button, but `open` gives a close button.
+                // It's safer to have a dedicated Cancel button. If they force close, we can return 'cancel'.
+                resolved_choice = Some("cancel".to_string());
+            }
+
+            if let Some(choice_id) = resolved_choice {
+                let response = crate::engine::interactive_fallback::InteractiveFallbackResponse {
+                    id: req.id,
+                    selected_alternative_id: choice_id,
+                };
+                let _ = self.job_tx.send(crate::app::runtime::Job::InteractiveFallbackResponse(response));
+                self.pending_interactive_fallback = None;
             }
         }
     }
@@ -1551,6 +1609,9 @@ impl AppModals for MyApp {
         }
         if !self.pending_ai_confirmations.is_empty() {
             self.draw_ai_confirmation_dialog(ctx);
+        }
+        if self.pending_interactive_fallback.is_some() {
+            self.draw_interactive_fallback_modal(ctx);
         }
         if self.show_workflow_hitl_modal {
             self.draw_workflow_hitl_modal(ctx);

@@ -329,6 +329,7 @@ pub enum Job {
     },
     /// User's response to an AI confirmation question.
     AiConfirmationResponse(crate::engine::ai_confirm::AiConfirmationResponse),
+    InteractiveFallbackResponse(crate::engine::interactive_fallback::InteractiveFallbackResponse),
     /// Run cross-statement transfer tests on a set of PDFs.
     RunTransferTests {
         statements: Vec<PathBuf>,
@@ -462,6 +463,7 @@ pub enum JobResult {
 
     // ----- AI Confirmation -------------------------------------------------
     AiConfirmationNeeded(crate::engine::ai_confirm::AiConfirmation),
+    InteractiveFallbackRequired(crate::engine::interactive_fallback::InteractiveFallbackRequest),
 
     // ----- Transfer Test Harness -------------------------------------------
     TransferTestsComplete(crate::engine::transfer_test_harness::TestHarnessReport),
@@ -759,6 +761,7 @@ impl Runtime {
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
             let mut segment_manager: Option<SegmentManager> = None;
+            let fallback_router: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, tokio::sync::oneshot::Sender<String>>>> = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
             while let Some(job) = tokio_job_rx.recv().await {
                 // Re-snapshot the (possibly hot-reloaded) config for this job.
@@ -916,6 +919,7 @@ impl Runtime {
                         let cfg = config_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
+                        let router = fallback_router.clone();
                         tokio::spawn(async move {
                             use crate::engine::transfer::*;
 
@@ -1974,6 +1978,16 @@ impl Runtime {
                             &response,
                         );
                     }
+                    Job::InteractiveFallbackResponse(response) => {
+                        let id = response.id;
+                        let router = fallback_router.clone();
+                        tokio::spawn(async move {
+                            let mut map = router.lock().await;
+                            if let Some(tx) = map.remove(&id) {
+                                let _ = tx.send(response.selected_alternative_id);
+                            }
+                        });
+                    }
                     Job::AiCommand { prompt, path: _ } => {
                         let res_tx = result_tx_clone.clone();
                         tokio::spawn(async move {
@@ -2004,6 +2018,7 @@ impl Runtime {
                         let cfg = config_for_tokio.clone();
                         let _py_tx = python_tx_clone.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
+                        let router = fallback_router.clone();
                         tokio::spawn(async move {
                             use crate::engine::transfer_test_harness::*;
 
@@ -3491,6 +3506,7 @@ impl Runtime {
                         cfg_override.ai_provider = ai_provider;
                         let cfg = std::sync::Arc::new(cfg_override);
                         let engine_for_tokio = engine_for_tokio.clone();
+                        let router = fallback_router.clone();
                         tokio::spawn(async move {
                             let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                 stage: crate::engine::workflow::WorkflowStage::Parsing,
@@ -3499,414 +3515,200 @@ impl Runtime {
                             // ---€ Tier 1: Determine parsing strategy -------------------€
                             use crate::app::config::DocumentParserMode;
 
-                            let stmt = match parser_mode {
-                                // -- Document AI (online) ----------------------------
-                                DocumentParserMode::DocumentAi => {
-                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
 
-                                    let doc_ai_result = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg);
-                                    match doc_ai_result {
-                                        Ok(client) => {
-                                            let doc_ai = std::sync::Arc::new(client);
-
-                                            // Page count for smart batching
-                                            let page_count = {
-                                                let p = input.clone();
-                                                tokio::task::spawn_blocking(move || -> usize {
-                                                    use pdfium_render::prelude::Pdfium;
-                                                    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-                                                        .or_else(|_| Pdfium::bind_to_system_library());
-                                                    let pdfium = match bindings {
-                                                        Ok(b) => Pdfium::new(b),
-                                                        Err(e) => {
-                                                            tracing::error!("Failed to bind Pdfium: {}", e);
-                                                            return 0;
-                                                        }
-                                                    };
-                                                    pdfium
-                                                        .load_pdf_from_file(&p, None)
-                                                        .map(|d| d.pages().len() as usize)
-                                                        .unwrap_or(0)
-                                                })
-                                                .await
-                                                .unwrap_or(0)
-                                            };
-
-                                            let final_version = version.unwrap_or_else(|| "pretrained-bankstatement-v5.0-2023-12-06".to_string());
-                                            let _ = res_tx.send(JobResult::Progress { label: format!("Parsing with {final_version}..."), fraction: 0.4 });
-
-                                            match doc_ai.parse_smart_batch(&input, Some(&final_version), page_count).await {
-                                                Ok(s) => {
-                                                    tracing::info!("[workflow] Parser version {} yielded {} transactions.", final_version, s.transactions.len());
-
-                                                    // Phase 5: Fidelity Check (Strict Math Verification)
-                                                    let mut retail_sum = s.opening_balance;
-                                                    let mut formal_sum = s.opening_balance;
-                                                    for tx in &s.transactions {
-                                                        let d = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                                        let c = tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                                        retail_sum += d - c;
-                                                        formal_sum += c - d;
-                                                    }
-                                                    let expected = s.closing_balance;
-                                                    let retail_diff = (retail_sum - expected).abs();
-                                                    let formal_diff = (formal_sum - expected).abs();
-                                                    let one_cent = rust_decimal_macros::dec!(0.01);
-
-                                                    if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
-                                                        let msg = format!("AI Fidelity Math Check Failed. Expected Closing: {expected}, computed: {retail_sum} (retail) or {formal_sum} (formal).");
-                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
-                                                        return;
-                                                    }
-
-                                                    s
-                                                }
-                                                Err(e) => {
-                                                    // Auto-fallback to Mindee
-                                                    tracing::warn!("[workflow] Document AI parse failed: {e}; falling back to Mindee");
-                                                    let _ = res_tx.send(JobResult::Progress { label: "Document AI failed, falling back to Mindee...".to_string(), fraction: 0.3 });
-                                                    let mut final_s = None;
-                                                    match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
-                                                        Ok(client) => match client.parse_statement(&input).await {
-                                                            Ok(s) => final_s = Some(s),
-                                                            Err(me) => tracing::warn!("Mindee fallback failed: {me}"),
-                                                        }
-                                                        Err(me) => tracing::warn!("Mindee not configured for fallback: {me}"),
-                                                    }
-
-                                                    if let Some(s) = final_s {
-                                                        s
-                                                    } else {
-                                                        tracing::warn!("[workflow] Mindee fallback failed/unavailable; falling back to offline parser");
-                                                        let _ = res_tx.send(JobResult::Progress { label: "Mindee failed, falling back to offline parser...".to_string(), fraction: 0.35 });
-                                                        let eng = engine_for_tokio.clone();
-                                                        let path = input.clone();
-                                                        match tokio::task::spawn_blocking(move || {
-                                                            crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                                        }).await {
-                                                            Ok(Ok(s)) => s,
-                                                            Ok(Err(e2)) => {
-                                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                                    format!("Document AI failed: {e}. Offline fallback also failed: {e2}")
-                                                                )));
-                                                                return;
-                                                            }
-                                                            Err(e2) => {
-                                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                                    format!("Document AI failed: {e}. Offline fallback panicked: {e2}")
-                                                                )));
-                                                                return;
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                            macro_rules! interactive_fallback_or_continue {
+                                ($cfg:expr, $router:expr, $res_tx:expr, $err:expr, $next_parser:expr) => {{
+                                    if $cfg.interactive_fallbacks {
+                                        let mut req = crate::engine::interactive_fallback::InteractiveFallbackRequest::new(
+                                            "Document Parsing",
+                                            $err.to_string(),
+                                        );
+                                        req = req.add_alternative("mindee", "Try Mindee API", None);
+                                        req = req.add_alternative("document_ai", "Try Document AI Again", None);
+                                        req = req.add_alternative("llamaparse", "Try LlamaParse", None);
+                                        req = req.add_alternative("offline_parser", "Fall back to Offline Parser (Local)", None);
+                                        req = req.add_alternative("cancel", "Cancel Workflow", None);
+                                        
+                                        let (tx, rx) = tokio::sync::oneshot::channel();
+                                        {
+                                            let mut map = $router.lock().await;
+                                            map.insert(req.id, tx);
                                         }
-                                        } // closes Ok(client)
-                                        Err(e) => {
-                                            // Document AI not configured - auto-fallback to Mindee
-                                            tracing::warn!("[workflow] Document AI not configured: {e}; auto-falling back to Mindee");
-                                            let _ = res_tx.send(JobResult::Progress { label: "Document AI not configured, trying Mindee...".into(), fraction: 0.3 });
-                                            let mut final_s = None;
-                                            match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
-                                                Ok(client) => match client.parse_statement(&input).await {
-                                                    Ok(s) => final_s = Some(s),
-                                                    Err(me) => tracing::warn!("Mindee fallback failed: {me}"),
-                                                }
-                                                Err(me) => tracing::warn!("Mindee not configured for fallback: {me}"),
-                                            }
-
-                                            if let Some(s) = final_s {
-                                                s
-                                            } else {
-                                                tracing::warn!("[workflow] Mindee fallback failed/unavailable; falling back to offline parser");
-                                                let _ = res_tx.send(JobResult::Progress { label: "Mindee not configured, using offline parser...".into(), fraction: 0.35 });
-                                                let eng = engine_for_tokio.clone();
-                                                let path = input.clone();
-                                                match tokio::task::spawn_blocking(move || {
-                                                    crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                                }).await {
-                                                    Ok(Ok(s)) => s,
-                                                    Ok(Err(e2)) => {
-                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                            format!("Document AI not configured ({e}) and offline parser failed: {e2}")
-                                                        )));
-                                                        return;
-                                                    }
-                                                    Err(e2) => {
-                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                            format!("Offline parser panicked: {e2}")
-                                                        )));
-                                                        return;
-                                                    }
-                                                }
-                                            }
+                                        let _ = $res_tx.send(JobResult::InteractiveFallbackRequired(req));
+                                        let choice = rx.await.unwrap_or_else(|_| "cancel".to_string());
+                                        match choice.as_str() {
+                                            "mindee" => Some(DocumentParserMode::MindeeFinDoc),
+                                            "document_ai" => Some(DocumentParserMode::DocumentAi),
+                                            "llamaparse" => Some(DocumentParserMode::LlamaParse),
+                                            "offline_parser" => Some(DocumentParserMode::PyMuPdfBuiltin),
+                                            _ => None,
                                         }
+                                    } else {
+                                        Some($next_parser)
                                     }
-                                }
+                                }};
+                            }
 
-                                // -- Mindee Financial Document (online) --------------
-                                // ── LlamaParse (online) ──────────────
-                                DocumentParserMode::LlamaParse => {
-                                    let mut final_stmt = None;
-                                    let mut errors = Vec::new();
-
-                                    // 1. Try LlamaParse
-                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
-                                    match crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
-                                        Ok(client) => match client.parse_statement(&input).await {
-                                            Ok(s) => final_stmt = Some(s),
-                                            Err(e) => errors.push(format!("LlamaParse failed: {}", e)),
-                                        },
-                                        Err(e) => errors.push(format!("LlamaParse not configured: {}", e)),
-                                    }
-
-                                    // 2. Try DocumentAI
-                                    if final_stmt.is_none() {
-                                        let _ = res_tx.send(JobResult::Progress { label: "Falling back to Document AI...".into(), fraction: 0.3 });
-                                        let page_count = {
-                                            let p = input.clone();
-                                            tokio::task::spawn_blocking(move || -> usize {
-                                                use pdfium_render::prelude::Pdfium;
-                                                let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./")).or_else(|_| Pdfium::bind_to_system_library());
-                                                match bindings { Ok(b) => Pdfium::new(b).load_pdf_from_file(&p, None).map(|d| d.pages().len() as usize).unwrap_or(0), Err(_) => 0 }
-                                            }).await.unwrap_or(0)
-                                        };
+                            let mut current_parser_mode = parser_mode.clone();
+                            let stmt = loop {
+                                match current_parser_mode {
+                                    DocumentParserMode::DocumentAi => {
+                                        let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
                                         match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                             Ok(client) => {
                                                 let doc_ai = std::sync::Arc::new(client);
+                                                let page_count = {
+                                                    let p = input.clone();
+                                                    tokio::task::spawn_blocking(move || -> usize {
+                                                        use pdfium_render::prelude::Pdfium;
+                                                        let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./")).or_else(|_| Pdfium::bind_to_system_library());
+                                                        match bindings { Ok(b) => Pdfium::new(b).load_pdf_from_file(&p, None).map(|d| d.pages().len() as usize).unwrap_or(0), Err(_) => 0 }
+                                                    }).await.unwrap_or(0)
+                                                };
                                                 let final_version = version.clone().unwrap_or_else(|| "pretrained-bankstatement-v5.0-2023-12-06".to_string());
                                                 match doc_ai.parse_smart_batch(&input, Some(&final_version), page_count).await {
-                                                    Ok(s) => final_stmt = Some(s),
-                                                    Err(e) => errors.push(format!("DocumentAI failed: {}", e)),
+                                                    Ok(s) => {
+                                                        let mut retail_sum = s.opening_balance;
+                                                        let mut formal_sum = s.opening_balance;
+                                                        for tx in &s.transactions {
+                                                            retail_sum += tx.debit.unwrap_or(rust_decimal::Decimal::ZERO) - tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                                            formal_sum += tx.credit.unwrap_or(rust_decimal::Decimal::ZERO) - tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
+                                                        }
+                                                        let expected = s.closing_balance;
+                                                        let retail_diff = (retail_sum - expected).abs();
+                                                        let formal_diff = (formal_sum - expected).abs();
+                                                        let one_cent = rust_decimal_macros::dec!(0.01);
+                                                        if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
+                                                            if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, "AI Fidelity Math Check Failed", DocumentParserMode::MindeeFinDoc) {
+                                                                current_parser_mode = next;
+                                                                continue;
+                                                            } else {
+                                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed("Math check failed".into())));
+                                                                return;
+                                                            }
+                                                        }
+                                                        break s;
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::warn!("[workflow] Document AI parse failed: {e}");
+                                                        if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI parse failed: {e}"), DocumentParserMode::MindeeFinDoc) {
+                                                            current_parser_mode = next;
+                                                            continue;
+                                                        } else {
+                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
+                                                            return;
+                                                        }
+                                                    }
                                                 }
                                             }
-                                            Err(e) => errors.push(format!("DocumentAI not configured: {}", e)),
+                                            Err(e) => {
+                                                tracing::warn!("[workflow] Document AI not configured: {e}");
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI not configured: {e}"), DocumentParserMode::MindeeFinDoc) {
+                                                    current_parser_mode = next;
+                                                    continue;
+                                                } else {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
+                                                    return;
+                                                }
+                                            }
                                         }
                                     }
-
-                                    // 3. Try Mindee
-                                    if final_stmt.is_none() {
-                                        let _ = res_tx.send(JobResult::Progress { label: "Falling back to Mindee...".into(), fraction: 0.4 });
+                                    DocumentParserMode::MindeeFinDoc => {
+                                        let _ = res_tx.send(JobResult::Progress { label: "Parsing with Mindee...".into(), fraction: 0.3 });
                                         match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
                                             Ok(client) => match client.parse_statement(&input).await {
-                                                Ok(s) => final_stmt = Some(s),
-                                                Err(e) => errors.push(format!("Mindee failed: {}", e)),
+                                                Ok(s) => break s,
+                                                Err(e) => {
+                                                    tracing::warn!("[workflow] Mindee parse failed: {e}");
+                                                    if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee parse failed: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                        current_parser_mode = next;
+                                                        continue;
+                                                    } else {
+                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
+                                                        return;
+                                                    }
+                                                }
                                             }
-                                            Err(e) => errors.push(format!("Mindee not configured: {}", e)),
+                                            Err(e) => {
+                                                tracing::warn!("[workflow] Mindee not configured: {e}");
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee not configured: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                    current_parser_mode = next;
+                                                    continue;
+                                                } else {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
+                                                    return;
+                                                }
+                                            }
                                         }
                                     }
-
-                                    // 4. Try Offline Parser
-                                    let s = if let Some(stmt) = final_stmt {
-                                        stmt
-                                    } else {
-                                        let _ = res_tx.send(JobResult::Progress { label: "Falling back to offline parser...".into(), fraction: 0.5 });
+                                    DocumentParserMode::LlamaParse => {
+                                        let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
+                                        match crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
+                                            Ok(client) => match client.parse_statement(&input).await {
+                                                Ok(s) => break s,
+                                                Err(e) => {
+                                                    tracing::warn!("[workflow] LlamaParse parse failed: {e}");
+                                                    if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("LlamaParse parse failed: {e}"), DocumentParserMode::DocumentAi) {
+                                                        current_parser_mode = next;
+                                                        continue;
+                                                    } else {
+                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
+                                                        return;
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("[workflow] LlamaParse not configured: {e}");
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("LlamaParse not configured: {e}"), DocumentParserMode::DocumentAi) {
+                                                    current_parser_mode = next;
+                                                    continue;
+                                                } else {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    DocumentParserMode::PyMuPdfBuiltin => {
+                                        let _ = res_tx.send(JobResult::Progress { label: "Parsing with Offline Parser...".into(), fraction: 0.35 });
                                         let eng = engine_for_tokio.clone();
                                         let path = input.clone();
                                         match tokio::task::spawn_blocking(move || {
                                             crate::engine::offline_parser::parse_statement_offline(&path, eng)
                                         }).await {
-                                            Ok(Ok(s)) => s,
+                                            Ok(Ok(s)) => break s,
                                             Ok(Err(e)) => {
-                                                errors.push(format!("Offline parser failed: {}", e));
-                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(errors.join(" | "))));
-                                                return;
+                                                tracing::warn!("[workflow] Offline parser failed: {e}");
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Offline parser failed: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                    current_parser_mode = next;
+                                                    continue;
+                                                } else {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e)));
+                                                    return;
+                                                }
                                             }
                                             Err(e) => {
-                                                errors.push(format!("Offline parser panicked: {}", e));
-                                                let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(errors.join(" | "))));
-                                                return;
+                                                let e_str = e.to_string();
+                                                tracing::warn!("[workflow] Offline parser panicked: {e}");
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Offline parser panicked: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                    current_parser_mode = next;
+                                                    continue;
+                                                } else {
+                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(e_str)));
+                                                    return;
+                                                }
                                             }
                                         }
-                                    };
-
-                                    // Phase 5: Fidelity Check
-                                    let mut retail_sum = s.opening_balance;
-                                    let mut formal_sum = s.opening_balance;
-                                    for tx in &s.transactions {
-                                        let d = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                        let c = tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                        retail_sum += d - c;
-                                        formal_sum += c - d;
                                     }
-                                    let expected = s.closing_balance;
-                                    let retail_diff = (retail_sum - expected).abs();
-                                    let formal_diff = (formal_sum - expected).abs();
-                                    let one_cent = rust_decimal_macros::dec!(0.01);
-
-                                    if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
-                                        let msg = format!("AI Fidelity Math Check Failed. Expected Closing: {expected}, computed: {retail_sum} (retail) or {formal_sum} (formal).");
-                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
+                                    _ => {
+                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Unsupported parser mode".into())));
                                         return;
-                                    }
-
-                                    tracing::info!("[workflow] LlamaParse sequence yielded {} transactions.", s.transactions.len());
-                                    let _ = res_tx.send(JobResult::Progress { label: format!("Extracted {} transactions", s.transactions.len()), fraction: 0.6 });
-
-                                    s
-                                }
-
-                                DocumentParserMode::MindeeFinDoc => {
-                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with Mindee (Financial Doc)...".into(), fraction: 0.2 });
-
-                                    match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
-                                        Ok(client) => {
-                                            let _ = res_tx.send(JobResult::Progress { label: "Mindee: uploading document...".into(), fraction: 0.3 });
-
-                                            match client.parse_statement(&input).await {
-                                                Ok(s) => {
-                                                    tracing::info!("[workflow] Mindee yielded {} transactions.", s.transactions.len());
-                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Mindee: {} transactions extracted", s.transactions.len()), fraction: 0.6 });
-
-                                                    // Phase 5: Fidelity Check (Strict Math Verification)
-                                                    let mut retail_sum = s.opening_balance;
-                                                    let mut formal_sum = s.opening_balance;
-                                                    for tx in &s.transactions {
-                                                        let d = tx.debit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                                        let c = tx.credit.unwrap_or(rust_decimal::Decimal::ZERO);
-                                                        retail_sum += d - c;
-                                                        formal_sum += c - d;
-                                                    }
-                                                    let expected = s.closing_balance;
-                                                    let retail_diff = (retail_sum - expected).abs();
-                                                    let formal_diff = (formal_sum - expected).abs();
-                                                    let one_cent = rust_decimal_macros::dec!(0.01);
-
-                                                    if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
-                                                        let msg = format!("Mindee Fidelity Math Check Failed. Expected Closing: {expected}, computed: {retail_sum} (retail) or {formal_sum} (formal).");
-                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::FidelityCheckFailed(msg)));
-                                                        return;
-                                                    }
-
-                                                    s
-                                                }
-                                                Err(e) => {
-                                                    // Auto-fallback to offline parsing
-                                                    tracing::warn!("[workflow] Mindee parse failed: {e}; falling back to offline parser");
-                                                    let _ = res_tx.send(JobResult::Progress { label: format!("Mindee failed ({e}), falling back to offline parser..."), fraction: 0.3 });
-
-                                                    let eng = engine_for_tokio.clone();
-                                                    let path = input.clone();
-                                                    match tokio::task::spawn_blocking(move || {
-                                                        crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                                    }).await {
-                                                        Ok(Ok(s)) => s,
-                                                        Ok(Err(e2)) => {
-                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                                format!("Mindee failed: {e}. Offline fallback also failed: {e2}")
-                                                            )));
-                                                            return;
-                                                        }
-                                                        Err(e2) => {
-                                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                                format!("Mindee failed: {e}. Offline fallback panicked: {e2}")
-                                                            )));
-                                                            return;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            // Mindee not configured - auto-fallback to offline
-                                            tracing::warn!("[workflow] Mindee not configured: {e}; auto-falling back to offline parser");
-                                            let _ = res_tx.send(JobResult::Progress { label: "Mindee not configured, using offline parser...".into(), fraction: 0.3 });
-
-                                            let eng = engine_for_tokio.clone();
-                                            let path = input.clone();
-                                            match tokio::task::spawn_blocking(move || {
-                                                crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                            }).await {
-                                                Ok(Ok(s)) => s,
-                                                Ok(Err(e2)) => {
-                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                        format!("Mindee not configured ({e}) and offline parser failed: {e2}")
-                                                    )));
-                                                    return;
-                                                }
-                                                Err(e2) => {
-                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                        format!("Offline parser panicked: {e2}")
-                                                    )));
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // -- PyMuPDF built-in (offline) ----------------------
-                                DocumentParserMode::PyMuPdfBuiltin => {
-                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with PyMuPDF (offline)...".into(), fraction: 0.3 });
-                                    let eng = engine_for_tokio.clone();
-                                    let path = input.clone();
-                                    match tokio::task::spawn_blocking(move || {
-                                        crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                    }).await {
-                                        Ok(Ok(s)) => s,
-                                        Ok(Err(e)) => {
-                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                format!("Offline parser failed: {e}")
-                                            )));
-                                            return;
-                                        }
-                                        Err(e) => {
-                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                format!("Offline parser panicked: {e}")
-                                            )));
-                                            return;
-                                        }
-                                    }
-                                }
-
-                                // -- Local OCR (ocrs, offline, feature-gated) --------
-                                DocumentParserMode::LocalOcrs => {
-                                    let _ = res_tx.send(JobResult::Progress { label: "Parsing with Local OCR (ocrs)...".into(), fraction: 0.3 });
-
-                                    // Try ocrs first, fallback to PyMuPDF text extraction
-                                    let eng = engine_for_tokio.clone();
-                                    let path = input.clone();
-                                    match tokio::task::spawn_blocking(move || {
-                                        // First try OCR-based extraction
-                                        let ocrs_result = {
-                                            let ocr_engine = crate::extractors::OcrsEngine::new(
-                                                crate::extractors::ocrs_engine::OcrsConfig::default(),
-                                            );
-                                            use crate::extractors::GeometryProvider;
-                                            ocr_engine.extract_line_geometry(&path)
-                                        };
-
-                                        match ocrs_result {
-                                            Ok(geometries) if !geometries.is_empty() => {
-                                                let total_pages = geometries.iter().map(|g| g.page).max().unwrap_or(0) + 1;
-                                                crate::engine::offline_parser::parse_statement_from_geometry(&geometries, total_pages)
-                                            }
-                                            Ok(_) | Err(_) => {
-                                                // OCR produced nothing or failed - fallback to text layer
-                                                tracing::warn!("[workflow] LocalOCR produced no results; falling back to PyMuPDF text extraction");
-                                                crate::engine::offline_parser::parse_statement_offline(&path, eng)
-                                            }
-                                        }
-                                    }).await {
-                                        Ok(Ok(s)) => s,
-                                        Ok(Err(e)) => {
-                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                format!("Local OCR + offline parser failed: {e}")
-                                            )));
-                                            return;
-                                        }
-                                        Err(e) => {
-                                            let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed(
-                                                format!("Local OCR panicked: {e}")
-                                            )));
-                                            return;
-                                        }
                                     }
                                 }
                             };
 
-                            // ---€ AI Completeness Validation ---------------------------€
-                            // If AI provider is ManualOnly, skip Gemini validation entirely
+
+
                             use crate::app::config::AiProviderMode;
 
                             let (score, notes, missing, _math_ok) = match ai_provider {

@@ -323,6 +323,8 @@ pub struct AppSettings {
     /// the result even if the threshold is not met. Default 5.
     #[serde(default = "default_max_visual_attempts")]
     pub max_visual_attempts: u32,
+    #[serde(default = "default_true")]
+    pub interactive_fallbacks: bool,
 }
 
 /// serde default for `three_page_mode`. NOTE: a bare `#[serde(default)]`
@@ -361,6 +363,7 @@ impl Default for AppSettings {
             verification_renderer: crate::app::config::VerificationMode::default(),
             visual_diff_threshold: default_visual_threshold(),
             max_visual_attempts: default_max_visual_attempts(),
+            interactive_fallbacks: true,
         }
     }
 }
@@ -521,6 +524,8 @@ pub struct MyApp {
     pub date_adjust_to: String,
     // AI Confirmation dialog state
     pub pending_ai_confirmations: Vec<crate::engine::ai_confirm::AiConfirmation>,
+    // Interactive Fallback state
+    pub pending_interactive_fallback: Option<crate::engine::interactive_fallback::InteractiveFallbackRequest>,
     // Transfer Test dialog state
     pub show_transfer_test_dialog: bool,
     pub transfer_test_paths: Vec<String>,
@@ -681,6 +686,7 @@ impl MyApp {
             date_adjust_from: String::new(),
             date_adjust_to: String::new(),
             pending_ai_confirmations: Vec::new(),
+            pending_interactive_fallback: None,
             show_transfer_test_dialog: false,
             transfer_test_paths: Vec::new(),
             transfer_test_report: None,
@@ -751,6 +757,7 @@ impl MyApp {
         // Seed AI_PROVIDER from persisted settings so the runtime AppConfig
         // snapshot picks it up on the initial ReloadConfig below.
         std::env::set_var("AI_PROVIDER", app.settings.ai_provider.env_token());
+        std::env::set_var("INTERACTIVE_FALLBACKS", if app.settings.interactive_fallbacks { "true" } else { "false" });
 
         // Dispatch a one-time ReloadConfig so the runtime's config_holder
         // picks up the persisted provider + any env vars seeded above.
@@ -854,6 +861,14 @@ impl MyApp {
             (
                 "AI_PROVIDER",
                 self.settings.ai_provider.env_token().to_string(),
+            ),
+            (
+                "INTERACTIVE_FALLBACKS",
+                if self.settings.interactive_fallbacks {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                },
             ),
         ];
 
@@ -2050,6 +2065,9 @@ impl MyApp {
             }
             JobResult::AiConfirmationNeeded(confirmation) => {
                 self.pending_ai_confirmations.push(confirmation);
+            }
+            JobResult::InteractiveFallbackRequired(req) => {
+                self.pending_interactive_fallback = Some(req);
             }
             JobResult::TransferTestsComplete(report) => {
                 self.progress = None;

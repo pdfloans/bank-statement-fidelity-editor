@@ -314,6 +314,8 @@ pub struct AppConfig {
     pub engine_mode: PdfEngineMode,
     pub llamaparse_api_key: Option<String>,
     pub applitools_api_key: Option<String>,
+    /// Whether to prompt the user with a modal during semi-failures for manual fallback selection.
+    pub interactive_fallbacks: bool,
 }
 
 impl Default for AppConfig {
@@ -339,6 +341,7 @@ impl Default for AppConfig {
             engine_mode: PdfEngineMode::Auto,
             llamaparse_api_key: None,
             applitools_api_key: None,
+            interactive_fallbacks: true,
         }
     }
 }
@@ -493,6 +496,9 @@ impl AppConfig {
                 "dual" | "dual_concurrent" => PdfEngineMode::DualConcurrent,
                 _ => PdfEngineMode::Auto,
             },
+            interactive_fallbacks: env::var("INTERACTIVE_FALLBACKS")
+                .map(|v| v.to_lowercase() != "false" && v != "0")
+                .unwrap_or(true),
         })
     }
 

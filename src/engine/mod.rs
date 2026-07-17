@@ -5,6 +5,7 @@ pub mod font_analysis;
 pub mod font_replication;
 pub mod font_shaping;
 pub mod history;
+pub mod interactive_fallback;
 pub mod layout;
 pub mod model;
 pub mod number_format;
