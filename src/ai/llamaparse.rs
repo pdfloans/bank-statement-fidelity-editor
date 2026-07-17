@@ -155,10 +155,18 @@ impl LlamaParseClient {
                         if attempt == max_attempts {
                             return Err(LlamaParseError::Api(status, text));
                         }
-                        tracing::warn!("[llamaparse] Upload failed (attempt {}): HTTP {} - {}", attempt, status, text);
+                        tracing::warn!(
+                            "[llamaparse] Upload failed (attempt {}): HTTP {} - {}",
+                            attempt,
+                            status,
+                            text
+                        );
                     } else {
                         let upload_resp: UploadResponse = resp.json().await.map_err(|e| {
-                            LlamaParseError::ExtractionFailed(format!("Failed to parse upload response: {}", e))
+                            LlamaParseError::ExtractionFailed(format!(
+                                "Failed to parse upload response: {}",
+                                e
+                            ))
                         })?;
                         return Ok(upload_resp.id);
                     }
@@ -167,7 +175,11 @@ impl LlamaParseClient {
                     if attempt == max_attempts {
                         return Err(e.into());
                     }
-                    tracing::warn!("[llamaparse] Upload network error (attempt {}): {}", attempt, e);
+                    tracing::warn!(
+                        "[llamaparse] Upload network error (attempt {}): {}",
+                        attempt,
+                        e
+                    );
                 }
             }
 
@@ -175,7 +187,9 @@ impl LlamaParseClient {
             delay_ms *= 2;
         }
 
-        Err(LlamaParseError::ExtractionFailed("Upload retries exhausted".into()))
+        Err(LlamaParseError::ExtractionFailed(
+            "Upload retries exhausted".into(),
+        ))
     }
 
     async fn poll_until_complete(&self, job_id: &str) -> Result<(), LlamaParseError> {
@@ -194,7 +208,11 @@ impl LlamaParseClient {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    tracing::warn!("[llamaparse] Network error polling job (attempt {}): {}", attempt, e);
+                    tracing::warn!(
+                        "[llamaparse] Network error polling job (attempt {}): {}",
+                        attempt,
+                        e
+                    );
                     delay_ms = (delay_ms * 2).min(10000);
                     continue;
                 }
@@ -206,7 +224,12 @@ impl LlamaParseClient {
                 if attempt == MAX_POLL_ATTEMPTS {
                     return Err(LlamaParseError::Api(status, text));
                 }
-                tracing::warn!("[llamaparse] Poll failed (attempt {}): HTTP {} - {}", attempt, status, text);
+                tracing::warn!(
+                    "[llamaparse] Poll failed (attempt {}): HTTP {} - {}",
+                    attempt,
+                    status,
+                    text
+                );
                 delay_ms = (delay_ms * 2).min(10000);
                 continue;
             }
@@ -251,7 +274,11 @@ impl LlamaParseClient {
                     if attempt == 3 {
                         return Err(e.into());
                     }
-                    tracing::warn!("[llamaparse] Network error fetching markdown (attempt {}): {}", attempt, e);
+                    tracing::warn!(
+                        "[llamaparse] Network error fetching markdown (attempt {}): {}",
+                        attempt,
+                        e
+                    );
                     tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                     delay_ms *= 2;
                     continue;
@@ -264,20 +291,30 @@ impl LlamaParseClient {
                 if attempt == 3 {
                     return Err(LlamaParseError::Api(status, text));
                 }
-                tracing::warn!("[llamaparse] Fetch failed (attempt {}): HTTP {} - {}", attempt, status, text);
+                tracing::warn!(
+                    "[llamaparse] Fetch failed (attempt {}): HTTP {} - {}",
+                    attempt,
+                    status,
+                    text
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 delay_ms *= 2;
                 continue;
             }
 
             let md_resp: MarkdownResponse = resp.json().await.map_err(|e| {
-                LlamaParseError::ExtractionFailed(format!("Failed to parse markdown response: {}", e))
+                LlamaParseError::ExtractionFailed(format!(
+                    "Failed to parse markdown response: {}",
+                    e
+                ))
             })?;
 
             return Ok(md_resp.markdown);
         }
-        
-        Err(LlamaParseError::ExtractionFailed("Fetch retries exhausted".into()))
+
+        Err(LlamaParseError::ExtractionFailed(
+            "Fetch retries exhausted".into(),
+        ))
     }
 
     fn parse_markdown_to_statement(

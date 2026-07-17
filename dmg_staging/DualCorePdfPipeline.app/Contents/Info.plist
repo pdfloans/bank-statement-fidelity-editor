@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Dual Core PDF Pipeline</string>
+  <key>CFBundleDisplayName</key>
+  <string>Dual Core PDF Pipeline</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.maryjpww-star.dual-core-pdf-pipeline</string>
+  <key>CFBundleVersion</key>
+  <string>1.0.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.0</string>
+  <key>CFBundleExecutable</key>
+  <string>DualCorePdfPipeline</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>LSArchitecturePriority</key>
+  <array>
+    <string>arm64</string>
+  </array>
+</dict>
+</plist>
+EOF && echo 'APP CREATED' && ls -la DualCorePdfPipeline.app/Contents/MacOS && mkdir -p dmg_staging && rm -rf dmg_staging/* && cp -R DualCorePdfPipeline.app dmg_staging/ && ln -sf /Applications dmg_staging/Applications && hdiutil create -volname "DualCorePdfPipeline" -srcfolder "dmg_staging" -ov -format UDZO "DualCorePdfPipeline-Mac-Silicon.dmg" && echo 'DMG CREATED' && ls -lh DualCorePdfPipeline-Mac-Silicon.dmg

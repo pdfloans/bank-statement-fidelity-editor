@@ -6,8 +6,50 @@ use dual_core_pdf_pipeline::error::exit_code;
 use dual_core_pdf_pipeline::{app, security};
 use std::sync::Arc;
 
+fn load_dotenv() {
+    // Prefer a .env file from the working tree if present.
+    if dotenvy::dotenv().is_ok() {
+        return;
+    }
+
+    let dotenv_candidates = [
+        std::env::var("DOTENV_FILE")
+            .ok()
+            .map(std::path::PathBuf::from),
+        find_bundle_dotenv_path(),
+    ];
+
+    for candidate in dotenv_candidates.iter().flatten() {
+        if candidate.exists() {
+            let _ = dotenvy::from_filename(candidate);
+            return;
+        }
+    }
+}
+
+fn find_bundle_dotenv_path() -> Option<std::path::PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+
+    // Mac app bundle: <App>.app/Contents/MacOS/<executable>
+    if let Some(contents_dir) = exe_dir.parent() {
+        let candidate = contents_dir.join("Resources").join(".env");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    // Fallback: .env next to the executable.
+    let sibling = exe_dir.join(".env");
+    if sibling.exists() {
+        return Some(sibling);
+    }
+
+    None
+}
+
 fn main() {
-    dotenvy::dotenv().ok();
+    load_dotenv();
 
     // Phase 3 - Stage 10: Sentry Integration for Telemetry
     let _sentry = sentry::init((
@@ -23,7 +65,8 @@ fn main() {
         eprintln!("\n❌ Configuration Error\n");
         eprintln!("{e}");
         eprintln!("\n💡 Tip: run `dual-core-pdf-pipeline doctor` to check your full setup,");
-        eprintln!("   or copy .env.example to .env and fill in the required values.\n");
+        eprintln!("   or copy .env.example to .env and fill in the required values.");
+        eprintln!("   On macOS app bundles, place .env into Contents/Resources/.env or launch from the project root.\n");
         std::process::exit(exit_code::CONFIG);
     }));
 

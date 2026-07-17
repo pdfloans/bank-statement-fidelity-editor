@@ -894,7 +894,78 @@ impl MyApp {
         }
     }
 
+    pub fn last_toast(&self) -> Option<&Toast> {
+        self.toasts.back()
+    }
 
+    /// G2: Build a real `.tar.gz` artifact bundle containing the input PDF,
+    /// edited output PDF, audit log, and change history JSON.
+    pub fn build_artifact_bundle(
+        input_path: &str,
+        output_path: &std::path::Path,
+        bundle_path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::fs::File;
+
+        let gz_file = File::create(bundle_path)?;
+        let enc = GzEncoder::new(gz_file, Compression::default());
+        let mut ar = tar::Builder::new(enc);
+
+        // Add input PDF if it exists
+        let input = std::path::Path::new(input_path);
+        if input.exists() {
+            ar.append_path_with_name(
+                input,
+                format!(
+                    "bundle/{}",
+                    input.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            )?;
+        }
+
+        // Add edited output PDF if it exists
+        if output_path.exists() {
+            ar.append_path_with_name(
+                output_path,
+                format!(
+                    "bundle/{}",
+                    output_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                ),
+            )?;
+        }
+
+        // Add audit log if it exists
+        let audit_dir = std::path::Path::new("audit");
+        if audit_dir.exists() {
+            for entry in std::fs::read_dir(audit_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    ar.append_path_with_name(
+                        &path,
+                        format!(
+                            "bundle/audit/{}",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        ),
+                    )?;
+                }
+            }
+        }
+
+        // Add change history JSON if it exists
+        let history_path = std::path::Path::new("audit/change_history.json");
+        if history_path.exists() {
+            ar.append_path_with_name(history_path, "bundle/change_history.json")?;
+        }
+
+        ar.into_inner()?.finish()?;
+        Ok(())
+    }
 
     /// Pair edited PDFs with their corresponding originals for batch verification.
     ///
@@ -1014,76 +1085,6 @@ impl MyApp {
         let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
         Some(ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR))
     }
-    /// G2: Build a real `.tar.gz` artifact bundle containing the input PDF,
-    /// edited output PDF, audit log, and change history JSON.
-    #[allow(dead_code)]
-    fn build_artifact_bundle(
-        input_path: &str,
-        output_path: &std::path::Path,
-        bundle_path: &std::path::Path,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        use flate2::write::GzEncoder;
-        use flate2::Compression;
-        use std::fs::File;
-
-        let gz_file = File::create(bundle_path)?;
-        let enc = GzEncoder::new(gz_file, Compression::default());
-        let mut ar = tar::Builder::new(enc);
-
-        // Add input PDF if it exists
-        let input = std::path::Path::new(input_path);
-        if input.exists() {
-            ar.append_path_with_name(
-                input,
-                format!(
-                    "bundle/{}",
-                    input.file_name().unwrap_or_default().to_string_lossy()
-                ),
-            )?;
-        }
-
-        // Add edited output PDF if it exists
-        if output_path.exists() {
-            ar.append_path_with_name(
-                output_path,
-                format!(
-                    "bundle/{}",
-                    output_path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                ),
-            )?;
-        }
-
-        // Add audit log if it exists
-        let audit_dir = std::path::Path::new("audit");
-        if audit_dir.exists() {
-            for entry in std::fs::read_dir(audit_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    ar.append_path_with_name(
-                        &path,
-                        format!(
-                            "bundle/audit/{}",
-                            path.file_name().unwrap_or_default().to_string_lossy()
-                        ),
-                    )?;
-                }
-            }
-        }
-
-        // Add change history JSON if it exists
-        let history_path = std::path::Path::new("audit/change_history.json");
-        if history_path.exists() {
-            ar.append_path_with_name(history_path, "bundle/change_history.json")?;
-        }
-
-        ar.into_inner()?.finish()?;
-        Ok(())
-    }
-
     pub fn export_to_excel(&mut self) {
         let result: Result<(), Box<dyn std::error::Error>> = (|| {
             let mut workbook = rust_xlsxwriter::Workbook::new();
@@ -1518,7 +1519,10 @@ impl MyApp {
                 let input = std::path::PathBuf::from(&self.input_path);
                 let output = input.with_extension("reconstructed.pdf");
                 self.in_flight += 1;
-                if let Err(e) = self.job_tx.send(crate::app::runtime::Job::TypstReconstruct { input, output }) {
+                if let Err(e) = self
+                    .job_tx
+                    .send(crate::app::runtime::Job::TypstReconstruct { input, output })
+                {
                     tracing::error!("Failed to send TypstReconstruct job: {}", e);
                 }
             }
@@ -1727,7 +1731,13 @@ impl MyApp {
                 );
             }
             JobResult::ReconstructComplete { output_path } => {
-                self.toast(ToastKind::Success, format!("Typst Reconstruction Complete! Output saved to: {:?}", output_path));
+                self.toast(
+                    ToastKind::Success,
+                    format!(
+                        "Typst Reconstruction Complete! Output saved to: {:?}",
+                        output_path
+                    ),
+                );
             }
             JobResult::VerificationReport(report) => {
                 self.last_verification = Some(report.clone());
@@ -1822,10 +1832,12 @@ impl MyApp {
                 self.status = format!("Workflow: {}", stage.label());
                 self.workflow_stage = stage.clone();
                 match &stage {
-                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { .. } |
-                    crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning { .. } |
-                    crate::engine::workflow::WorkflowStage::FontCoverageWarning { .. } |
-                    crate::engine::workflow::WorkflowStage::OfflineFallbackWarning => {
+                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { .. }
+                    | crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning {
+                        ..
+                    }
+                    | crate::engine::workflow::WorkflowStage::FontCoverageWarning { .. }
+                    | crate::engine::workflow::WorkflowStage::OfflineFallbackWarning => {
                         self.show_workflow_hitl_modal = true;
                     }
                     _ => {}
@@ -2177,7 +2189,9 @@ impl MyApp {
                         ),
                         egui::Sense::click(),
                     );
-                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &btn_text));
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &btn_text)
+                    });
 
                     // Hover animation
                     let hover_factor =
@@ -2862,8 +2876,6 @@ impl MyApp {
             });
     }
 
-
-
     /// Generate a safe output path that never overwrites the input.
     pub fn safe_output_path(input: &std::path::Path, suffix: &str) -> std::path::PathBuf {
         let stem = input.file_stem().unwrap_or_default().to_string_lossy();
@@ -2877,9 +2889,6 @@ impl MyApp {
         }
         candidate
     }
-
-
-
 
     /// Settings -> API keys & credentials editor.
     ///

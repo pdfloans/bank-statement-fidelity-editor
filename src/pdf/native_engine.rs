@@ -288,7 +288,7 @@ mod pdfium_resolver {
 
         // Use a known stable Pdfium release (chromium/6721)
         let url = format!(
-            "https://github.com/nicely formatted/pdfium-binaries/releases/latest/download/pdfium-{os_tag}.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-{os_tag}.tgz"
         );
 
         tracing::info!("[pdfium] Auto-downloading Pdfium from {}", url);
@@ -607,7 +607,11 @@ impl PdfEngine for OxidizePdfEngine {
                     }
                 }
                 "T*" if in_text => {
-                    let shift = if text_leading == 0.0 { font_size } else { text_leading };
+                    let shift = if text_leading == 0.0 {
+                        font_size
+                    } else {
+                        text_leading
+                    };
                     tlm[5] -= shift;
                     tm = tlm;
                 }
@@ -881,7 +885,11 @@ impl PdfEngine for OxidizePdfEngine {
                         }
                     }
                     "T*" if in_text => {
-                        let shift = if text_leading == 0.0 { font_size } else { text_leading };
+                        let shift = if text_leading == 0.0 {
+                            font_size
+                        } else {
+                            text_leading
+                        };
                         tlm[5] -= shift;
                         tm = tlm;
                     }

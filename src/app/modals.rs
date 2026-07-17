@@ -715,16 +715,20 @@ impl AppModals for MyApp {
                                     page: 1,
                                     dpi: 72.0,
                                     tag: "transfer_source".to_string(),
-                                }) { tracing::error!("Runtime disconnected: {}", e); }
+                                }) {
+                                    tracing::error!("Runtime disconnected: {}", e);
+                                }
                                 self.in_flight += 1;
                             }
                         }
-                        
+
                         if let Some(tex) = &self.transfer_source_texture {
                             ui.add_space(10.0);
                             let max_size = ui.available_size() - egui::vec2(0.0, 20.0);
                             let tex_size = tex.size_vec2();
-                            let scale = (max_size.x / tex_size.x).min(max_size.y / tex_size.y).min(1.0);
+                            let scale = (max_size.x / tex_size.x)
+                                .min(max_size.y / tex_size.y)
+                                .min(1.0);
                             ui.add(egui::Image::new(tex).fit_to_exact_size(tex_size * scale));
                         } else if !self.transfer_source_path.is_empty() {
                             ui.add_space(20.0);
@@ -736,23 +740,25 @@ impl AppModals for MyApp {
                     // --- MIDDLE COLUMN: ACTIONS ---
                     cols[1].vertical_centered(|ui| {
                         ui.add_space(ui.available_height() / 2.0 - 60.0);
-                        
+
                         let source_ok = !self.transfer_source_path.is_empty()
                             && std::path::Path::new(&self.transfer_source_path).exists();
-                        let target_ok = !self.input_path.is_empty() 
+                        let target_ok = !self.input_path.is_empty()
                             && std::path::Path::new(&self.input_path).exists()
                             && self.input_path != "examples/sample.pdf";
                         let can_start = source_ok && target_ok;
 
                         let btn = ui.add_enabled(
                             can_start,
-                            egui::Button::new(egui::RichText::new("▶ Begin Transfer").size(20.0).color(
-                                if can_start {
-                                    self.settings.theme.palette().bg
-                                } else {
-                                    self.settings.theme.palette().text
-                                }
-                            ))
+                            egui::Button::new(
+                                egui::RichText::new("▶ Begin Transfer").size(20.0).color(
+                                    if can_start {
+                                        self.settings.theme.palette().bg
+                                    } else {
+                                        self.settings.theme.palette().text
+                                    },
+                                ),
+                            )
                             .fill(if can_start {
                                 self.settings.theme.palette().accent
                             } else {
@@ -789,16 +795,25 @@ impl AppModals for MyApp {
                             );
                             self.show_transfer_dialog = false;
                         }
-                        
+
                         ui.add_space(10.0);
-                        
+
                         if !source_ok && !self.transfer_source_path.is_empty() {
-                            ui.colored_label(self.settings.theme.palette().warn, "⚠ Source not found");
+                            ui.colored_label(
+                                self.settings.theme.palette().warn,
+                                "⚠ Source not found",
+                            );
                         }
-                        if !target_ok && !self.input_path.is_empty() && self.input_path != "examples/sample.pdf" {
-                            ui.colored_label(self.settings.theme.palette().warn, "⚠ Target not found");
+                        if !target_ok
+                            && !self.input_path.is_empty()
+                            && self.input_path != "examples/sample.pdf"
+                        {
+                            ui.colored_label(
+                                self.settings.theme.palette().warn,
+                                "⚠ Target not found",
+                            );
                         }
-                        
+
                         ui.add_space(20.0);
                         if ui.button("Cancel").clicked() {
                             self.show_transfer_dialog = false;
@@ -821,18 +836,24 @@ impl AppModals for MyApp {
                                     page: 1,
                                     dpi: 72.0,
                                     tag: "transfer_target".to_string(),
-                                }) { tracing::error!("Runtime disconnected: {}", e); }
+                                }) {
+                                    tracing::error!("Runtime disconnected: {}", e);
+                                }
                                 self.in_flight += 1;
                             }
                         }
-                        
+
                         if let Some(tex) = &self.transfer_target_texture {
                             ui.add_space(10.0);
                             let max_size = ui.available_size() - egui::vec2(0.0, 20.0);
                             let tex_size = tex.size_vec2();
-                            let scale = (max_size.x / tex_size.x).min(max_size.y / tex_size.y).min(1.0);
+                            let scale = (max_size.x / tex_size.x)
+                                .min(max_size.y / tex_size.y)
+                                .min(1.0);
                             ui.add(egui::Image::new(tex).fit_to_exact_size(tex_size * scale));
-                        } else if !self.input_path.is_empty() && self.input_path != "examples/sample.pdf" {
+                        } else if !self.input_path.is_empty()
+                            && self.input_path != "examples/sample.pdf"
+                        {
                             ui.add_space(20.0);
                             ui.spinner();
                             ui.label("Rendering preview...");

@@ -77,9 +77,7 @@ pub enum WorkflowStage {
     /// Terminal failure with a structured reason.
     Failed(WorkflowFailure),
     /// Font coverage missing characters alert. Requires human-in-the-loop decision.
-    FontCoverageWarning {
-        missing_chars: Vec<char>,
-    },
+    FontCoverageWarning { missing_chars: Vec<char> },
     /// Visual fidelity failed to converge. Requires human-in-the-loop decision.
     VisualFidelityWarning {
         score: f64,

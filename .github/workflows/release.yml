@@ -23,9 +23,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: 1.89.0
+          override: true
 
       - name: Cache Cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -72,11 +73,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: 1.89.0
           targets: aarch64-apple-darwin
           components: rustfmt, clippy
+          override: true
 
       - name: Ensure Rust components (fallback)
         run: |
@@ -87,10 +89,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
+          cache: 'pip'
+ 
       - name: Install Python dependencies
         run: pip install pymupdf
-
+ 
       - name: Set PYO3_PYTHON
         run: echo "PYO3_PYTHON=$(which python3)" >> $GITHUB_ENV
 
@@ -125,18 +128,31 @@ jobs:
           echo "All $MAX_ATTEMPTS build attempts failed."
           exit 1
 
+      - name: Ensure bundled Pdfium library for macOS
+        run: |
+          mkdir -p pdfium_lib
+          if [ ! -f "pdfium_lib/libpdfium.dylib" ]; then
+            echo "Downloading Pdfium for macOS arm64..."
+            curl -L -o /tmp/pdfium.tgz "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz"
+            tar -xzf /tmp/pdfium.tgz -C pdfium_lib --wildcards --strip-components=1 '*/libpdfium.dylib'
+          else
+            echo "Pdfium already available in pdfium_lib/."
+          fi
+
       # ── Package as .app bundle ──────────────────────────────────
       - name: Create .app bundle
         run: |
           APP_NAME="DualCorePdfPipeline"
           APP_DIR="${APP_NAME}.app/Contents"
           BINARY="target/aarch64-apple-darwin/release/dual-core-pdf-pipeline"
-
+ 
+          rm -rf "${APP_NAME}.app" AppIcon.iconset AppIcon.icns
           mkdir -p "${APP_DIR}/MacOS"
           mkdir -p "${APP_DIR}/Resources"
-
+ 
           # Convert icon to ICNS
-          mkdir AppIcon.iconset
+          rm -rf AppIcon.iconset
+          mkdir -p AppIcon.iconset
           sips -z 16 16     assets/icon.png --out AppIcon.iconset/icon_16x16.png
           sips -z 32 32     assets/icon.png --out AppIcon.iconset/icon_16x16@2x.png
           sips -z 32 32     assets/icon.png --out AppIcon.iconset/icon_32x32.png
@@ -153,7 +169,17 @@ jobs:
           # Copy the compiled binary
           cp "$BINARY" "${APP_DIR}/MacOS/${APP_NAME}"
           chmod +x "${APP_DIR}/MacOS/${APP_NAME}"
-
+ 
+          # Include a locally-resolved Pdfium library if present so the app bundle can run on macOS without requiring a system-installed Pdfium.
+          if [ -d "pdfium_lib" ]; then
+            cp -R "pdfium_lib" "${APP_DIR}/MacOS/"
+          fi
+ 
+          # Copy an optional .env into the app bundle for self-contained macOS deployment.
+          if [ -f ".env" ]; then
+            cp ".env" "${APP_DIR}/Resources/.env"
+          fi
+ 
           # Create Info.plist
           cat > "${APP_DIR}/Info.plist" << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -203,7 +229,7 @@ jobs:
           cp -R "${APP_NAME}.app" "${DMG_DIR}/"
 
           # Create a symbolic link to /Applications for drag-and-drop install
-          ln -s /Applications "${DMG_DIR}/Applications"
+          ln -sf /Applications "${DMG_DIR}/Applications"
 
           # Build the .dmg
           hdiutil create -volname "${APP_NAME}" \
