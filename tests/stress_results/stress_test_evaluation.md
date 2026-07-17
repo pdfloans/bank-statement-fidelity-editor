@@ -1,17 +1,17 @@
 # Stress Test Evaluation Matrix — Bank Statement Fidelity Editor v0.5.1
 
-**Executed:** 2026-07-18 06:41:36 UTC
+**Executed:** 2026-07-18 06:55:12 UTC
 **Platform:** Python 3.14.5, PyMuPDF 1.28.0
 
 ## Results Matrix
 
 | Function / Task | Target Example PDF | Tested Dependencies | Score (Correctness/Fidelity) → Avg | Actionable Fallback Hierarchy |
 |---|---|---|---|---|
-| Test 1: Extraction | Standard_Bank_Statement_01.pdf | Offline Heuristic, PyMuPDF Built-in, LlamaParse, Document AI, Mindee API | Offline Heuristic (88/98) → 93, PyMuPDF Built-in (0/95) → 48, LlamaParse (0/0) → 0, Document AI (0/0) → 0, Mindee API (0/0) → 0 | 1. Offline Heuristic (Avg 93)<br>2. PyMuPDF Built-in (Avg 48) |
+| Test 1: Extraction | Standard_Bank_Statement_01.pdf | Offline Heuristic, PyMuPDF Built-in, Document AI, LlamaParse, Mindee API | Offline Heuristic (88/98) → 93, PyMuPDF Built-in (0/95) → 48, Document AI (0/0) → 0, LlamaParse (0/0) → 0, Mindee API (0/0) → 0 | 1. Offline Heuristic (Avg 93)<br>2. PyMuPDF Built-in (Avg 48) |
 | Test 2: Fidelity Edit | Corrupted_Font_Ledger.pdf | pymupdfpro, Pdfium, Typst Reconstruct | pymupdfpro (90/85) → 88, Pdfium (60/92) → 76, Typst Reconstruct (75/65) → 70 | 1. pymupdfpro (Avg 88)<br>2. Pdfium (Avg 76)<br>3. Typst Reconstruct (Avg 70) |
-| Test 3: Math Balance | Unbalanced_Ledger_Test.pdf | Local Math Engine, OpenRouter AI, Gemini AI, Groq AI, Document AI | Local Math Engine (100/100) → 100, OpenRouter AI (0/0) → 0, Gemini AI (0/0) → 0, Groq AI (0/0) → 0, Document AI (0/0) → 0 | 1. Local Math Engine (Avg 100) |
+| Test 3: Math Balance | Unbalanced_Ledger_Test.pdf | Local Math Engine, Gemini AI, Groq AI, OpenRouter AI, Document AI | Local Math Engine (100/100) → 100, Gemini AI (0/0) → 0, Groq AI (0/0) → 0, OpenRouter AI (0/0) → 0, Document AI (0/0) → 0 | 1. Local Math Engine (Avg 100) |
 | Test 4: Visual QA | Subtle_Shift_Artifact.pdf | SSIM + Tile-Max + pHash, Gemini Vision, pdfRest Cloud, Applitools Eyes | SSIM + Tile-Max + pHash (100/100) → 100, Gemini Vision (0/0) → 0, pdfRest Cloud (0/0) → 0, Applitools Eyes (0/0) → 0 | 1. SSIM + Tile-Max + pHash (Avg 100) |
-| Test 5: Transfer Transactions | ? | Gemini 1.5 Flash, OpenRouter, Groq (Llama 3) | Gemini 1.5 Flash (0/0) → 0, OpenRouter (0/0) → 0, Groq (Llama 3) (0/0) → 0 | No viable backends |
+| Test 5: Transfer Transactions | ? | OpenRouter, Gemini 1.5 Flash, Groq (Llama 3) | OpenRouter (0/0) → 0, Gemini 1.5 Flash (0/0) → 0, Groq (Llama 3) (0/0) → 0 | No viable backends |
 | Test 6: E2E GUI Testing | ? | Rust UIAutomation | Rust UIAutomation (100/100) → 100 | 1. Rust UIAutomation (Avg 100) |
 | Test 7: PII Anonymization | ? | Gemini 1.5 PII, Groq PII | Gemini 1.5 PII (0/0) → 0, Groq PII (0/0) → 0 | No viable backends |
 | Test 8: Forensic Evasion | ? | PyMuPDF Pro, Typst Reconstruct, Pdfium | PyMuPDF Pro (100/100) → 100, Typst Reconstruct (80/100) → 90, Pdfium (0/0) → 0 | 1. PyMuPDF Pro (Avg 100)<br>2. Typst Reconstruct (Avg 90) |
@@ -22,35 +22,35 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Offline Heuristic** | 88 | 98 | **93.0** | 9ms | Found 25/30 txns, closing=Y |
-| 2 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 11ms | Found 0/30 txns, 0 decimal errors |
-| 3 | **LlamaParse** | 0 | 0 | **0.0** | 0ms | API key not configured |
-| 4 | **Document AI** | 0 | 0 | **0.0** | 0ms | Not configured |
+| 1 | **Offline Heuristic** | 88 | 98 | **93.0** | 5ms | Found 25/30 txns, closing=Y |
+| 2 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 17ms | Found 0/30 txns, 0 decimal errors |
+| 3 | **Document AI** | 0 | 0 | **0.0** | 0ms | Not configured |
+| 4 | **LlamaParse** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 5 | **Mindee API** | 0 | 0 | **0.0** | 0ms | API key not configured |
 
 ### Test 2: Fidelity Edit
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 15ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
-| 2 | **Pdfium** | 60 | 92 | **76.0** | 109ms | Rendered 2480x3509px @ 300DPI, content=Y |
-| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 7ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
+| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 106ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
+| 2 | **Pdfium** | 60 | 92 | **76.0** | 110ms | Rendered 2480x3509px @ 300DPI, content=Y |
+| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 16ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
 
 ### Test 3: Math Balance
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
 | 1 | **Local Math Engine** | 100 | 100 | **100.0** | 2ms | Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21 |
-| 2 | **OpenRouter AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
-| 3 | **Gemini AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
-| 4 | **Groq AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
+| 2 | **Gemini AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
+| 3 | **Groq AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
+| 4 | **OpenRouter AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 5 | **Document AI** | 0 | 0 | **0.0** | 0ms | Not configured |
 
 ### Test 4: Visual QA
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 2143ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
+| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 2068ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
 | 2 | **Gemini Vision** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 3 | **pdfRest Cloud** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 4 | **Applitools Eyes** | 0 | 0 | **0.0** | 0ms | API key not configured |
@@ -59,15 +59,15 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 0ms | API key not configured |
-| 2 | **OpenRouter** | 0 | 0 | **0.0** | 0ms | API key not configured |
+| 1 | **OpenRouter** | 0 | 0 | **0.0** | 0ms | API key not configured |
+| 2 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 3 | **Groq (Llama 3)** | 0 | 0 | **0.0** | 0ms | API key not configured |
 
 ### Test 6: E2E GUI Testing
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 21498ms | GUI launched and tree attached correctly |
+| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 660ms | GUI launched and tree attached correctly |
 
 ### Test 7: PII Anonymization
 
@@ -80,7 +80,7 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **PyMuPDF Pro** | 100 | 100 | **100.0** | 1ms | Producer: '', Creator: '', EOF markers: 1 |
+| 1 | **PyMuPDF Pro** | 100 | 100 | **100.0** | 0ms | Producer: '', Creator: '', EOF markers: 1 |
 | 2 | **Typst Reconstruct** | 80 | 100 | **90.0** | 0ms | Clean rebuild, single %%EOF, but likely leaves Typst metadata tag |
 | 3 | **Pdfium** | 0 | 0 | **0.0** | 0ms | Output is an image raster, not a vector PDF. Fails structural forensics completely. |
 

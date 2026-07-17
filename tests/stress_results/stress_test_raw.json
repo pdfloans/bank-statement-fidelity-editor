@@ -6,7 +6,7 @@
       "fidelity": 98,
       "avg": 93.0,
       "details": "Found 25/30 txns, closing=Y",
-      "elapsed_ms": 9
+      "elapsed_ms": 5
     },
     {
       "tool": "PyMuPDF Built-in",
@@ -14,15 +14,7 @@
       "fidelity": 95,
       "avg": 47.5,
       "details": "Found 0/30 txns, 0 decimal errors",
-      "elapsed_ms": 11
-    },
-    {
-      "tool": "LlamaParse",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
+      "elapsed_ms": 17
     },
     {
       "tool": "Document AI",
@@ -30,6 +22,14 @@
       "fidelity": 0,
       "avg": 0,
       "details": "Not configured",
+      "elapsed_ms": 0
+    },
+    {
+      "tool": "LlamaParse",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
       "elapsed_ms": 0
     },
     {
@@ -48,7 +48,7 @@
       "fidelity": 85,
       "avg": 87.5,
       "details": "Found 18 '7' glyphs, 18 successful edits, restored=Y",
-      "elapsed_ms": 15
+      "elapsed_ms": 106
     },
     {
       "tool": "Pdfium",
@@ -56,7 +56,7 @@
       "fidelity": 92,
       "avg": 76.0,
       "details": "Rendered 2480x3509px @ 300DPI, content=Y",
-      "elapsed_ms": 109
+      "elapsed_ms": 110
     },
     {
       "tool": "Typst Reconstruct",
@@ -64,7 +64,7 @@
       "fidelity": 65,
       "avg": 70.0,
       "details": "26/26 spans extractable, 1 fonts: {'Helvetica'}",
-      "elapsed_ms": 7
+      "elapsed_ms": 16
     }
   ],
   "Test 3: Math Balance": [
@@ -77,14 +77,6 @@
       "elapsed_ms": 2
     },
     {
-      "tool": "OpenRouter AI",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API key not configured",
-      "elapsed_ms": 0
-    },
-    {
       "tool": "Gemini AI",
       "correctness": 0,
       "fidelity": 0,
@@ -94,6 +86,14 @@
     },
     {
       "tool": "Groq AI",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
+    },
+    {
+      "tool": "OpenRouter AI",
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
@@ -116,7 +116,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "SSIM\u22480.997970, max_tile=0.583347, diff_px=72852, region_detect=Y",
-      "elapsed_ms": 2143
+      "elapsed_ms": 2068
     },
     {
       "tool": "Gemini Vision",
@@ -145,7 +145,7 @@
   ],
   "Test 5: Transfer Transactions": [
     {
-      "tool": "Gemini 1.5 Flash",
+      "tool": "OpenRouter",
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
@@ -153,7 +153,7 @@
       "elapsed_ms": 0
     },
     {
-      "tool": "OpenRouter",
+      "tool": "Gemini 1.5 Flash",
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
@@ -176,7 +176,7 @@
       "fidelity": 100,
       "avg": 100,
       "details": "GUI launched and tree attached correctly",
-      "elapsed_ms": 21498
+      "elapsed_ms": 660
     }
   ],
   "Test 7: PII Anonymization": [
@@ -204,7 +204,7 @@
       "fidelity": 100,
       "avg": 100,
       "details": "Producer: '', Creator: '', EOF markers: 1",
-      "elapsed_ms": 1
+      "elapsed_ms": 0
     },
     {
       "tool": "Typst Reconstruct",
