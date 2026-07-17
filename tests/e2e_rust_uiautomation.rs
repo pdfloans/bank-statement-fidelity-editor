@@ -1,3 +1,4 @@
+#![cfg(windows)]
 use std::process::Command;
 use std::time::Duration;
 use uiautomation::types::UIProperty;
