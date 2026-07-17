@@ -3542,7 +3542,7 @@ impl Runtime {
                                             _ => None,
                                         }
                                     } else {
-                                        Some($next_parser)
+                                        $next_parser
                                     }
                                 }};
                             }
@@ -3577,7 +3577,7 @@ impl Runtime {
                                                         let formal_diff = (formal_sum - expected).abs();
                                                         let one_cent = rust_decimal_macros::dec!(0.01);
                                                         if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
-                                                            if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, "AI Fidelity Math Check Failed", DocumentParserMode::MindeeFinDoc) {
+                                                            if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, "AI Fidelity Math Check Failed", Some(DocumentParserMode::MindeeFinDoc)) {
                                                                 current_parser_mode = next;
                                                                 continue;
                                                             } else {
@@ -3589,7 +3589,7 @@ impl Runtime {
                                                     }
                                                     Err(e) => {
                                                         tracing::warn!("[workflow] Document AI parse failed: {e}");
-                                                        if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI parse failed: {e}"), DocumentParserMode::MindeeFinDoc) {
+                                                        if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI parse failed: {e}"), Some(DocumentParserMode::MindeeFinDoc)) {
                                                             current_parser_mode = next;
                                                             continue;
                                                         } else {
@@ -3601,7 +3601,7 @@ impl Runtime {
                                             }
                                             Err(e) => {
                                                 tracing::warn!("[workflow] Document AI not configured: {e}");
-                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI not configured: {e}"), DocumentParserMode::MindeeFinDoc) {
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI not configured: {e}"), Some(DocumentParserMode::MindeeFinDoc)) {
                                                     current_parser_mode = next;
                                                     continue;
                                                 } else {
@@ -3618,7 +3618,7 @@ impl Runtime {
                                                 Ok(s) => break s,
                                                 Err(e) => {
                                                     tracing::warn!("[workflow] Mindee parse failed: {e}");
-                                                    if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee parse failed: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                    if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee parse failed: {e}"), Some(DocumentParserMode::PyMuPdfBuiltin)) {
                                                         current_parser_mode = next;
                                                         continue;
                                                     } else {
@@ -3629,7 +3629,7 @@ impl Runtime {
                                             }
                                             Err(e) => {
                                                 tracing::warn!("[workflow] Mindee not configured: {e}");
-                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee not configured: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee not configured: {e}"), Some(DocumentParserMode::PyMuPdfBuiltin)) {
                                                     current_parser_mode = next;
                                                     continue;
                                                 } else {
@@ -3646,7 +3646,7 @@ impl Runtime {
                                                 Ok(s) => break s,
                                                 Err(e) => {
                                                     tracing::warn!("[workflow] LlamaParse parse failed: {e}");
-                                                    if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("LlamaParse parse failed: {e}"), DocumentParserMode::DocumentAi) {
+                                                    if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("LlamaParse parse failed: {e}"), Some(DocumentParserMode::DocumentAi)) {
                                                         current_parser_mode = next;
                                                         continue;
                                                     } else {
@@ -3657,7 +3657,7 @@ impl Runtime {
                                             }
                                             Err(e) => {
                                                 tracing::warn!("[workflow] LlamaParse not configured: {e}");
-                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("LlamaParse not configured: {e}"), DocumentParserMode::DocumentAi) {
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("LlamaParse not configured: {e}"), Some(DocumentParserMode::DocumentAi)) {
                                                     current_parser_mode = next;
                                                     continue;
                                                 } else {
@@ -3677,7 +3677,7 @@ impl Runtime {
                                             Ok(Ok(s)) => break s,
                                             Ok(Err(e)) => {
                                                 tracing::warn!("[workflow] Offline parser failed: {e}");
-                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Offline parser failed: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Offline parser failed: {e}"), None) {
                                                     current_parser_mode = next;
                                                     continue;
                                                 } else {
@@ -3688,7 +3688,7 @@ impl Runtime {
                                             Err(e) => {
                                                 let e_str = e.to_string();
                                                 tracing::warn!("[workflow] Offline parser panicked: {e}");
-                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Offline parser panicked: {e}"), DocumentParserMode::PyMuPdfBuiltin) {
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Offline parser panicked: {e}"), None) {
                                                     current_parser_mode = next;
                                                     continue;
                                                 } else {
