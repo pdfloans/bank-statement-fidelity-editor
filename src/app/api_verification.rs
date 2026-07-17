@@ -344,13 +344,39 @@ async fn verify_mindee(config: &AppConfig) -> VerificationResult {
         };
     }
 
-    VerificationResult {
-        service: "Mindee".to_string(),
-        status: VerificationStatus::Success,
-        latency_ms: start.elapsed().as_millis() as u64,
-        error_message: None,
-        guidance: None,
-        method_used: Some("API Key Configured".to_string()),
+    match crate::ai::mindee::MindeeClient::from_app_config(config) {
+        Ok(client) => match client.ping().await {
+            Ok(_) => VerificationResult {
+                service: "Mindee".to_string(),
+                status: VerificationStatus::Success,
+                latency_ms: start.elapsed().as_millis() as u64,
+                error_message: None,
+                guidance: None,
+                method_used: Some("API Key".to_string()),
+            },
+            Err(e) => {
+                let guidance = match &e {
+                    crate::ai::mindee::MindeeError::Api(status, _) if status.as_u16() == 401 || status.as_u16() == 403 => "Invalid MINDEE_API_KEY. Check your key at https://platform.mindee.com/",
+                    _ => "Check your internet connection or Mindee configuration."
+                };
+                VerificationResult {
+                    service: "Mindee".to_string(),
+                    status: VerificationStatus::Failed,
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    error_message: Some(e.to_string()),
+                    guidance: Some(guidance.to_string()),
+                    method_used: Some("API Key".to_string()),
+                }
+            }
+        },
+        Err(e) => VerificationResult {
+            service: "Mindee".to_string(),
+            status: VerificationStatus::Failed,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error_message: Some(e.to_string()),
+            guidance: Some("Check Mindee configuration.".to_string()),
+            method_used: None,
+        }
     }
 }
 

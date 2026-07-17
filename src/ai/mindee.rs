@@ -289,12 +289,12 @@ impl MindeeClient {
         let url = format!("{}/products/{}/v1/predict", MINDEE_API_BASE, self.product);
         let resp = self
             .http
-            .get(&url)
+            .post(&url)
             .header("Authorization", format!("Token {}", self.api_key))
             .send()
             .await?;
 
-        // 401/403 -> bad key. Anything else (even 405) means the key is valid.
+        // 401/403 -> bad key. Anything else (e.g. 400 Bad Request for missing file) means the key is valid.
         match resp.status() {
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(MindeeError::Api(
                 resp.status(),
@@ -436,7 +436,10 @@ impl MindeeClient {
 
     /// Poll the queue endpoint until the job completes or fails.
     async fn poll_until_complete(&self, job_id: &str) -> Result<MindeeQueueResponse, MindeeError> {
-        let url = format!("{MINDEE_API_BASE}/documents/queue/{job_id}");
+        let url = format!(
+            "{}/products/{}/v1/documents/queue/{}",
+            MINDEE_API_BASE, self.product, job_id
+        );
         let mut delay_ms = INITIAL_POLL_DELAY_MS;
 
         for attempt in 1..=MAX_POLL_ATTEMPTS {
