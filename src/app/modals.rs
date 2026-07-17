@@ -1057,17 +1057,22 @@ impl AppModals for MyApp {
                     ui.label("An operation could not be completed successfully.");
                     ui.label(egui::RichText::new(&req.error_details).color(egui::Color32::RED));
                     ui.add_space(10.0);
-                    
+
                     ui.heading("Would you like to try again using an alternative?");
                     ui.add_space(5.0);
 
                     for alt in &req.alternatives {
                         let btn_text = egui::RichText::new(&alt.label).strong().size(14.0);
-                        if ui.add_sized([ui.available_width(), 36.0], egui::Button::new(btn_text)).clicked() {
+                        if ui
+                            .add_sized([ui.available_width(), 36.0], egui::Button::new(btn_text))
+                            .clicked()
+                        {
                             resolved_choice = Some(alt.id.clone());
                         }
                         if let Some(desc) = &alt.description {
-                            ui.small(egui::RichText::new(desc).color(ui.visuals().weak_text_color()));
+                            ui.small(
+                                egui::RichText::new(desc).color(ui.visuals().weak_text_color()),
+                            );
                         }
                         ui.add_space(4.0);
                     }
@@ -1086,7 +1091,11 @@ impl AppModals for MyApp {
                     id: req.id,
                     selected_alternative_id: choice_id,
                 };
-                let _ = self.job_tx.send(crate::app::runtime::Job::InteractiveFallbackResponse(response));
+                let _ = self
+                    .job_tx
+                    .send(crate::app::runtime::Job::InteractiveFallbackResponse(
+                        response,
+                    ));
                 self.pending_interactive_fallback = None;
             }
         }
@@ -1467,8 +1476,7 @@ impl AppModals for MyApp {
                     if ui.button("📥 Import .env").clicked() {
                         if let Some(path) = rfd::FileDialog::new().pick_file() {
                             if let Ok(iter) = dotenvy::from_path_iter(&path) {
-                                for item in iter {
-                                    if let Ok((key, val)) = item {
+                                for (key, val) in iter.flatten() {
                                         match key.as_str() {
                                             "GEMINI_API_KEY" => self.edit_gemini_api_key = val,
                                             "DOCUMENT_AI_PROJECT_ID" => self.edit_docai_project_id = val,
@@ -1491,7 +1499,6 @@ impl AppModals for MyApp {
                                             "OPENROUTER_API_KEY" => self.edit_openrouter_api_key = val,
                                             _ => {}
                                         }
-                                    }
                                 }
                                 self.toast(ToastKind::Success, "Imported keys from file");
                             } else {

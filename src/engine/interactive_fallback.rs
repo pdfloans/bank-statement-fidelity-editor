@@ -50,7 +50,12 @@ impl InteractiveFallbackRequest {
         }
     }
 
-    pub fn add_alternative(mut self, id: impl Into<String>, label: impl Into<String>, description: Option<String>) -> Self {
+    pub fn add_alternative(
+        mut self,
+        id: impl Into<String>,
+        label: impl Into<String>,
+        description: Option<String>,
+    ) -> Self {
         self.alternatives.push(FallbackAlternative {
             id: id.into(),
             label: label.into(),

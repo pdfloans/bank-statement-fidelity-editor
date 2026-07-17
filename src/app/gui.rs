@@ -525,7 +525,8 @@ pub struct MyApp {
     // AI Confirmation dialog state
     pub pending_ai_confirmations: Vec<crate::engine::ai_confirm::AiConfirmation>,
     // Interactive Fallback state
-    pub pending_interactive_fallback: Option<crate::engine::interactive_fallback::InteractiveFallbackRequest>,
+    pub pending_interactive_fallback:
+        Option<crate::engine::interactive_fallback::InteractiveFallbackRequest>,
     // Transfer Test dialog state
     pub show_transfer_test_dialog: bool,
     pub transfer_test_paths: Vec<String>,
@@ -757,7 +758,14 @@ impl MyApp {
         // Seed AI_PROVIDER from persisted settings so the runtime AppConfig
         // snapshot picks it up on the initial ReloadConfig below.
         std::env::set_var("AI_PROVIDER", app.settings.ai_provider.env_token());
-        std::env::set_var("INTERACTIVE_FALLBACKS", if app.settings.interactive_fallbacks { "true" } else { "false" });
+        std::env::set_var(
+            "INTERACTIVE_FALLBACKS",
+            if app.settings.interactive_fallbacks {
+                "true"
+            } else {
+                "false"
+            },
+        );
 
         // Dispatch a one-time ReloadConfig so the runtime's config_holder
         // picks up the persisted provider + any env vars seeded above.

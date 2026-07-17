@@ -356,8 +356,12 @@ async fn verify_mindee(config: &AppConfig) -> VerificationResult {
             },
             Err(e) => {
                 let guidance = match &e {
-                    crate::ai::mindee::MindeeError::Api(status, _) if status.as_u16() == 401 || status.as_u16() == 403 => "Invalid MINDEE_API_KEY. Check your key at https://platform.mindee.com/",
-                    _ => "Check your internet connection or Mindee configuration."
+                    crate::ai::mindee::MindeeError::Api(status, _)
+                        if status.as_u16() == 401 || status.as_u16() == 403 =>
+                    {
+                        "Invalid MINDEE_API_KEY. Check your key at https://platform.mindee.com/"
+                    }
+                    _ => "Check your internet connection or Mindee configuration.",
                 };
                 VerificationResult {
                     service: "Mindee".to_string(),
@@ -376,7 +380,7 @@ async fn verify_mindee(config: &AppConfig) -> VerificationResult {
             error_message: Some(e.to_string()),
             guidance: Some("Check Mindee configuration.".to_string()),
             method_used: None,
-        }
+        },
     }
 }
 

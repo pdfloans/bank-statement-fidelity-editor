@@ -919,7 +919,6 @@ impl Runtime {
                         let cfg = config_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
-                        let router = fallback_router.clone();
                         tokio::spawn(async move {
                             use crate::engine::transfer::*;
 
@@ -2018,7 +2017,6 @@ impl Runtime {
                         let cfg = config_for_tokio.clone();
                         let _py_tx = python_tx_clone.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
-                        let router = fallback_router.clone();
                         tokio::spawn(async move {
                             use crate::engine::transfer_test_harness::*;
 
@@ -3528,7 +3526,7 @@ impl Runtime {
                                         req = req.add_alternative("llamaparse", "Try LlamaParse", None);
                                         req = req.add_alternative("offline_parser", "Fall back to Offline Parser (Local)", None);
                                         req = req.add_alternative("cancel", "Cancel Workflow", None);
-                                        
+
                                         let (tx, rx) = tokio::sync::oneshot::channel();
                                         {
                                             let mut map = $router.lock().await;
@@ -3549,7 +3547,7 @@ impl Runtime {
                                 }};
                             }
 
-                            let mut current_parser_mode = parser_mode.clone();
+                            let mut current_parser_mode = parser_mode;
                             let stmt = loop {
                                 match current_parser_mode {
                                     DocumentParserMode::DocumentAi => {
