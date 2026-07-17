@@ -361,7 +361,11 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
 /// End-to-end self-test: render -> edit a real text span -> re-render, asserting
 /// the edit changed the page (and only locally). Drives the same Job runtime
 /// the GUI uses. Returns a process exit code (0 = PASS).
-fn run_selftest(job_tx: &Sender<Job>, job_rx: &Receiver<JobResult>, input: Option<PathBuf>) -> anyhow::Result<i32> {
+fn run_selftest(
+    job_tx: &Sender<Job>,
+    job_rx: &Receiver<JobResult>,
+    input: Option<PathBuf>,
+) -> anyhow::Result<i32> {
     use crate::app::runtime::{PythonJob, PythonJobResult};
 
     let input = input.unwrap_or_else(|| PathBuf::from("examples/sample.pdf"));
@@ -686,7 +690,6 @@ fn indent_block(text: &str) -> String {
         .join("\n")
 }
 
-
 pub fn run(
     cli: Cli,
     job_tx: Sender<Job>,
@@ -785,7 +788,10 @@ pub fn run_inner(
     match cli.command {
         Commands::TypstReconstruct { input, output } => {
             tracing::info!("Triggering Typst Reconstruction...");
-            let _ = job_tx.send(Job::TypstReconstruct { input: input.clone(), output: output.clone() });
+            let _ = job_tx.send(Job::TypstReconstruct {
+                input: input.clone(),
+                output: output.clone(),
+            });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::ReconstructComplete { output_path }) => {
                     tracing::info!("Reconstruction successful! Saved to {:?}", output_path);

@@ -2,6 +2,29 @@
 
 use crate::app::config::AppConfig;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn env_lock() -> &'static Mutex<()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn verify_environment_rejects_headless_fallback_override() {
+        let _guard = env_lock().lock().unwrap();
+        std::env::set_var("FORCE_HEADLESS_FALLBACK", "1");
+
+        let err = verify_environment(&AppConfig::default()).unwrap_err();
+        assert!(matches!(err, PreflightError::HeadlessEnvironment));
+
+        std::env::remove_var("FORCE_HEADLESS_FALLBACK");
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PreflightError {
     #[error(

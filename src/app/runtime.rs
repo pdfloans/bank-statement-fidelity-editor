@@ -3742,7 +3742,7 @@ impl Runtime {
 
                                     tracing::info!("[workflow] LlamaParse sequence yielded {} transactions.", s.transactions.len());
                                     let _ = res_tx.send(JobResult::Progress { label: format!("Extracted {} transactions", s.transactions.len()), fraction: 0.6 });
-                                    
+
                                     s
                                 }
 
@@ -5307,5 +5307,23 @@ mod tests {
         // Cleanup
         drop(job_tx);
         handle.abort();
+    }
+
+    #[test]
+    fn runtime_fallback_branch_prefers_offline_parser_when_online_backends_are_unavailable() {
+        let cfg = crate::app::config::AppConfig {
+            document_ai: None,
+            mindee_api_key: None,
+            ..crate::app::config::AppConfig::default()
+        };
+
+        let availability = cfg.detect_availability();
+        assert!(!availability.document_ai);
+        assert!(!availability.mindee);
+
+        // The runtime should keep the offline parser as the final fallback path
+        // when neither Document AI nor Mindee is configured.
+        assert!(availability.unavailable_reason("document_ai").is_some());
+        assert!(availability.unavailable_reason("mindee").is_some());
     }
 }

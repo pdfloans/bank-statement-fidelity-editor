@@ -607,7 +607,11 @@ impl PdfEngine for OxidizePdfEngine {
                     }
                 }
                 "T*" if in_text => {
-                    let shift = if text_leading == 0.0 { font_size } else { text_leading };
+                    let shift = if text_leading == 0.0 {
+                        font_size
+                    } else {
+                        text_leading
+                    };
                     tlm[5] -= shift;
                     tm = tlm;
                 }
@@ -881,7 +885,11 @@ impl PdfEngine for OxidizePdfEngine {
                         }
                     }
                     "T*" if in_text => {
-                        let shift = if text_leading == 0.0 { font_size } else { text_leading };
+                        let shift = if text_leading == 0.0 {
+                            font_size
+                        } else {
+                            text_leading
+                        };
                         tlm[5] -= shift;
                         tm = tlm;
                     }

@@ -112,7 +112,9 @@ impl PdfEngineSelector {
             crate::app::config::PdfEngineMode::NativeOnly => run_safe(&*self.fallback),
             crate::app::config::PdfEngineMode::PyMuPdfOnly => run_safe(&*self.primary),
             crate::app::config::PdfEngineMode::TypstReconstruct => {
-                Err(EngineError::EncryptedOrRasterized("Typst Reconstruct mode explicitly requested".into()))
+                Err(EngineError::EncryptedOrRasterized(
+                    "Typst Reconstruct mode explicitly requested".into(),
+                ))
             }
             crate::app::config::PdfEngineMode::Auto
             | crate::app::config::PdfEngineMode::DualConcurrent => {

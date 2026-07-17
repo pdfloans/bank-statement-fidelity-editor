@@ -660,6 +660,9 @@ impl ApiAvailability {
             "gemini_api_key" if !self.gemini_api_key => {
                 Some("GEMINI_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
+            "groq_api_key" if !self.groq_api_key => {
+                Some("GROQ_API_KEY not configured. Set it in Settings -> API Keys or .env.")
+            }
             "gemini_vertex" if !self.gemini_vertex => {
                 Some("Vertex AI requires a service account or ADC credentials. Configure in Settings -> API Keys.")
             }
@@ -674,6 +677,12 @@ impl ApiAvailability {
             }
             "pdfrest" if !self.pdfrest => {
                 Some("PDFREST_API_KEY not configured. Set it in .env to enable cloud rendering.")
+            }
+            "openrouter_api_key" if !self.openrouter_api_key => {
+                Some("OPENROUTER_API_KEY not configured. Set it in Settings -> API Keys or .env.")
+            }
+            "applitools" if !self.applitools => {
+                Some("APPLITOOLS_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
             "pymupdf_pro" if !self.pymupdf_pro => {
                 Some("PYMUPDF_PRO_KEY is missing or malformed. Per-segment editing is unavailable.")
@@ -911,5 +920,78 @@ mod tests {
         // Independent of pdfRest
         cfg.pdfrest_api_key = Some("pdfrest".into());
         assert!(cfg.has_ai_for_balancing());
+    }
+
+    #[test]
+    fn validate_reports_missing_pro_key_and_passphrase_in_production_mode() {
+        let cfg = super::AppConfig {
+            pymupdf_pro_key: None,
+            passphrase: "short".into(),
+            is_dev_mode: false,
+            ..super::AppConfig::default()
+        };
+
+        let errors = cfg.validate();
+        assert!(errors.iter().any(|e| e.contains("PYMUPDF_PRO_KEY")));
+        assert!(errors.iter().any(|e| e.contains("DUAL_CORE_PASSPHRASE")));
+    }
+
+    #[test]
+    fn detect_availability_exposes_backend_state_and_helpful_reasons() {
+        let cfg = super::AppConfig {
+            gemini_api_key: Some("gemini".into()),
+            groq_api_key: None,
+            openrouter_api_key: None,
+            document_ai: Some(DocumentAiConfig {
+                project_id: "proj".into(),
+                location: "loc".into(),
+                processor_id: "proc".into(),
+                service_account_path: "sa.json".into(),
+                adc_path: "".into(),
+                api_key: "".into(),
+                gcs_output_uri: "".into(),
+                passphrase: "".into(),
+            }),
+            mindee_api_key: None,
+            llamaparse_api_key: Some("llama".into()),
+            pdfrest_api_key: Some("pdfrest".into()),
+            pymupdf_pro_key: Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string()),
+            applitools_api_key: Some("applitools".into()),
+            ..super::AppConfig::default()
+        };
+
+        let availability = cfg.detect_availability();
+        assert!(availability.gemini_api_key);
+        assert!(!availability.groq_api_key);
+        assert!(availability.document_ai);
+        assert!(availability.llamaparse);
+        assert!(availability.pdfrest);
+        assert!(availability.pymupdf_pro);
+        assert!(availability.applitools);
+
+        let reason = availability
+            .unavailable_reason("groq_api_key")
+            .expect("missing groq backend should produce a reason");
+        assert!(reason.contains("GROQ"));
+        assert!(availability.unavailable_reason("gemini_api_key").is_none());
+    }
+
+    #[test]
+    fn unavailable_reason_exposes_openrouter_guidance_when_unconfigured() {
+        let availability = ApiAvailability::default();
+        let reason = availability
+            .unavailable_reason("openrouter_api_key")
+            .expect("missing openrouter backend should produce a reason");
+        assert!(reason.contains("OPENROUTER"));
+        assert!(reason.contains("Settings"));
+    }
+
+    #[test]
+    fn unavailable_reason_exposes_applitools_guidance_when_unconfigured() {
+        let availability = ApiAvailability::default();
+        let reason = availability
+            .unavailable_reason("applitools")
+            .expect("missing applitools backend should produce a reason");
+        assert!(reason.contains("APPLITOOLS"));
     }
 }

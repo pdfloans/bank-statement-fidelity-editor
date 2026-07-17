@@ -549,9 +549,10 @@ impl DocumentAiClient {
             attempts += 1;
             // We have to recreate the file and stream for each retry since stream is consumed
             let file = tokio::fs::File::open(pdf_path).await?;
-            let stream = tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
+            let stream =
+                tokio_util::codec::FramedRead::new(file, tokio_util::codec::BytesCodec::new());
             let body = reqwest::Body::wrap_stream(stream);
-            
+
             match self
                 .http
                 .post(&url)
@@ -564,24 +565,31 @@ impl DocumentAiClient {
             {
                 Ok(r) => {
                     let status = r.status();
-                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && attempts < max_attempts {
+                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
+                        && attempts < max_attempts
+                    {
                         let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
-                        tracing::warn!("[doc_ai] GCS upload error {}, retrying in {:?}...", status, delay);
+                        tracing::warn!(
+                            "[doc_ai] GCS upload error {}, retrying in {:?}...",
+                            status,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
                     if !status.is_success() {
-                        return Err(DocAiError::Api(
-                            status,
-                            r.text().await.unwrap_or_default(),
-                        ));
+                        return Err(DocAiError::Api(status, r.text().await.unwrap_or_default()));
                     }
                     break;
                 }
                 Err(e) => {
                     if attempts < max_attempts {
                         let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
-                        tracing::warn!("[doc_ai] GCS upload network error {}, retrying in {:?}...", e, delay);
+                        tracing::warn!(
+                            "[doc_ai] GCS upload network error {}, retrying in {:?}...",
+                            e,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -643,24 +651,31 @@ impl DocumentAiClient {
             {
                 Ok(r) => {
                     let status = r.status();
-                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && attempts < max_attempts {
+                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
+                        && attempts < max_attempts
+                    {
                         let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
-                        tracing::warn!("[doc_ai] LRO start error {}, retrying in {:?}...", status, delay);
+                        tracing::warn!(
+                            "[doc_ai] LRO start error {}, retrying in {:?}...",
+                            status,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
                     if !status.is_success() {
-                        return Err(DocAiError::Api(
-                            status,
-                            r.text().await.unwrap_or_default(),
-                        ));
+                        return Err(DocAiError::Api(status, r.text().await.unwrap_or_default()));
                     }
                     break r;
                 }
                 Err(e) => {
                     if attempts < max_attempts {
                         let delay = std::time::Duration::from_millis(1000 * (1 << (attempts - 1)));
-                        tracing::warn!("[doc_ai] LRO start network error {}, retrying in {:?}...", e, delay);
+                        tracing::warn!(
+                            "[doc_ai] LRO start network error {}, retrying in {:?}...",
+                            e,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -693,7 +708,9 @@ impl DocumentAiClient {
                 {
                     Ok(r) => {
                         let status = r.status();
-                        if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && poll_attempts < 5 {
+                        if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
+                            && poll_attempts < 5
+                        {
                             tracing::warn!("[doc_ai] Polling error {}, retrying...", status);
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                             continue;
@@ -710,7 +727,7 @@ impl DocumentAiClient {
                     }
                 }
             };
-            
+
             let op_resp = match op_resp {
                 Ok(r) => r,
                 Err(e) => {
@@ -770,23 +787,28 @@ impl DocumentAiClient {
             {
                 Ok(r) => {
                     let status = r.status();
-                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && list_attempts < 5 {
+                    if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS)
+                        && list_attempts < 5
+                    {
                         tracing::warn!("[doc_ai] GCS list error {}, retrying...", status);
-                        tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (list_attempts - 1)))).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            1000 * (1 << (list_attempts - 1)),
+                        ))
+                        .await;
                         continue;
                     }
                     if !status.is_success() {
-                        return Err(DocAiError::Api(
-                            status,
-                            r.text().await.unwrap_or_default(),
-                        ));
+                        return Err(DocAiError::Api(status, r.text().await.unwrap_or_default()));
                     }
                     break r;
                 }
                 Err(e) => {
                     if list_attempts < 5 {
                         tracing::warn!("[doc_ai] GCS list network error {}, retrying...", e);
-                        tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (list_attempts - 1)))).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            1000 * (1 << (list_attempts - 1)),
+                        ))
+                        .await;
                         continue;
                     }
                     return Err(DocAiError::Api(
@@ -820,32 +842,51 @@ impl DocumentAiClient {
                         {
                             Ok(r) => {
                                 let status = r.status();
-                                if (status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS) && dl_attempts < 5 {
-                                    tracing::warn!("[doc_ai] GCS download error {}, retrying...", status);
-                                    tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (dl_attempts - 1)))).await;
+                                if (status.is_server_error()
+                                    || status == StatusCode::TOO_MANY_REQUESTS)
+                                    && dl_attempts < 5
+                                {
+                                    tracing::warn!(
+                                        "[doc_ai] GCS download error {}, retrying...",
+                                        status
+                                    );
+                                    tokio::time::sleep(std::time::Duration::from_millis(
+                                        1000 * (1 << (dl_attempts - 1)),
+                                    ))
+                                    .await;
                                     continue;
                                 }
                                 break Ok(r);
                             }
                             Err(e) => {
                                 if dl_attempts < 5 {
-                                    tracing::warn!("[doc_ai] GCS download network error {}, retrying...", e);
-                                    tokio::time::sleep(std::time::Duration::from_millis(1000 * (1 << (dl_attempts - 1)))).await;
+                                    tracing::warn!(
+                                        "[doc_ai] GCS download network error {}, retrying...",
+                                        e
+                                    );
+                                    tokio::time::sleep(std::time::Duration::from_millis(
+                                        1000 * (1 << (dl_attempts - 1)),
+                                    ))
+                                    .await;
                                     continue;
                                 }
                                 break Err(e);
                             }
                         }
                     };
-                    
+
                     let dl_resp = match dl_resp {
                         Ok(r) => r,
                         Err(e) => {
-                            tracing::error!("[doc_ai] Download definitively failed for {}: {}", name, e);
+                            tracing::error!(
+                                "[doc_ai] Download definitively failed for {}: {}",
+                                name,
+                                e
+                            );
                             continue;
                         }
                     };
-                    
+
                     if !dl_resp.status().is_success() {
                         continue;
                     }

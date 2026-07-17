@@ -894,8 +894,6 @@ impl MyApp {
         }
     }
 
-
-
     /// Pair edited PDFs with their corresponding originals for batch verification.
     ///
     /// Convention: an edited file is named `<base>_edited.pdf`. Its original is
@@ -1518,7 +1516,10 @@ impl MyApp {
                 let input = std::path::PathBuf::from(&self.input_path);
                 let output = input.with_extension("reconstructed.pdf");
                 self.in_flight += 1;
-                if let Err(e) = self.job_tx.send(crate::app::runtime::Job::TypstReconstruct { input, output }) {
+                if let Err(e) = self
+                    .job_tx
+                    .send(crate::app::runtime::Job::TypstReconstruct { input, output })
+                {
                     tracing::error!("Failed to send TypstReconstruct job: {}", e);
                 }
             }
@@ -1727,7 +1728,13 @@ impl MyApp {
                 );
             }
             JobResult::ReconstructComplete { output_path } => {
-                self.toast(ToastKind::Success, format!("Typst Reconstruction Complete! Output saved to: {:?}", output_path));
+                self.toast(
+                    ToastKind::Success,
+                    format!(
+                        "Typst Reconstruction Complete! Output saved to: {:?}",
+                        output_path
+                    ),
+                );
             }
             JobResult::VerificationReport(report) => {
                 self.last_verification = Some(report.clone());
@@ -1822,10 +1829,12 @@ impl MyApp {
                 self.status = format!("Workflow: {}", stage.label());
                 self.workflow_stage = stage.clone();
                 match &stage {
-                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { .. } |
-                    crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning { .. } |
-                    crate::engine::workflow::WorkflowStage::FontCoverageWarning { .. } |
-                    crate::engine::workflow::WorkflowStage::OfflineFallbackWarning => {
+                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { .. }
+                    | crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning {
+                        ..
+                    }
+                    | crate::engine::workflow::WorkflowStage::FontCoverageWarning { .. }
+                    | crate::engine::workflow::WorkflowStage::OfflineFallbackWarning => {
                         self.show_workflow_hitl_modal = true;
                     }
                     _ => {}
@@ -2177,7 +2186,9 @@ impl MyApp {
                         ),
                         egui::Sense::click(),
                     );
-                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &btn_text));
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &btn_text)
+                    });
 
                     // Hover animation
                     let hover_factor =
@@ -2862,8 +2873,6 @@ impl MyApp {
             });
     }
 
-
-
     /// Generate a safe output path that never overwrites the input.
     pub fn safe_output_path(input: &std::path::Path, suffix: &str) -> std::path::PathBuf {
         let stem = input.file_stem().unwrap_or_default().to_string_lossy();
@@ -2877,9 +2886,6 @@ impl MyApp {
         }
         candidate
     }
-
-
-
 
     /// Settings -> API keys & credentials editor.
     ///
