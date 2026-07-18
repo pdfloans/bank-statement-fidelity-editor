@@ -5,7 +5,6 @@ pub mod gemini_client;
 pub mod llamaparse;
 pub mod openai_client;
 
-pub mod mindee;
 pub mod pdfrest;
 pub mod pyo3_bridge;
 pub mod vision;

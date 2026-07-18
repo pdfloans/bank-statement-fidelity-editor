@@ -109,10 +109,7 @@ pub enum Provenance {
     DocumentAI {
         confidence: f32,
     },
-    /// Extracted via the Mindee Financial Document API.
-    Mindee {
-        confidence: f32,
-    },
+    
     Manual,
     Computed,
 }
@@ -134,7 +131,7 @@ pub struct ParserStats {
     pub gemini_wins: usize,
     pub docai_wins: usize,
     pub llamaparse_wins: usize,
-    pub mindee_wins: usize,
+    
     pub offline_wins: usize,
 }
 

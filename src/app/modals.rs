@@ -396,243 +396,25 @@ impl AppModals for MyApp {
                     .spacing([12.0, 8.0])
                     .striped(true)
                     .show(ui, |ui| {
-                        // ── 1. PDF Engine ──
-                        ui.label("\u{1f4c4} PDF Engine:");
-                        egui::ComboBox::from_id_salt("bp_pdf_engine")
-                            .selected_text(match self.edit_engine_mode {
-                                PdfEngineMode::Auto => "Auto (PyMuPDF \u{2192} Native)",
-                                PdfEngineMode::DualConcurrent => "Dual Concurrent",
-                                PdfEngineMode::NativeOnly => "Force Native (Pdfium)",
-                                PdfEngineMode::PyMuPdfOnly => "Force PyMuPDF",
-                                PdfEngineMode::TypstReconstruct => "Reconstruct (Typst)",
-                            })
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::Auto, "Auto (PyMuPDF \u{2192} Native)")
-                                    .on_hover_text("Default. Uses PyMuPDF (highest fidelity) first; falls back to native Pdfium if unavailable.");
-                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::DualConcurrent, "Dual Concurrent")
-                                    .on_hover_text("Runs both engines in parallel; prefers PyMuPDF when both succeed.");
-                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::NativeOnly, "Force Native (Pdfium)")
-                                    .on_hover_text("Only use the native Rust + Pdfium engine. Faster but lower fidelity for complex fonts.");
-                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::PyMuPdfOnly, "Force PyMuPDF")
-                                    .on_hover_text("Only use PyMuPDF via the Python bridge. Highest fidelity, handles CJK and complex fonts.");
-                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::TypstReconstruct, "Reconstruct (Typst + Subsetter)")
-                                    .on_hover_text("NEW: Rebuilds the PDF from scratch using Typst and font subsetting instead of editing the original.");
-                            });
-                        // G5: Persist engine-mode on change and flow to runtime config
-                        if self.edit_engine_mode != self.config.engine_mode {
-                            let mode_str = match self.edit_engine_mode {
-                                PdfEngineMode::Auto => "auto",
-                                PdfEngineMode::DualConcurrent => "dual_concurrent",
-                                PdfEngineMode::NativeOnly => "native_only",
-                                PdfEngineMode::PyMuPdfOnly => "pymupdf_only",
-                                PdfEngineMode::TypstReconstruct => "typst_reconstruct",
-                            };
-                            std::env::set_var("PDF_ENGINE_MODE", mode_str);
-                            let _ = confy::store("bank-statement-modifier", None, &self.settings);
-                            let _ = self.job_tx.send(crate::app::runtime::Job::ReloadConfig);
-                        }
+                        // ── Pipeline Architecture ──
+                        ui.label("Extraction:");
+                        ui.label("1. LlamaParse \u{2192} 2. Offline Heuristic (93%)");
                         ui.end_row();
 
-                        // ── 2. AI Provider ──
-                        ui.label("\u{1f916} AI Provider:");
-                        let old_ai_provider = self.settings.ai_provider;
-                        egui::ComboBox::from_id_salt("bp_ai_provider")
-                            .selected_text(self.settings.ai_provider.label())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::ManualOnly, "Manual Only (No AI)")
-                                    .on_hover_text("Skips all AI calls. You edit manually.");
-
-                                // Gemini API Key
-                                let gemini_label = if avail.gemini_api_key {
-                                    "Gemini (API Key)"
-                                } else {
-                                    "Gemini (API Key) \u{26d4} No API Key"
-                                };
-                                ui.add_enabled_ui(avail.gemini_api_key, |ui| {
-                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiApiKey, gemini_label);
-                                    if !avail.gemini_api_key {
-                                        r.on_hover_text("\u{26a0} GEMINI_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
-                                    } else {
-                                        r.on_hover_text("Uses Google Gemini via AI Studio API key for balance analysis, completeness checks, and visual validation.");
-                                    }
-                                });
-
-                                // Gemini Vertex
-                                let vertex_label = if avail.gemini_vertex {
-                                    "Gemini (Vertex AI)"
-                                } else {
-                                    "Gemini (Vertex AI) \u{26d4} No Credentials"
-                                };
-                                ui.add_enabled_ui(avail.gemini_vertex, |ui| {
-                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiVertex, vertex_label);
-                                    if !avail.gemini_vertex {
-                                        r.on_hover_text("\u{26a0} Vertex AI requires a service account or ADC credentials. Configure in Settings \u{2192} API Keys.");
-                                    } else {
-                                        r.on_hover_text("Enterprise. Authenticates via Google Cloud service account / ADC. Data stays in your GCP project.");
-                                    }
-                                });
-                                // Groq API Key
-                                let groq_label = if avail.groq_api_key {
-                                    "Groq (Llama 3 / Fast)"
-                                } else {
-                                    "Groq (Llama 3) \u{26d4} No API Key"
-                                };
-                                ui.add_enabled_ui(avail.groq_api_key, |ui| {
-                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GroqApiKey, groq_label);
-                                    if !avail.groq_api_key {
-                                        r.on_hover_text("\u{26a0} GROQ_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
-                                    } else {
-                                        r.on_hover_text("Uses Groq API (Llama 3) for fast math reasoning and verification.");
-                                    }
-                                });
-
-                                // OpenRouter API Key
-                                let or_label = if avail.openrouter_api_key {
-                                    "OpenRouter (DeepSeek)"
-                                } else {
-                                    "OpenRouter \u{26d4} No API Key"
-                                };
-                                ui.add_enabled_ui(avail.openrouter_api_key, |ui| {
-                                    let r = ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::OpenRouterApiKey, or_label);
-                                    if !avail.openrouter_api_key {
-                                        r.on_hover_text("\u{26a0} OPENROUTER_API_KEY not configured. Set it in Settings \u{2192} API Keys or .env to enable AI features.");
-                                    } else {
-                                        r.on_hover_text("Uses OpenRouter (DeepSeek) for double-check reasoning.");
-                                    }
-                                });
-                            });
-                        if old_ai_provider != self.settings.ai_provider {
-                            self.save_credentials();
-                        }
+                        ui.label("Fidelity Edit:");
+                        ui.label("1\u{fe0f}\u{20e3} PyMuPDF Pro (88%) \u{2192} 2\u{fe0f}\u{20e3} Pdfium (76%) \u{2192} 3\u{fe0f}\u{20e3} Typst Reconstruct (70%)");
                         ui.end_row();
 
-                        // ── 3. Document Parser ──
-                        ui.label("\u{1f4dd} Document Parser:");
-                        let old_doc_parser = self.settings.document_parser;
-                        egui::ComboBox::from_id_salt("bp_doc_parser")
-                            .selected_text(self.settings.document_parser.label())
-                            .show_ui(ui, |ui| {
-                                // Mindee
-                                {
-                                    let mindee_label = if avail.mindee {
-                                        "Mindee (Financial Doc)"
-                                    } else {
-                                        "Mindee (Financial Doc) \u{26d4} No API Key"
-                                    };
-                                    ui.add_enabled_ui(avail.mindee, |ui| {
-                                        let mr = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::MindeeFinDoc, mindee_label);
-                                        if !avail.mindee {
-                                            mr.on_hover_text("\u{26a0} MINDEE_API_KEY not configured. Workflow will auto-fallback to offline parser. Get a key at https://platform.mindee.com/");
-                                        } else {
-                                            mr.on_hover_text("Default. Cloud-based ML parsing via Mindee. Simple API key, excellent accuracy, per-field bounding boxes.");
-                                        }
-                                    });
-                                }
-
-                                // LlamaParse
-                                {
-                                    let llama_label = if avail.llamaparse {
-                                        "LlamaParse"
-                                    } else {
-                                        "LlamaParse \u{26d4} No API Key"
-                                    };
-                                    ui.add_enabled_ui(avail.llamaparse, |ui| {
-                                        let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LlamaParse, llama_label);
-                                        if !avail.llamaparse {
-                                            r.on_hover_text("\u{26a0} LLAMAPARSE_API_KEY not configured. Workflow will auto-fallback to offline parser. Set it in Settings or .env.");
-                                        } else {
-                                            r.on_hover_text("API-based document parser using LLMs. Excellent for unstructured PDFs.");
-                                        }
-                                    });
-                                }
-
-                                // PyMuPDF (always available)
-                                ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::PyMuPdfBuiltin, "PyMuPDF (Built-in) \u{2705}")
-                                    .on_hover_text("No external deps. Extracts text directly from PDF structure. Always available.");
-
-                                // Local OCR (availability-gated)
-                                {
-                                    let ocr_label = if avail.ocr {
-                                        "Local OCR (ocrs) \u{2705}"
-                                    } else {
-                                        "Local OCR (ocrs) \u{26d4} Unavailable"
-                                    };
-                                    ui.add_enabled_ui(avail.ocr, |ui| {
-                                        let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LocalOcrs, ocr_label);
-                                        if let Some(reason) = avail.unavailable_reason("ocr") {
-                                            r.on_hover_text(format!("\u{26a0} {reason}"));
-                                        } else {
-                                            r.on_hover_text("Pure Rust OCR. Works offline on scanned documents.");
-                                        }
-                                    });
-                                }
-
-                                // Document AI
-                                {
-                                    let docai_label = if avail.document_ai {
-                                        "Google Document AI"
-                                    } else {
-                                        "Google Document AI \u{26d4} No Credentials"
-                                    };
-                                    ui.add_enabled_ui(avail.document_ai, |ui| {
-                                        let r = ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::DocumentAi, docai_label);
-                                        if !avail.document_ai {
-                                            r.on_hover_text("\u{26a0} Requires Document AI project, processor, and auth credentials. Configure in Settings \u{2192} API Keys.");
-                                        } else {
-                                            r.on_hover_text("Uses Google's ML-powered Document AI. Highest accuracy on trained layouts.");
-                                        }
-                                    });
-                                }
-                            });
-                        // G5: Persist document_parser on change
-                        if old_doc_parser != self.settings.document_parser {
-                            let _ = confy::store("bank-statement-modifier", None, &self.settings);
-                            let _ = self.job_tx.send(crate::app::runtime::Job::ReloadConfig);
-                        }
+                        ui.label("Math Balance:");
+                        ui.label("1\u{fe0f}\u{20e3} Local Math Engine (100%)");
                         ui.end_row();
 
-                        // ── 4. Verification Renderer ──
-                        ui.label("\u{1f50d} Verification:");
-                        let old_verification = self.settings.verification_renderer;
-                        ui.vertical(|ui| {
-                            egui::ComboBox::from_id_salt("bp_verification")
-                                .selected_text(self.settings.verification_renderer.label())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::LocalPdfium, "Local (Pdfium) \u{2705}")
-                                        .on_hover_text("Default. Renders PDFs locally via Pdfium for visual diff comparison. Fast, always available.");
-                                    let pdfrest_label = if avail.pdfrest {
-                                        "pdfRest (Cloud)"
-                                    } else {
-                                        "pdfRest (Cloud) \u{26d4} No API Key"
-                                    };
-                                    ui.add_enabled_ui(avail.pdfrest, |ui| {
-                                        let r = ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::PdfRestCloud, pdfrest_label);
-                                        if !avail.pdfrest {
-                                            r.on_hover_text("\u{26a0} PDFREST_API_KEY not configured. Falls back to local Pdfium. Set it in .env for Adobe-tier cloud rendering.");
-                                        } else {
-                                            r.on_hover_text("Adobe-tier rendering via pdfRest API. Highest fidelity verification.");
-                                        }
-                                    });
-                                });
+                        ui.label("Forensics:");
+                        ui.label("1\u{fe0f}\u{20e3} PyMuPDF Pro (100%) \u{2192} 2\u{fe0f}\u{20e3} Typst Reconstruct (90%)");
+                        ui.end_row();
 
-                            ui.add_space(4.0);
-                            let applitools_label = if avail.vision_ai {
-                                "Additive: Vision AI"
-                            } else {
-                                "Additive: Applitools \u{26d4} No API Key"
-                            };
-                            let cb = egui::Checkbox::new(&mut self.settings.use_vision_ai, applitools_label);
-                            if !avail.vision_ai {
-                                ui.add_enabled(false, cb).on_hover_text("\u{26a0} VISION_API_KEY not configured. Set it in Settings \u{2192} API Keys.");
-                            } else {
-                                ui.add(cb).on_hover_text("Sends screenshots to Applitools Eyes for AI-based visual difference analysis.");
-                            }
-                        });
-                        // G5: Persist verification_renderer on change
-                        if old_verification != self.settings.verification_renderer {
-                            let _ = confy::store("bank-statement-modifier", None, &self.settings);
-                            let _ = self.job_tx.send(crate::app::runtime::Job::ReloadConfig);
-                        }
+                        ui.label("Visual AI Validation:");
+                        ui.label("new system");
                         ui.end_row();
 
                         // ── 5. Font Handling ──

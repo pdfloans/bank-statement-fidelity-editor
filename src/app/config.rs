@@ -235,16 +235,11 @@ impl AiProviderMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentParserMode {
-    /// Mindee Financial Document API (excellent accuracy, simple API-key
-    /// auth, per-field bounding boxes). Default parser - best balance of
-    /// accuracy, ease of setup, and cost.
-    MindeeFinDoc,
+    
     /// LlamaParse (API-based document parser using LLMs for extraction).
     #[default]
     LlamaParse,
-    /// PyMuPDF built-in text extraction (no external dependencies, good for
-    /// well-structured PDFs with selectable text).
-    PyMuPdfBuiltin,
+    
     /// Local OCR via `ocrs` + `rten` (pure Rust, works offline on scanned
     /// documents, requires `--features ocr`).
     LocalOcrs,
@@ -257,9 +252,9 @@ impl DocumentParserMode {
     pub fn label(self) -> &'static str {
         match self {
             Self::DocumentAi => "Google Document AI",
-            Self::MindeeFinDoc => "Mindee (Financial Doc)",
+            
             Self::LlamaParse => "LlamaParse",
-            Self::PyMuPdfBuiltin => "PyMuPDF (Built-in)",
+            
             Self::LocalOcrs => "Local OCR (ocrs)",
         }
     }
@@ -332,8 +327,8 @@ impl Default for AppConfig {
             openrouter_model: "deepseek/deepseek-chat".to_string(),
             ai_provider: AiProviderMode::default(),
             document_ai: None,
-            mindee_api_key: None,
-            mindee_model_id: None,
+            
+            
             pymupdf_pro_key: None,
             passphrase: "DEV_PASSPHRASE".into(),
             otel_endpoint: None,
@@ -658,7 +653,7 @@ pub struct ApiAvailability {
     /// Google Document AI processor + auth are fully configured.
     pub document_ai: bool,
     /// `MINDEE_API_KEY` is set.
-    pub mindee: bool,
+    
     /// `LLAMAPARSE_API_KEY` is set.
     pub llamaparse: bool,
     /// `PDFREST_API_KEY` is set.
@@ -681,7 +676,7 @@ impl ApiAvailability {
             }
             "groq" => self.groq_api_key = false,
             "openrouter" => self.openrouter_api_key = false,
-            "mindee" => self.mindee = false,
+            
             "llamaparse" => self.llamaparse = false,
             "document ai" | "document ai (vertex)" => self.document_ai = false,
             "vision ai" => self.vision_ai = false,
@@ -740,7 +735,7 @@ impl ApiAvailability {
             gemini_api = self.gemini_api_key,
             gemini_vertex = self.gemini_vertex,
             document_ai = self.document_ai,
-            mindee = self.mindee,
+            mindee = self.
             llamaparse = self.llamaparse,
             pdfrest = self.pdfrest,
             pymupdf_pro = self.pymupdf_pro,
@@ -988,7 +983,7 @@ mod tests {
                 gcs_output_uri: "".into(),
                 passphrase: "".into(),
             }),
-            mindee_api_key: None,
+            
             llamaparse_api_key: Some("llama".into()),
             pdfrest_api_key: Some("pdfrest".into()),
             pymupdf_pro_key: Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string()),

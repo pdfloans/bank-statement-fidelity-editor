@@ -110,14 +110,6 @@ pub const ENV_VARS: &[EnvVarSpec] = &[
         example: "/path/to/service-account.json",
     },
     EnvVarSpec {
-        name: "MINDEE_API_KEY",
-        requirement: Requirement::Optional,
-        summary: "Mindee platform API key for the Financial Document model.",
-        enables: "Mindee-based bank statement parsing (alternative to Document AI)",
-        setup_hint: "Create a free account at https://platform.mindee.com/ and copy the API key from your dashboard.",
-        example: "",
-    },
-    EnvVarSpec {
         name: "PDFREST_API_KEY",
         requirement: Requirement::Optional,
         summary: "Adobe pdfRest API key.",

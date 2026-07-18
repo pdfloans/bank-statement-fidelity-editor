@@ -111,8 +111,7 @@ pub async fn verify_all_api_keys(config: &AppConfig, json_output: bool) -> Verif
     // 3. Verify Gemini (recommended, with fallback chain)
     results.push(verify_gemini(config).await);
 
-    // 4. Verify Mindee (default parser)
-    results.push(verify_mindee(config).await);
+    
 
     // 5. Verify LlamaParse (alternative LLM parser)
     results.push(verify_llamaparse(config).await);
@@ -329,20 +328,6 @@ async fn verify_gemini(config: &AppConfig) -> VerificationResult {
     }
 }
 
-async fn verify_mindee(config: &AppConfig) -> VerificationResult {
-    let start = Instant::now();
-    let key = config.mindee_api_key.as_ref();
-
-    if key.is_none() || key.is_some_and(|k| k.is_empty()) {
-        return VerificationResult {
-            service: "Mindee".to_string(),
-            status: VerificationStatus::Skipped,
-            latency_ms: start.elapsed().as_millis() as u64,
-            error_message: Some("MINDEE_API_KEY not configured".to_string()),
-            guidance: Some("Set MINDEE_API_KEY to use the default Mindee Financial Document parser. Get a key at https://platform.mindee.com/".to_string()),
-            method_used: None,
-        };
-    }
 
     match crate::ai::mindee::MindeeClient::from_app_config(config) {
         Ok(client) => match client.ping().await {
