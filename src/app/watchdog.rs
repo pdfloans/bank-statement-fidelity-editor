@@ -1,0 +1,111 @@
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use sysinfo::System;
+use tokio::sync::broadcast;
+
+#[derive(Clone, Debug)]
+pub enum WatchdogEvent {
+    StallDetected(Duration), // 30s stall hit, countdown begins
+    FallbackTriggered,       // 25s countdown hit 0, triggering fallback
+    Recovered,               // Activity resumed before fallback
+}
+
+pub struct Watchdog {
+    // Shared state to track if a pro_edit is currently active.
+    active_pro_edits: Arc<Mutex<usize>>,
+    pub tx: broadcast::Sender<WatchdogEvent>,
+}
+
+impl Watchdog {
+    pub fn new() -> (Self, broadcast::Receiver<WatchdogEvent>) {
+        let (tx, rx) = broadcast::channel(16);
+        let active_pro_edits = Arc::new(Mutex::new(0));
+        
+        let tx_clone = tx.clone();
+        let active_clone = active_pro_edits.clone();
+        
+        std::thread::spawn(move || {
+            let mut sys = System::new_all();
+            let mut networks = sysinfo::Networks::new_with_resolved_macs();
+            let pid = sysinfo::get_current_pid().unwrap();
+            
+            let mut last_activity_time = Instant::now();
+            let mut stalled_notified = false;
+            
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                
+                let active = *active_clone.lock().unwrap() > 0;
+                if !active {
+                    last_activity_time = Instant::now();
+                    if stalled_notified {
+                        let _ = tx_clone.send(WatchdogEvent::Recovered);
+                        stalled_notified = false;
+                    }
+                    continue;
+                }
+                
+                sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[pid]), true, sysinfo::ProcessRefreshKind::nothing().with_cpu().with_disk_usage());
+                networks.refresh_list();
+                networks.refresh();
+                
+                let mut activity_detected = false;
+                
+                if let Some(process) = sys.process(pid) {
+                    if process.cpu_usage() > 1.0 {
+                        activity_detected = true;
+                    }
+                    if process.disk_usage().read_bytes > 0 || process.disk_usage().written_bytes > 0 {
+                        activity_detected = true;
+                    }
+                }
+                
+                // Network usage globally
+                let mut network_activity = 0;
+                for (_, data) in &networks {
+                    network_activity += data.received() + data.transmitted();
+                }
+                if network_activity > 0 {
+                    activity_detected = true;
+                }
+                
+                if activity_detected {
+                    last_activity_time = Instant::now();
+                    if stalled_notified {
+                        let _ = tx_clone.send(WatchdogEvent::Recovered);
+                        stalled_notified = false;
+                    }
+                } else {
+                    let elapsed = last_activity_time.elapsed();
+                    if elapsed > Duration::from_secs(30) && elapsed <= Duration::from_secs(55) {
+                        if !stalled_notified {
+                            tracing::warn!("Watchdog: Activity-agnostic stall detected! No CPU, Disk, or Network I/O for 30s.");
+                            let _ = tx_clone.send(WatchdogEvent::StallDetected(Duration::from_secs(25)));
+                            stalled_notified = true;
+                        }
+                    } else if elapsed > Duration::from_secs(55) {
+                        if stalled_notified {
+                            tracing::error!("Watchdog: 25s countdown expired. Triggering fallback cascade.");
+                            let _ = tx_clone.send(WatchdogEvent::FallbackTriggered);
+                            stalled_notified = false; // Reset to avoid spamming, or just let it loop.
+                            last_activity_time = Instant::now(); // Reset
+                        }
+                    }
+                }
+            }
+        });
+        
+        (Self { active_pro_edits, tx }, rx)
+    }
+    
+    pub fn start_pro_edit(&self) {
+        *self.active_pro_edits.lock().unwrap() += 1;
+    }
+    
+    pub fn end_pro_edit(&self) {
+        let mut count = self.active_pro_edits.lock().unwrap();
+        if *count > 0 {
+            *count -= 1;
+        }
+    }
+}

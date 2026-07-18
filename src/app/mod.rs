@@ -14,3 +14,4 @@ pub mod runtime;
 pub mod server;
 pub mod telemetry;
 pub mod theme;
+pub mod watchdog;
