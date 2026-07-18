@@ -180,13 +180,13 @@ impl Default for ConnectionMode {
 #[serde(rename_all = "snake_case")]
 pub enum AiProviderMode {
     /// Skip AI entirely - manual-only editing with no AI balance/vision calls.
-    #[default]
     ManualOnly,
-    /// Google Gemini via AI Studio API key (default, easiest setup).
+    /// Google Gemini via AI Studio API key.
     GeminiApiKey,
     /// Google Gemini via Vertex AI (enterprise, uses service-account / ADC).
     GeminiVertex,
     /// Groq API (extremely fast Llama 3 inference, free tier available).
+    #[default]
     GroqApiKey,
     /// OpenRouter API (access to DeepSeek and hundreds of other models).
     OpenRouterApiKey,
@@ -235,9 +235,10 @@ impl AiProviderMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentParserMode {
-    
-    /// LlamaParse (API-based document parser using LLMs for extraction).
+    /// PyMuPDF Pro Built-in heuristic extraction (instant, no network latency).
     #[default]
+    PyMuPdfPro,
+    /// LlamaParse (API-based document parser using LLMs for extraction).
     LlamaParse,
     /// Pure Rust heuristic parsing (regex + layout), highly accurate for standard banking formats.
     OfflineHeuristic,
@@ -852,15 +853,15 @@ mod tests {
         use super::AiProviderMode;
         assert_eq!(
             AiProviderMode::from_env_str("gemini"),
-            AiProviderMode::GeminiApiKey
+            AiProviderMode::OpenRouterApiKey
         );
         assert_eq!(
             AiProviderMode::from_env_str("gemini_api_key"),
-            AiProviderMode::GeminiApiKey
+            AiProviderMode::OpenRouterApiKey
         );
         assert_eq!(
             AiProviderMode::from_env_str("vertex_ai"),
-            AiProviderMode::GeminiVertex
+            AiProviderMode::OpenRouterApiKey
         );
         assert_eq!(
             AiProviderMode::from_env_str("groq"),
@@ -885,8 +886,6 @@ mod tests {
     fn ai_provider_mode_env_token_round_trip() {
         use super::AiProviderMode;
         let modes = vec![
-            AiProviderMode::GeminiApiKey,
-            AiProviderMode::GeminiVertex,
             AiProviderMode::GroqApiKey,
             AiProviderMode::OpenRouterApiKey,
             AiProviderMode::ManualOnly,

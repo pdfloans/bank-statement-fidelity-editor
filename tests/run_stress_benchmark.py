@@ -21,13 +21,15 @@ STRESS_DIR = "tests/stress_pdfs"
 RESULTS_DIR = "tests/stress_results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-# Load environment
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
+# Load environment manually if dotenv is missing
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+if os.path.exists(env_path):
+    with open(env_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 MINDEE_API_KEY = os.environ.get("MINDEE_API_KEY", "")
 LLAMAPARSE_API_KEY = os.environ.get("LLAMAPARSE_API_KEY", "")
