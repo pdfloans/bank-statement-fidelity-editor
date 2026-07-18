@@ -71,7 +71,7 @@ impl PdfEngine for MockFailingEngine {
 #[tokio::test]
 async fn test_chaos_fallback_selector_returns_encrypted_error() {
     let config = Arc::new(std::sync::Mutex::new(Arc::new(AppConfig {
-        engine_mode: PdfEngineMode::Auto,
+        engine_mode: PdfEngineMode::PyMuPdfProPrimary,
         ..Default::default()
     })));
 

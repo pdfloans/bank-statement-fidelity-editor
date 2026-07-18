@@ -75,7 +75,7 @@ impl PdfEngineSelector {
         if let Ok(guard) = self.config.try_lock() {
             guard.engine_mode
         } else {
-            crate::app::config::PdfEngineMode::Auto
+            crate::app::config::PdfEngineMode::PyMuPdfProPrimary
         }
     }
 
@@ -116,7 +116,7 @@ impl PdfEngineSelector {
                     "Typst Reconstruct mode explicitly requested".into(),
                 ))
             }
-            crate::app::config::PdfEngineMode::Auto
+            crate::app::config::PdfEngineMode::PyMuPdfProPrimary
             | crate::app::config::PdfEngineMode::DualConcurrent => {
                 // SOTA Robust Plan: Try PyMuPDF (primary) first for maximum fidelity editing.
                 // If the python bridge fails or throws an exception, seamlessly fallback to Native.
@@ -489,7 +489,7 @@ mod tests {
         let primary = Arc::new(MockEngine::new_error(EngineError::Unsupported));
         let fallback = Arc::new(MockEngine::new_success());
 
-        let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::Auto);
+        let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::PyMuPdfProPrimary);
 
         // This exercises try_primary_or_fallback (write path)
         let res = selector.apply_change(
@@ -535,7 +535,7 @@ mod tests {
         let primary = Arc::new(MockEngine::new_panic());
         let fallback = Arc::new(MockEngine::new_success());
 
-        let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::Auto);
+        let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::PyMuPdfProPrimary);
 
         // render_page falls into try_primary_or_fallback when not DualConcurrent
         let res = selector.render_page(Path::new("dummy.pdf"), 0, 150.0);

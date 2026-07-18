@@ -870,7 +870,7 @@ impl MyApp {
                 "PDF_ENGINE_MODE",
                 match self.edit_engine_mode {
                     crate::app::config::PdfEngineMode::DualConcurrent => "dual".to_string(),
-                    crate::app::config::PdfEngineMode::Auto => "auto".to_string(),
+                    crate::app::config::PdfEngineMode::PyMuPdfProPrimary => "auto".to_string(),
                     crate::app::config::PdfEngineMode::NativeOnly => "native".to_string(),
                     crate::app::config::PdfEngineMode::PyMuPdfOnly => "pymupdf".to_string(),
                     crate::app::config::PdfEngineMode::TypstReconstruct => "typst".to_string(),

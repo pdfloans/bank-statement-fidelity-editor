@@ -24,7 +24,7 @@ struct SettingCombination {
 /// added here causes a compile error (the `match` in the label tests below
 /// will be non-exhaustive).
 const ENGINES: &[PdfEngineMode] = &[
-    PdfEngineMode::Auto,
+    PdfEngineMode::PyMuPdfProPrimary,
     PdfEngineMode::NativeOnly,
     PdfEngineMode::PyMuPdfOnly,
     PdfEngineMode::DualConcurrent,
@@ -109,7 +109,7 @@ fn all_enum_variants_have_labels() {
 /// Verify that Default impls produce expected values.
 #[test]
 fn default_settings_are_expected() {
-    assert_eq!(PdfEngineMode::default(), PdfEngineMode::Auto);
+    assert_eq!(PdfEngineMode::default(), PdfEngineMode::PyMuPdfProPrimary);
     assert_eq!(
         DocumentParserMode::default(),
         DocumentParserMode::LlamaParse

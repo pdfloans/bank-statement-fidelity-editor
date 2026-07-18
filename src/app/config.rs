@@ -149,7 +149,7 @@ pub enum PdfEngineMode {
     /// out of the box; the native engine (pdfium) is used as a fallback when
     /// PyMuPDF is unavailable.
     #[default]
-    Auto,
+    PyMuPdfProPrimary,
     NativeOnly,
     /// Force PyMuPDF (highest fidelity edit-in-place).
     PyMuPdfOnly,
@@ -235,10 +235,8 @@ impl AiProviderMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentParserMode {
-    /// PyMuPDF Pro Built-in heuristic extraction (instant, no network latency).
-    #[default]
-    PyMuPdfPro,
     /// LlamaParse (API-based document parser using LLMs for extraction).
+    #[default]
     LlamaParse,
     /// Pure Rust heuristic parsing (regex + layout), highly accurate for standard banking formats.
     OfflineHeuristic,
@@ -339,7 +337,7 @@ impl Default for AppConfig {
             gemini_auth_mode: GeminiAuthMode::ApiKey,
             is_dev_mode: cfg!(debug_assertions),
             connection_mode: ConnectionMode::Local,
-            engine_mode: PdfEngineMode::Auto,
+            engine_mode: PdfEngineMode::PyMuPdfProPrimary,
             llamaparse_api_key: None,
             interactive_fallbacks: true,
             transfer_consensus_mode: true,
@@ -493,10 +491,10 @@ impl AppConfig {
             {
                 "native" => PdfEngineMode::NativeOnly,
                 "pymupdf" => PdfEngineMode::PyMuPdfOnly,
-                "auto" => PdfEngineMode::Auto,
+                "auto" => PdfEngineMode::PyMuPdfProPrimary,
                 "typst" => PdfEngineMode::TypstReconstruct,
                 "dual" | "dual_concurrent" => PdfEngineMode::DualConcurrent,
-                _ => PdfEngineMode::Auto,
+                _ => PdfEngineMode::PyMuPdfProPrimary,
             },
             interactive_fallbacks: env::var("INTERACTIVE_FALLBACKS")
                 .map(|v| v.to_lowercase() != "false" && v != "0")
