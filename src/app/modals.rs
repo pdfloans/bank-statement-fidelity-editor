@@ -85,6 +85,7 @@ pub(crate) trait AppModals {
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context);
     fn draw_ai_confirmation_dialog(&mut self, ctx: &egui::Context);
     fn draw_interactive_fallback_modal(&mut self, ctx: &egui::Context);
+    fn draw_autofix_modal(&mut self, ctx: &egui::Context);
     fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context);
     fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context);
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui);
@@ -1143,6 +1144,53 @@ impl AppModals for MyApp {
         }
     }
 
+    fn draw_autofix_modal(&mut self, ctx: &egui::Context) {
+        let mut resolved_choice: Option<String> = None;
+        if let Some(err) = self.pending_autofix.clone() {
+            let mut keep_open = true;
+            egui::Window::new("⚠️ Operation Failed")
+                .open(&mut keep_open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.0;
+
+                    ui.label("An operation encountered an error:");
+                    ui.label(egui::RichText::new(err.to_string()).color(egui::Color32::RED));
+                    ui.add_space(10.0);
+
+                    ui.heading("How would you like to proceed?");
+                    ui.add_space(5.0);
+
+                    if let Some(action) = err.suggested_action() {
+                        let btn_text = egui::RichText::new(action).strong().size(14.0);
+                        if ui.add_sized([ui.available_width(), 36.0], egui::Button::new(btn_text)).clicked() {
+                            resolved_choice = Some("action".to_string());
+                        }
+                    }
+
+                    if ui.add_sized([ui.available_width(), 36.0], egui::Button::new("Cancel")).clicked() {
+                        resolved_choice = Some("cancel".to_string());
+                    }
+                });
+
+            if !keep_open || resolved_choice.is_some() {
+                self.pending_autofix = None;
+                if resolved_choice.as_deref() == Some("action") {
+                    if let Some(action) = err.suggested_action() {
+                        if action.contains("Settings") {
+                            self.show_settings_modal = true;
+                        } else if action.contains("Typst") {
+                            // Tell user to set env var since engine_mode is config driven
+                            self.status = "Please restart app with PDF_ENGINE_MODE=typst for perfect fidelity font synthesis.".into();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context) {
         let mut keep_open = self.show_workflow_hitl_modal;
         let mut resolved = false;
@@ -1709,6 +1757,9 @@ impl AppModals for MyApp {
         }
         if self.pending_interactive_fallback.is_some() {
             self.draw_interactive_fallback_modal(ctx);
+        }
+        if self.pending_autofix.is_some() {
+            self.draw_autofix_modal(ctx);
         }
         if self.show_workflow_hitl_modal {
             self.draw_workflow_hitl_modal(ctx);

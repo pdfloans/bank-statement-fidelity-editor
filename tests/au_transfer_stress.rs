@@ -97,7 +97,9 @@ impl PairResult {
 #[ignore]
 fn test_all_au_transfer_pairs() {
     let _ = dotenvy::dotenv();
-    let cfg = Arc::new(AppConfig::from_env().unwrap());
+    let mut cfg_obj = AppConfig::from_env().unwrap();
+    cfg_obj.interactive_fallbacks = false;
+    let cfg = Arc::new(cfg_obj);
     let dir_path = Path::new("AU Bank Statements");
     let pdfs = collect_pdfs(dir_path);
 
@@ -119,7 +121,7 @@ fn test_all_au_transfer_pairs() {
     eprintln!();
 
     let total_start = Instant::now();
-    let total_pairs = pdfs.len() * (pdfs.len() - 1);
+    let _total_pairs = pdfs.len() * (pdfs.len() - 1);
     let mut handles = Vec::new();
 
     for (si, source) in pdfs.iter().enumerate() {

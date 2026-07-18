@@ -1803,15 +1803,10 @@ impl MyApp {
             }
             JobResult::Error { job_label, message } => {
                 self.progress = None;
-                self.status = format!("❌ [{job_label}] {message}");
-                self.toast(ToastKind::Error, format!("[{job_label}] {message}"));
-
-                // Autofix interception
-                if let Some(err) = crate::app::error::AppError::parse_msg(&message) {
-                    if err.suggested_action().is_some() {
-                        self.pending_autofix = Some(err);
-                    }
-                }
+                // Autofix interception for ALL errors
+                let err = crate::app::error::AppError::parse_msg(&message)
+                    .unwrap_or_else(|| crate::app::error::AppError::Unknown(message.clone()));
+                self.pending_autofix = Some(err);
 
                 tracing::error!("[gui] runtime error in '{}': {}", job_label, message);
 
@@ -2797,10 +2792,22 @@ impl MyApp {
             // flight (spinner fallback for jobs that don't stream progress).
             if let Some(p) = self.progress.clone() {
                 let pct = (p.fraction.clamp(0.0, 1.0) * 100.0).round() as i32;
+                let elapsed = p.started_at.elapsed();
+                let eta_str = if p.fraction > 0.01 && p.fraction < 1.0 {
+                    let total_est = elapsed.as_secs_f64() / (p.fraction as f64);
+                    let remaining = total_est - elapsed.as_secs_f64();
+                    if remaining > 60.0 {
+                        format!(" (ETA: {:.0}m {:.0}s)", remaining / 60.0, remaining % 60.0)
+                    } else {
+                        format!(" (ETA: {:.0}s)", remaining)
+                    }
+                } else {
+                    String::new()
+                };
                 ui.add(
                     egui::ProgressBar::new(p.fraction.clamp(0.0, 1.0))
                         .desired_width(ui.available_width())
-                        .text(format!("{} - {}%", p.label, pct)),
+                        .text(format!("{} - {}%{}", p.label, pct, eta_str)),
                 );
                 ui.add_space(2.0);
             } else if self.in_flight > 0 {

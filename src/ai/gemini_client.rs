@@ -454,8 +454,7 @@ impl GeminiClient {
     }
 
     // Internal method for testing
-    #[cfg(test)]
-    fn with_base_url(api_key: String, base_url: String) -> Self {
+    pub fn with_base_url(api_key: String, base_url: String) -> Self {
         Self {
             api_key,
             http: global_http_client(),

@@ -206,7 +206,7 @@ fn extract_string_operand(operands: &[lopdf::Object]) -> Option<String> {
 ///  2. System library (PATH / LD_LIBRARY_PATH)
 ///  3. Auto-download from official GitHub releases (opt-in via
 ///     `PDFIUM_AUTO_DOWNLOAD=true` env var)
-mod pdfium_resolver {
+pub mod pdfium_resolver {
     use std::path::PathBuf;
     use std::sync::OnceLock;
 

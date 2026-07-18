@@ -3646,7 +3646,13 @@ impl Runtime {
                                                     let p = input.clone();
                                                     tokio::task::spawn_blocking(move || -> usize {
                                                         use pdfium_render::prelude::Pdfium;
-                                                        let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./")).or_else(|_| Pdfium::bind_to_system_library());
+                                                        let lib_dir = crate::pdf::native_engine::pdfium_resolver::resolve().unwrap_or_default();
+                                                        let bindings = if lib_dir.as_os_str().is_empty() {
+                                                            Pdfium::bind_to_system_library()
+                                                        } else {
+                                                            let lib_path = Pdfium::pdfium_platform_library_name_at_path(lib_dir.to_string_lossy().as_ref());
+                                                            Pdfium::bind_to_library(lib_path).or_else(|_| Pdfium::bind_to_system_library())
+                                                        };
                                                         match bindings { Ok(b) => Pdfium::new(b).load_pdf_from_file(&p, None).map(|d| d.pages().len() as usize).unwrap_or(0), Err(_) => 0 }
                                                     }).await.unwrap_or(0)
                                                 };

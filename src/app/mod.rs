@@ -8,6 +8,7 @@ pub mod fontcache;
 pub mod gui;
 pub mod modals;
 pub mod notify;
+pub mod paths;
 pub mod preflight;
 pub mod runtime;
 pub mod server;

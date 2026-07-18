@@ -349,7 +349,7 @@ impl Default for AppConfig {
             applitools_api_key: None,
             interactive_fallbacks: true,
             transfer_consensus_mode: true,
-            auto_match_dpi: false,
+            auto_match_dpi: true, // Force high fidelity font replication default
         }
     }
 }
@@ -516,7 +516,7 @@ impl AppConfig {
                 .unwrap_or(true),
             auto_match_dpi: env::var("AUTO_MATCH_DPI")
                 .map(|v| v.to_lowercase() != "false" && v != "0")
-                .unwrap_or(false),
+                .unwrap_or(true), // Enforce high fidelity default
         })
     }
 

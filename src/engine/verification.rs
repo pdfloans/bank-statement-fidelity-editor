@@ -430,9 +430,18 @@ pub async fn verify_edit_pages_with_padding(
 ) -> Result<VerificationReport, VerificationError> {
     std::fs::create_dir_all(output_dir)?;
 
-    let bindings = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-        .or_else(|_| Pdfium::bind_to_system_library())
-        .map_err(|e| VerificationError::PdfiumLoad(format!("Failed to bind pdfium: {e}")))?;
+    // Load Pdfium using the centralized robust resolver
+    let lib_dir = crate::pdf::native_engine::pdfium_resolver::resolve()
+        .map_err(|e| VerificationError::PdfiumLoad(format!("Pdfium resolve error: {}", e)))?;
+    let bindings = if lib_dir.as_os_str().is_empty() {
+        Pdfium::bind_to_system_library()
+            .map_err(|e| VerificationError::PdfiumLoad(format!("System bind error: {}", e)))?
+    } else {
+        let lib_path = Pdfium::pdfium_platform_library_name_at_path(lib_dir.to_string_lossy().as_ref());
+        Pdfium::bind_to_library(lib_path)
+            .or_else(|_| Pdfium::bind_to_system_library())
+            .map_err(|e| VerificationError::PdfiumLoad(format!("Library bind error: {}", e)))?
+    };
     let pdfium = Pdfium::new(bindings);
     let original_doc = pdfium
         .load_pdf_from_file(original, None)

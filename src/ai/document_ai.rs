@@ -89,12 +89,18 @@ impl DocumentAiClient {
             .clone()
             .ok_or(DocAiError::MissingConfig("document_ai"))?;
         // Require *some* form of credential.
-        if doc_ai.api_key.is_empty()
-            && doc_ai.service_account_path.is_empty()
-            && doc_ai.adc_path.is_empty()
-        {
+        let mut has_valid_credential = false;
+        if !doc_ai.api_key.is_empty() {
+            has_valid_credential = true;
+        } else if !doc_ai.service_account_path.is_empty() && Path::new(&doc_ai.service_account_path).exists() {
+            has_valid_credential = true;
+        } else if !doc_ai.adc_path.is_empty() && Path::new(&doc_ai.adc_path).exists() {
+            has_valid_credential = true;
+        }
+
+        if !has_valid_credential {
             return Err(DocAiError::MissingConfig(
-                "DOCUMENT_AI_API_KEY, ADC, or GOOGLE_APPLICATION_CREDENTIALS",
+                "DOCUMENT_AI_API_KEY, ADC, or GOOGLE_APPLICATION_CREDENTIALS (files must exist)",
             ));
         }
         Ok(Self {
