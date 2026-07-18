@@ -1,6 +1,5 @@
 use dual_core_pdf_pipeline::ai::document_ai::DocumentAiClient;
 use dual_core_pdf_pipeline::ai::llamaparse::LlamaParseClient;
-use dual_core_pdf_pipeline::ai::mindee::MindeeClient;
 use dual_core_pdf_pipeline::app::config::AppConfig;
 use dual_core_pdf_pipeline::engine::offline_parser::parse_statement_offline;
 use dual_core_pdf_pipeline::engine::consensus::merge_consensus_statements;
@@ -40,9 +39,7 @@ async fn test_parser_ranking() {
     };
     
     let doc_ai = DocumentAiClient::from_app_config(&cfg);
-    let llama = LlamaParseClient::from_app_config(&cfg);
-    let mindee = MindeeClient::from_app_config(&cfg);
-    
+    let llama = LlamaParseClient::from_app_config(&cfg);    
     let mut stats = dual_core_pdf_pipeline::engine::model::ParserStats::default();
     let pdfs = get_test_pdfs();
     
@@ -74,12 +71,7 @@ async fn test_parser_ranking() {
             }
         }
         
-        if let Ok(client) = &mindee {
-            if let Ok(stmt) = client.parse_statement(&pdf).await {
-                stmts.push(stmt.clone());
-                named_stmts.push(("Mindee", stmt));
-            }
-        }
+
         
         let offline = parse_statement_offline(&pdf, Arc::new(dual_core_pdf_pipeline::pdf::OxidizePdfEngine::new()));
         if let Ok(stmt) = offline {
@@ -105,9 +97,7 @@ async fn test_parser_ranking() {
         
         match winner {
             "DocAI" => stats.docai_wins += 1,
-            "LlamaParse" => stats.llamaparse_wins += 1,
-            "Mindee" => stats.mindee_wins += 1,
-            "Offline" => stats.offline_wins += 1,
+            "LlamaParse" => stats.llamaparse_wins += 1,            "Offline" => stats.offline_wins += 1,
             _ => {}
         }
         
@@ -116,7 +106,5 @@ async fn test_parser_ranking() {
     
     println!("\n=== Final Ranking (Consensus Wins) ===");
     println!("DocAI: {}", stats.docai_wins);
-    println!("LlamaParse: {}", stats.llamaparse_wins);
-    println!("Mindee: {}", stats.mindee_wins);
-    println!("Offline: {}", stats.offline_wins);
+    println!("LlamaParse: {}", stats.llamaparse_wins);    println!("Offline: {}", stats.offline_wins);
 }

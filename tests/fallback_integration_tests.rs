@@ -81,16 +81,12 @@ impl PdfEngine for DummyEngine {
 
 #[tokio::test]
 async fn test_offline_fallback_can_be_triggered() {
-    // We cannot easily mock the Mindee client without modifying the source to accept a base URL override.
-    // Instead, we will simulate the exact fallback invocation that occurs in the runtime
-    // when Document AI or Mindee returns an error, ensuring that `parse_statement_offline` gracefully takes over.
-
+        // Instead, we will simulate the exact fallback invocation that occurs in the runtime
+    
     // Create a dummy PDF engine
     let engine = Arc::new(DummyEngine) as Arc<dyn PdfEngine>;
     let engine_for_tokio = engine.clone();
 
-    // Simulate Mindee returning an error
-    let _fake_mindee_error = anyhow::anyhow!("Mindee API Error: 500 Internal Server Error");
 
     // Execute the exact fallback logic present in `runtime.rs:3342`
     let path = PathBuf::from("nonexistent.pdf");

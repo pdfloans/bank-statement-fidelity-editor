@@ -239,6 +239,8 @@ pub enum DocumentParserMode {
     /// LlamaParse (API-based document parser using LLMs for extraction).
     #[default]
     LlamaParse,
+    /// Pure Rust heuristic parsing (regex + layout), highly accurate for standard banking formats.
+    OfflineHeuristic,
     
     /// Local OCR via `ocrs` + `rten` (pure Rust, works offline on scanned
     /// documents, requires `--features ocr`).
@@ -254,6 +256,7 @@ impl DocumentParserMode {
             Self::DocumentAi => "Google Document AI",
             
             Self::LlamaParse => "LlamaParse",
+            Self::OfflineHeuristic => "Offline Heuristic",
             
             Self::LocalOcrs => "Local OCR (ocrs)",
         }
@@ -290,9 +293,6 @@ pub struct AppConfig {
     pub openrouter_model: String,
     pub ai_provider: AiProviderMode,
     pub document_ai: Option<DocumentAiConfig>,
-    pub mindee_api_key: Option<String>,
-    /// Mindee API model id for the V2 Extraction Models.
-    pub mindee_model_id: Option<String>,
     pub pymupdf_pro_key: Option<String>, // Changed to Option - must come from env
     pub passphrase: String,
     pub otel_endpoint: Option<String>,
@@ -368,8 +368,7 @@ impl AppConfig {
         let openrouter_model = clean_key(env::var("OPENROUTER_MODEL")).unwrap_or_else(|| "deepseek/deepseek-chat".to_string());
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
-        let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
-        let mindee_model_id = clean_key(env::var("MINDEE_MODEL_ID"));
+
         let llamaparse_api_key = clean_key(env::var("LLAMAPARSE_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
 
@@ -475,8 +474,7 @@ impl AppConfig {
             pdfrest_api_key,
             lipi_api_key,
             document_ai: doc_ai,
-            mindee_api_key,
-            mindee_model_id,
+
             llamaparse_api_key,
             pymupdf_pro_key,
             passphrase,
@@ -591,7 +589,7 @@ impl AppConfig {
     /// Returns true if the application has valid AI configuration for extraction.
     pub fn has_ai_for_extraction(&self) -> bool {
         self.document_ai.is_some()
-            || (self.mindee_api_key.is_some() && self.mindee_model_id.is_some())
+
             || self.llamaparse_api_key.is_some()
     }
 
@@ -617,7 +615,7 @@ impl AppConfig {
                 .as_ref()
                 .map(|d| d.has_auth())
                 .unwrap_or(false),
-            mindee: self.mindee_api_key.is_some(),
+
             llamaparse: self.llamaparse_api_key.is_some(),
             pdfrest: self.pdfrest_api_key.is_some(),
             pymupdf_pro: self.pro_editing_available(),
@@ -700,9 +698,7 @@ impl ApiAvailability {
             "document_ai" if !self.document_ai => {
                 Some("Document AI requires project ID, processor ID, and auth credentials. Configure in Settings -> API Keys.")
             }
-            "mindee" if !self.mindee => {
-                Some("MINDEE_API_KEY not configured. Get one at https://platform.mindee.com/ and set in .env.")
-            }
+
             "llamaparse" if !self.llamaparse => {
                 Some("LLAMAPARSE_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
@@ -735,7 +731,6 @@ impl ApiAvailability {
             gemini_api = self.gemini_api_key,
             gemini_vertex = self.gemini_vertex,
             document_ai = self.document_ai,
-            mindee = self.
             llamaparse = self.llamaparse,
             pdfrest = self.pdfrest,
             pymupdf_pro = self.pymupdf_pro,

@@ -836,8 +836,7 @@ impl MyApp {
                 "PYMUPDF_PRO_KEY",
                 self.edit_pymupdf_pro_key.trim().to_string(),
             ),
-            (
-            ),
+
             (
                 "LLAMAPARSE_API_KEY",
                 self.edit_llamaparse_api_key.trim().to_string(),

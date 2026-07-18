@@ -183,7 +183,7 @@ impl AppModals for MyApp {
                                 let mut leaderboard = vec![
                                     ("DocAI", stats.docai_wins),
                                     ("LlamaParse", stats.llamaparse_wins),
-                                    ("Mindee", stats.mindee_wins),
+
                                     ("Gemini", stats.gemini_wins),
                                     ("Offline", stats.offline_wins),
                                 ];
@@ -481,9 +481,7 @@ impl AppModals for MyApp {
                     DocumentParserMode::DocumentAi if !avail.document_ai => {
                         warnings.push("\u{26a0} Document AI selected but credentials incomplete. Workflow will auto-fallback to offline parser.");
                     }
-                    DocumentParserMode::MindeeFinDoc if !avail.mindee => {
-                        warnings.push("\u{26a0} Mindee selected but MINDEE_API_KEY missing. Workflow will auto-fallback to offline parser.");
-                    }
+
                     DocumentParserMode::LlamaParse if !avail.llamaparse => {
                         warnings.push("\u{26a0} LlamaParse selected but no API key configured. Workflow will auto-fallback to offline parser.");
                     }
@@ -1273,21 +1271,7 @@ impl AppModals for MyApp {
                         .on_hover_text("24-char 'hFKt...' trial key enables per-segment Pro editing.");
                         ui.end_row();
 
-                        ui.label("Mindee API key:");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.edit_mindee_api_key)
-                                .password(true)
-                                .desired_width(220.0),
-                        );
-                        ui.end_row();
 
-                        ui.label("Mindee Model ID:");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.edit_mindee_model_id)
-                                .desired_width(220.0),
-                        )
-                        .on_hover_text("UUID of your V2 custom extraction model (e.g., bank statement).");
-                        ui.end_row();
 
                         ui.label("LlamaParse API key:");
                         ui.add(
@@ -1373,8 +1357,7 @@ impl AppModals for MyApp {
                                 ("GOOGLE_APPLICATION_CREDENTIALS", self.edit_docai_service_account.trim(), true), // don't quote paths
                                 ("DOCUMENT_AI_API_KEY", self.edit_docai_api_key.trim(), false),
                                 ("PYMUPDF_PRO_KEY", self.edit_pymupdf_pro_key.trim(), false),
-                                ("MINDEE_API_KEY", self.edit_mindee_api_key.trim(), false),
-                                ("MINDEE_MODEL_ID", self.edit_mindee_model_id.trim(), false),
+
                                 ("LLAMAPARSE_API_KEY", self.edit_llamaparse_api_key.trim(), false),
                                 ("PDFREST_API_KEY", self.edit_pdfrest_api_key.trim(), false),
                                 ("LIPI_API_KEY", self.edit_lipi_api_key.trim(), false),
@@ -1414,8 +1397,7 @@ impl AppModals for MyApp {
                                                     "vertex" | "vertex_ai" | "vertexai"
                                                 );
                                             },
-                                            "MINDEE_API_KEY" => self.edit_mindee_api_key = val,
-                                            "MINDEE_MODEL_ID" => self.edit_mindee_model_id = val,
+
                                             "LLAMAPARSE_API_KEY" => self.edit_llamaparse_api_key = val,
                                             "PDFREST_API_KEY" => self.edit_pdfrest_api_key = val,
                                             "LIPI_API_KEY" => self.edit_lipi_api_key = val,
@@ -1465,8 +1447,7 @@ impl AppModals for MyApp {
                                 .as_str(),
                             "vertex" | "vertex_ai" | "vertexai"
                         );
-                        self.edit_mindee_api_key = std::env::var("MINDEE_API_KEY").unwrap_or_default();
-                        self.edit_mindee_model_id = std::env::var("MINDEE_MODEL_ID").unwrap_or_default();
+
                         self.edit_llamaparse_api_key = std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default();
                         self.edit_pdfrest_api_key = std::env::var("PDFREST_API_KEY").unwrap_or_default();
                         self.edit_lipi_api_key = std::env::var("LIPI_API_KEY").unwrap_or_default();
@@ -1500,7 +1481,6 @@ impl AppModals for MyApp {
                     ui.separator();
                     ui.small(format!("Pro {}", mark(self.api_availability.pymupdf_pro)));
                     ui.separator();
-                    ui.small(format!("Mindee {}", mark(self.api_availability.mindee)));
                     ui.separator();
                     ui.small(format!("LlamaParse {}", mark(self.api_availability.llamaparse)));
                     ui.separator();

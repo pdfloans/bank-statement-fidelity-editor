@@ -20,7 +20,6 @@ async fn test_ai_provider_dns_resolution() {
         "us-central1-aiplatform.googleapis.com:443", // Vertex AI
         "api.groq.com:443", // Groq
         "openrouter.ai:443", // OpenRouter
-        "api.mindee.net:443", // Mindee
         "us-documentai.googleapis.com:443", // Document AI
     ];
 

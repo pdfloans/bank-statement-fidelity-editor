@@ -2831,8 +2831,6 @@ impl Runtime {
                                     }
                                 }
                             }
-                            }
-
                             // 4. Try Offline Parser
                             let transactions = if let Some(txs) = final_txs {
                                 txs
@@ -3656,7 +3654,7 @@ impl Runtime {
                                             
                                             "document_ai" => Some(DocumentParserMode::DocumentAi),
                                             "llamaparse" => Some(DocumentParserMode::LlamaParse),
-                                            "offline_parser" => Some(DocumentParserMode::PyMuPdfBuiltin),
+                                            "offline_parser" => Some(DocumentParserMode::OfflineHeuristic),
                                             _ => None,
                                         }
                                     } else {
@@ -3701,7 +3699,7 @@ impl Runtime {
                                                         let formal_diff = (formal_sum - expected).abs();
                                                         let one_cent = rust_decimal_macros::dec!(0.01);
                                                         if !s.transactions.is_empty() && s.opening_balance != rust_decimal::Decimal::ZERO && retail_diff > one_cent && formal_diff > one_cent {
-                                                            if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, "AI Fidelity Math Check Failed", Some(DocumentParserMode::MindeeFinDoc)) {
+                                                            if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, "AI Fidelity Math Check Failed", Some(DocumentParserMode::LlamaParse)) {
                                                                 current_parser_mode = next;
                                                                 continue;
                                                             } else {
@@ -3713,7 +3711,7 @@ impl Runtime {
                                                     }
                                                     Err(e) => {
                                                         tracing::warn!("[workflow] Document AI parse failed: {e}");
-                                                        if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI parse failed: {e}"), Some(DocumentParserMode::MindeeFinDoc)) {
+                                                        if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI parse failed: {e}"), Some(DocumentParserMode::LlamaParse)) {
                                                             current_parser_mode = next;
                                                             continue;
                                                         } else {
@@ -3725,7 +3723,7 @@ impl Runtime {
                                             }
                                             Err(e) => {
                                                 tracing::warn!("[workflow] Document AI not configured: {e}");
-                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI not configured: {e}"), Some(DocumentParserMode::MindeeFinDoc)) {
+                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Document AI not configured: {e}"), Some(DocumentParserMode::LlamaParse)) {
                                                     current_parser_mode = next;
                                                     continue;
                                                 } else {
@@ -3735,34 +3733,7 @@ impl Runtime {
                                             }
                                         }
                                     }
-                                    DocumentParserMode::MindeeFinDoc => {
-                                        let _ = res_tx.send(JobResult::Progress { label: "Parsing with Mindee...".into(), fraction: 0.3 });
-                                        match crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
-                                            Ok(client) => match client.parse_statement(&input).await {
-                                                Ok(s) => break s,
-                                                Err(e) => {
-                                                    tracing::warn!("[workflow] Mindee parse failed: {e}");
-                                                    if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee parse failed: {e}"), Some(DocumentParserMode::PyMuPdfBuiltin)) {
-                                                        current_parser_mode = next;
-                                                        continue;
-                                                    } else {
-                                                        let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                tracing::warn!("[workflow] Mindee not configured: {e}");
-                                                if let Some(next) = interactive_fallback_or_continue!(cfg, router, res_tx, format!("Mindee not configured: {e}"), Some(DocumentParserMode::PyMuPdfBuiltin)) {
-                                                    current_parser_mode = next;
-                                                    continue;
-                                                } else {
-                                                    let _ = res_tx.send(JobResult::WorkflowFailed(crate::engine::workflow::WorkflowFailure::ParseFailed("Cancelled".into())));
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                    }
+
                                     DocumentParserMode::LlamaParse => {
                                         let _ = res_tx.send(JobResult::Progress { label: "Parsing with LlamaParse...".into(), fraction: 0.2 });
                                         match crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
@@ -3791,7 +3762,7 @@ impl Runtime {
                                             }
                                         }
                                     }
-                                    DocumentParserMode::PyMuPdfBuiltin => {
+                                    DocumentParserMode::OfflineHeuristic => {
                                         let _ = res_tx.send(JobResult::Progress { label: "Parsing with Offline Parser...".into(), fraction: 0.35 });
                                         let eng = engine_for_tokio.clone();
                                         let path = input.clone();
@@ -5238,17 +5209,17 @@ mod tests {
     fn runtime_fallback_branch_prefers_offline_parser_when_online_backends_are_unavailable() {
         let cfg = crate::app::config::AppConfig {
             document_ai: None,
-            mindee_api_key: None,
+
             ..crate::app::config::AppConfig::default()
         };
 
         let availability = cfg.detect_availability();
         assert!(!availability.document_ai);
-        assert!(!availability.mindee);
+
 
         // The runtime should keep the offline parser as the final fallback path
-        // when neither Document AI nor Mindee is configured.
+        // when neither Document AI nor Ocr-as-a-Service is configured.
         assert!(availability.unavailable_reason("document_ai").is_some());
-        assert!(availability.unavailable_reason("mindee").is_some());
+        assert!(availability.unavailable_reason("llamaparse").is_some());
     }
 }
