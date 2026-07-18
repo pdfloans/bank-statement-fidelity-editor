@@ -1,6 +1,6 @@
 # Stress Test Evaluation Matrix — Bank Statement Fidelity Editor v0.5.1
 
-**Executed:** 2026-07-18 16:52:27 UTC
+**Executed:** 2026-07-18 18:05:28 UTC
 **Platform:** Python 3.14.5, PyMuPDF 1.28.0
 
 ## Results Matrix
@@ -22,28 +22,28 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **LlamaParse** | 100 | 96 | **98.0** | 6724ms | Found 30/30 txn lines in markdown |
-| 2 | **Offline Heuristic** | 88 | 98 | **93.0** | 20ms | Found 25/30 txns, closing=Y |
-| 3 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 23ms | Found 0/30 txns, 0 decimal errors |
-| 4 | **Document AI** | 0 | 0 | **0.0** | 115ms | No auth available |
-| 5 | **Mindee API** | 0 | 0 | **0.0** | 595ms | API Error: HTTP 401 |
+| 1 | **LlamaParse** | 100 | 96 | **98.0** | 6605ms | Found 30/30 txn lines in markdown |
+| 2 | **Offline Heuristic** | 88 | 98 | **93.0** | 22ms | Found 25/30 txns, closing=Y |
+| 3 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 25ms | Found 0/30 txns, 0 decimal errors |
+| 4 | **Document AI** | 0 | 0 | **0.0** | 126ms | No auth available |
+| 5 | **Mindee API** | 0 | 0 | **0.0** | 580ms | API Error: HTTP 401 |
 
 ### Test 2: Fidelity Edit
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 127ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
-| 2 | **Pdfium** | 60 | 92 | **76.0** | 107ms | Rendered 2480x3509px @ 300DPI, content=Y |
-| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 102ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
+| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 128ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
+| 2 | **Pdfium** | 60 | 92 | **76.0** | 121ms | Rendered 2480x3509px @ 300DPI, content=Y |
+| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 116ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
 
 ### Test 3: Math Balance
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
 | 1 | **Local Math Engine** | 100 | 100 | **100.0** | 3ms | Detected discrepancy=$45.0, opening=$5,000.00, closing=$10,850.21 |
-| 2 | **OpenRouter AI** | 0 | 100 | **50.0** | 4926ms | Found=N, amount=$0, line=0 |
+| 2 | **OpenRouter AI** | 0 | 100 | **50.0** | 3711ms | Found=N, amount=$0, line=0 |
 | 3 | **Document AI** | 0 | 0 | **0.0** | 6ms | CRASH: [Errno 2] No such file or directory: 'gcloud.cmd' |
-| 4 | **Gemini AI** | 0 | 0 | **0.0** | 37ms | HTTP 400: {
+| 4 | **Gemini AI** | 0 | 0 | **0.0** | 43ms | HTTP 400: {
   "error": {
     "code": 400,
     "message": "API key not valid. Please pass a valid API key.",
@@ -51,43 +51,43 @@
     "details": [
       {
         "@type": "type.googleapis.com/googl |
-| 5 | **Groq AI** | 0 | 0 | **0.0** | 102ms | HTTP 400 |
+| 5 | **Groq AI** | 0 | 0 | **0.0** | 106ms | HTTP 400 |
 
 ### Test 4: Visual QA
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 2536ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
-| 2 | **pdfRest Cloud** | 75 | 98 | **86.5** | 2637ms | Adobe-tier render at 300DPI, manual diff required |
-| 3 | **Applitools Eyes** | 0 | 0 | **0.0** | 229ms | Bridge script not found |
-| 4 | **Gemini Vision** | 0 | 0 | **0.0** | 451ms | HTTP 400 |
+| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 2589ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
+| 2 | **pdfRest Cloud** | 75 | 98 | **86.5** | 2780ms | Adobe-tier render at 300DPI, manual diff required |
+| 3 | **Applitools Eyes** | 0 | 0 | **0.0** | 198ms | Bridge script not found |
+| 4 | **Gemini Vision** | 0 | 0 | **0.0** | 426ms | HTTP 400 |
 
 ### Test 5: Transfer Transactions
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Groq (Llama 3)** | 100 | 100 | **100.0** | 811ms | Transfer mapped perfectly |
-| 2 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 23ms | API Error No response |
-| 3 | **OpenRouter** | 0 | 0 | **0.0** | 632ms | API Error No response |
+| 1 | **Groq (Llama 3)** | 100 | 100 | **100.0** | 1051ms | Transfer mapped perfectly |
+| 2 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 24ms | API Error No response |
+| 3 | **OpenRouter** | 0 | 0 | **0.0** | 734ms | API Error No response |
 
 ### Test 6: E2E GUI Testing
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 1131ms | GUI launched and tree attached correctly |
+| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 18696ms | GUI launched and tree attached correctly |
 
 ### Test 7: PII Anonymization
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Groq PII** | 100 | 100 | **100.0** | 1047ms | PII Masked Successfully |
-| 2 | **Gemini 1.5 PII** | 0 | 0 | **0.0** | 29ms | API Error No response |
+| 1 | **Groq PII** | 100 | 100 | **100.0** | 906ms | PII Masked Successfully |
+| 2 | **Gemini 1.5 PII** | 0 | 0 | **0.0** | 26ms | API Error No response |
 
 ### Test 8: Forensic Evasion
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **PyMuPDF Pro** | 100 | 100 | **100.0** | 0ms | Producer: '', Creator: '', EOF markers: 1 |
+| 1 | **PyMuPDF Pro** | 100 | 100 | **100.0** | 1ms | Producer: '', Creator: '', EOF markers: 1 |
 | 2 | **Typst Reconstruct** | 80 | 100 | **90.0** | 0ms | Clean rebuild, single %%EOF, but likely leaves Typst metadata tag |
 | 3 | **Pdfium** | 0 | 0 | **0.0** | 0ms | Output is an image raster, not a vector PDF. Fails structural forensics completely. |
 

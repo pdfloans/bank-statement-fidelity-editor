@@ -1091,7 +1091,7 @@ impl Runtime {
                                     let mut best_dist = usize::MAX;
                                     let mut winner = "";
                                     for (name, s) in &statements {
-                                        let dist = (s.transactions.len() as isize - consensus.transactions.len() as isize).abs() as usize;
+                                        let dist = (s.transactions.len() as isize - consensus.transactions.len() as isize).unsigned_abs();
                                         if dist < best_dist {
                                             best_dist = dist;
                                             winner = name;
@@ -5263,7 +5263,7 @@ mod tests {
         let (job_tx, job_rx) = mpsc::channel::<Job>();
         let (tokio_job_tx, tokio_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
         let (result_tx, result_rx) = mpsc::channel::<JobResult>();
-        let (watchdog, mut watchdog_rx) = crate::app::watchdog::Watchdog::new();
+        let (watchdog, watchdog_rx) = crate::app::watchdog::Watchdog::new();
         let watchdog = std::sync::Arc::new(watchdog);
         let watchdog_for_gui = watchdog.clone();
 

@@ -88,7 +88,7 @@ async fn test_parser_ranking() {
         let mut best_dist = usize::MAX;
         let mut winner = "";
         for (name, s) in &named_stmts {
-            let dist = (s.transactions.len() as isize - consensus.transactions.len() as isize).abs() as usize;
+            let dist = (s.transactions.len() as isize - consensus.transactions.len() as isize).unsigned_abs();
             if dist < best_dist {
                 best_dist = dist;
                 winner = *name;

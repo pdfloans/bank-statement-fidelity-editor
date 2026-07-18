@@ -82,14 +82,13 @@ impl Watchdog {
                             let _ = tx_clone.send(WatchdogEvent::StallDetected(Duration::from_secs(25)));
                             stalled_notified = true;
                         }
-                    } else if elapsed > Duration::from_secs(55) {
-                        if stalled_notified {
+                    } else if elapsed > Duration::from_secs(55)
+                        && stalled_notified {
                             tracing::error!("Watchdog: 25s countdown expired. Triggering fallback cascade.");
                             let _ = tx_clone.send(WatchdogEvent::FallbackTriggered);
                             stalled_notified = false; // Reset to avoid spamming, or just let it loop.
                             last_activity_time = Instant::now(); // Reset
                         }
-                    }
                 }
             }
         });

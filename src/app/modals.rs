@@ -399,7 +399,7 @@ impl AppModals for MyApp {
                     .show(ui, |ui| {
                         // ── Pipeline Architecture ──
                         ui.label("Extraction:");
-                        ui.label("1. LlamaParse \u{2192} 2. Offline Heuristic (93%)");
+                        ui.label("1\u{fe0f}\u{20e3} LlamaParse (98%) \u{2192} 2\u{fe0f}\u{20e3} Offline Heuristic (93%)");
                         ui.end_row();
 
                         ui.label("Fidelity Edit:");
@@ -409,13 +409,17 @@ impl AppModals for MyApp {
                         ui.label("Math Balance:");
                         ui.label("1\u{fe0f}\u{20e3} Local Math Engine (100%)");
                         ui.end_row();
+                        
+                        ui.label("AI Analysis:");
+                        ui.label("1\u{fe0f}\u{20e3} Groq / Llama-3 (100%) \u{2192} 2\u{fe0f}\u{20e3} OpenRouter (50%)");
+                        ui.end_row();
 
                         ui.label("Forensics:");
                         ui.label("1\u{fe0f}\u{20e3} PyMuPDF Pro (100%) \u{2192} 2\u{fe0f}\u{20e3} Typst Reconstruct (90%)");
                         ui.end_row();
 
-                        ui.label("Visual AI Validation:");
-                        ui.label("new system");
+                        ui.label("Visual QA:");
+                        ui.label("1\u{fe0f}\u{20e3} Local SSIM + pHash (100%) \u{2192} 2\u{fe0f}\u{20e3} pdfRest Cloud (86%)");
                         ui.end_row();
 
                         // ── 5. Font Handling ──
@@ -1023,8 +1027,8 @@ impl AppModals for MyApp {
                             if ui.button("Accept Overlap & Proceed").clicked() {
                                 resolved = true;
                             }
-                            if *is_borderline {
-                                if ui.button("Compare Alternatives (2x2 Grid)").clicked() {
+                            if *is_borderline
+                                && ui.button("Compare Alternatives (2x2 Grid)").clicked() {
                                     // Trigger backend job to generate alternatives
                                     let path = self.current_pdf_path.clone();
                                     let edits = self.workflow_edits.clone();
@@ -1032,7 +1036,7 @@ impl AppModals for MyApp {
                                     // Pick first page of edits or default to page 0
                                     let page = edits.first().map(|e| e.page).unwrap_or(0);
                                     // For demo, just pass the edits and a simple bbox of the first edit
-                                    let bbox = edits.first().and_then(|e| Some(e.bbox)).unwrap_or([0.0, 0.0, 100.0, 100.0]);
+                                    let bbox = edits.first().map(|e| e.bbox).unwrap_or([0.0, 0.0, 100.0, 100.0]);
                                     
                                     let _ = self.job_tx.send(Job::GenerateVisualAlternatives {
                                         input: path,
@@ -1044,7 +1048,6 @@ impl AppModals for MyApp {
                                     self.status = "Generating alternative renders...".to_string();
                                     // don't resolve yet, keep modal open until job finishes
                                 }
-                            }
                         });
                     }
                     crate::engine::workflow::WorkflowStage::VisualComparisonActive { images } => {
@@ -1746,7 +1749,7 @@ impl AppModals for MyApp {
             self.in_flight = 0; // reset state to unlock UI
             self.toast(crate::app::gui::ToastKind::Warn, "Watchdog triggered. Forcing fallback...".to_string());
             match &self.workflow_stage {
-                crate::engine::workflow::WorkflowStage::Parsing { .. } => {
+                crate::engine::workflow::WorkflowStage::Parsing => {
                     self.toast(crate::app::gui::ToastKind::Info, "Falling back to Offline Parser...".to_string());
                     if let Err(e) = self.job_tx.send(crate::app::runtime::Job::ExtractTransactions {
                         path: std::path::PathBuf::from(&self.input_path),
