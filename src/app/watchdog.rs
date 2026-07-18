@@ -26,7 +26,7 @@ impl Watchdog {
         
         std::thread::spawn(move || {
             let mut sys = System::new_all();
-            let mut networks = sysinfo::Networks::new_with_resolved_macs();
+            let mut networks = sysinfo::Networks::new_with_refreshed_list();
             let pid = sysinfo::get_current_pid().unwrap();
             
             let mut last_activity_time = Instant::now();
@@ -46,8 +46,7 @@ impl Watchdog {
                 }
                 
                 sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[pid]), true, sysinfo::ProcessRefreshKind::nothing().with_cpu().with_disk_usage());
-                networks.refresh_list();
-                networks.refresh();
+                networks.refresh(true);
                 
                 let mut activity_detected = false;
                 

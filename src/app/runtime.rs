@@ -494,6 +494,7 @@ pub enum JobResult {
         description: String,
     },
     DocAiVersionError(String),
+    WatchdogEvent(crate::app::watchdog::WatchdogEvent),
 }
 
 impl JobResult {
@@ -504,6 +505,7 @@ impl JobResult {
                 | Self::WorkflowStageChanged { .. }
                 | Self::WorkflowParseValidated { .. }
                 | Self::FontCascadeUsed(_)
+                | Self::WatchdogEvent(_)
         )
     }
 }
@@ -557,6 +559,7 @@ pub struct Runtime {
     /// Registry of in-flight jobs and their cancellation tokens. Cloneable;
     /// pass to the GUI so it can cancel by id.
     pub cancellations: CancellationRegistry,
+    pub watchdog: std::sync::Arc<crate::app::watchdog::Watchdog>,
 }
 
 impl Runtime {
@@ -571,6 +574,9 @@ impl Runtime {
 
         let (job_tx, job_rx) = mpsc::channel::<Job>();
         let (result_tx, result_rx) = mpsc::channel::<JobResult>();
+        let (watchdog, mut watchdog_rx) = crate::app::watchdog::Watchdog::new();
+        let watchdog = std::sync::Arc::new(watchdog);
+        let watchdog_for_gui = watchdog.clone();
 
         let (python_tx, python_rx) =
             mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
@@ -774,12 +780,22 @@ impl Runtime {
         let api_semaphore = Arc::new(tokio::sync::Semaphore::new(3));
         let _ = tokio_job_tx_clone.send(Job::CleanupTempFiles);
 
+        let watchdog_clone = watchdog.clone();
+        let tokio_rt_handle = tokio_rt.handle().clone();
+        let wd_tx = result_tx.clone();
+        tokio_rt_handle.spawn(async move {
+            while let Ok(event) = watchdog_rx.recv().await {
+                let _ = wd_tx.send(JobResult::WatchdogEvent(event));
+            }
+        });
+
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
             let mut segment_manager: Option<SegmentManager> = None;
             let fallback_router: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, tokio::sync::oneshot::Sender<String>>>> = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
             while let Some(job) = tokio_job_rx.recv().await {
+                let wdog = watchdog_clone.clone();
                 // Re-snapshot the (possibly hot-reloaded) config for this job.
                 let config_for_tokio: Arc<crate::app::config::AppConfig> = config_holder
                     .lock()
@@ -1009,14 +1025,14 @@ impl Runtime {
 
                             // ======= STAGE 1 & 2: Analyze Source and Target (Matrix Consensus) ========
                             
-                            let parse_matrix = |pdf_path: PathBuf, cfg: std::sync::Arc<crate::app::config::AppConfig>, engine: std::sync::Arc<dyn crate::pdf::PdfEngine>, res_tx: std::sync::mpsc::Sender<JobResult>, stage_name: String| async move {
+                            let parse_matrix = |pdf_path: PathBuf, cfg: std::sync::Arc<crate::app::config::AppConfig>, engine: std::sync::Arc<dyn crate::pdf::PdfEngine>, res_tx: std::sync::mpsc::Sender<JobResult>, stage_name: String, wdog: std::sync::Arc<crate::app::watchdog::Watchdog>| async move {
                                 let mut tasks = Vec::new();
 
                                 // 1. DocAI
                                 if let Ok(doc_ai) = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                     let p = pdf_path.clone();
                                     tasks.push(tokio::spawn(async move {
-                                        ("DocAI", doc_ai.parse_entire_statement(&p, None).await.ok())
+                                        ("DocAI", crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&p, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await.ok())
                                     }));
                                 }
                                 
@@ -1024,7 +1040,7 @@ impl Runtime {
                                 if let Ok(llama) = crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
                                     let p = pdf_path.clone();
                                     tasks.push(tokio::spawn(async move {
-                                        ("LlamaParse", llama.parse_statement(&p).await.ok())
+                                        ("LlamaParse", crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { llama.parse_statement(&p).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await.ok())
                                     }));
                                 }
                                 
@@ -1096,7 +1112,7 @@ impl Runtime {
 
                             send_progress(&res_tx, TransferStage::AnalyzeSource);
                             tracing::info!("[TRANSFER] Stage 1: Analyzing source PDF: {:?}", source_pdf);
-                            let source_stmt = match parse_matrix(source_pdf.clone(), cfg.clone(), engine_for_tokio.clone(), res_tx.clone(), "AnalyzeSource".into()).await {
+                            let source_stmt = match parse_matrix(source_pdf.clone(), cfg.clone(), engine_for_tokio.clone(), res_tx.clone(), "AnalyzeSource".into(), wdog.clone()).await {
                                 Some(s) => s,
                                 None => return,
                             };
@@ -1119,7 +1135,7 @@ impl Runtime {
                             send_progress(&res_tx, TransferStage::AnalyzeTarget);
                             tracing::info!("[TRANSFER] Stage 2: Analyzing target PDF: {:?}", target_pdf);
                             
-                            let target_stmt = match parse_matrix(target_pdf.clone(), cfg.clone(), engine_for_tokio.clone(), res_tx.clone(), "AnalyzeTarget".into()).await {
+                            let target_stmt = match parse_matrix(target_pdf.clone(), cfg.clone(), engine_for_tokio.clone(), res_tx.clone(), "AnalyzeTarget".into(), wdog.clone()).await {
                                 Some(s) => s,
                                 None => return,
                             };
@@ -1743,7 +1759,7 @@ impl Runtime {
                                 let mut math_err_msg = String::new();
 
                                 let reparsed_stmt = if let Some(ref doc_ai) = doc_ai_opt {
-                                    match doc_ai.parse_entire_statement(&output_pdf, None).await {
+                                    match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&output_pdf, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
                                         Ok(s) => Ok(s),
                                         Err(e) => {
                                             tracing::warn!("[TRANSFER] DocAI target reparsing failed, trying offline: {e}");
@@ -2826,7 +2842,7 @@ impl Runtime {
                             if final_txs.is_none() {
                                 let _ = res_tx.send(JobResult::Progress { label: "Extracting with LlamaParse...".to_string(), fraction: 0.1 });
                                 if let Ok(client) = crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
-                                    match client.parse_statement(&path).await {
+                                    match crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { client.parse_statement(&path).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
                                         Ok(stmt) => final_txs = Some(stmt.transactions),
                                         Err(e) => tracing::warn!("[extract] LlamaParse failed: {}", e),
                                     }
@@ -2838,7 +2854,7 @@ impl Runtime {
                                 let _ = res_tx.send(JobResult::Progress { label: "Extracting with Document AI...".to_string(), fraction: 0.15 });
                                 if let Ok(client) = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                     let doc_ai = Arc::new(client);
-                                    match doc_ai.parse_entire_statement(&path, None).await {
+                                    match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&path, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
                                         Ok(stmt) => final_txs = Some(stmt.transactions),
                                         Err(e) => tracing::warn!("[extract] Document AI failed: {}", e),
                                     }
@@ -4759,7 +4775,7 @@ impl Runtime {
                                         crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg_math),
                                         crate::ai::backend::AiBackend::from_app_config(&cfg_math)
                                     ) {
-                                        match doc_ai.parse_entire_statement(&out_math, None).await {
+                                        match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&out_math, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
                                             Ok(stmt) => {
                                                 let json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
                                                 let opening_f64 = crate::engine::model::dec_to_f64(stmt.opening_balance);
@@ -5141,6 +5157,7 @@ impl Runtime {
             Self {
                 _tokio_rt: tokio_rt,
                 cancellations,
+                watchdog: watchdog_for_gui,
             },
             job_tx,
             result_rx,
@@ -5243,6 +5260,9 @@ mod tests {
         let (job_tx, job_rx) = mpsc::channel::<Job>();
         let (tokio_job_tx, tokio_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
         let (result_tx, result_rx) = mpsc::channel::<JobResult>();
+        let (watchdog, mut watchdog_rx) = crate::app::watchdog::Watchdog::new();
+        let watchdog = std::sync::Arc::new(watchdog);
+        let watchdog_for_gui = watchdog.clone();
 
         // Immediately drop the receiver to simulate disconnect
         drop(tokio_job_rx);

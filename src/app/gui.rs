@@ -1601,6 +1601,21 @@ impl MyApp {
 impl MyApp {
     fn handle_job_result(&mut self, ctx: &egui::Context, res: JobResult) {
         match res {
+            JobResult::WatchdogEvent(event) => {
+                match event {
+                    crate::app::watchdog::WatchdogEvent::StallDetected(timeout) => {
+                        self.stuck_detection = Some(std::time::Instant::now());
+                    }
+                    crate::app::watchdog::WatchdogEvent::FallbackTriggered => {
+                        // The modal in modals.rs will handle the actual fallback triggering
+                        // because it monitors stuck_detection. We can just leave it or force it.
+                        self.stuck_detection = Some(std::time::Instant::now() - std::time::Duration::from_secs(30)); 
+                    }
+                    crate::app::watchdog::WatchdogEvent::Recovered => {
+                        self.stuck_detection = None;
+                    }
+                }
+            }
             JobResult::ApiKeysVerified(report) => {
                 use crate::app::api_verification::VerificationStatus;
                 for res in report.results {
