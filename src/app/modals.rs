@@ -169,6 +169,43 @@ impl AppModals for MyApp {
                                 }
                             });
 
+                            ui.collapsing("🏆 Parser Stats & Leaderboard", |ui| {
+                                let stats: crate::engine::model::ParserStats = std::fs::read_to_string("audit/parser_stats.json")
+                                    .ok()
+                                    .and_then(|s| serde_json::from_str(&s).ok())
+                                    .unwrap_or_default();
+                                
+                                ui.label(format!("Total Matrix Checks: {}", stats.total_attempts));
+                                
+                                // Build a sorted leaderboard
+                                let mut leaderboard = vec![
+                                    ("DocAI", stats.docai_wins),
+                                    ("LlamaParse", stats.llamaparse_wins),
+                                    ("Mindee", stats.mindee_wins),
+                                    ("Gemini", stats.gemini_wins),
+                                    ("Offline", stats.offline_wins),
+                                ];
+                                leaderboard.sort_by(|a, b| b.1.cmp(&a.1));
+                                
+                                egui::Grid::new("leaderboard_grid")
+                                    .num_columns(3)
+                                    .spacing([20.0, 4.0])
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.strong("Rank");
+                                        ui.strong("Parser");
+                                        ui.strong("Consensus Wins");
+                                        ui.end_row();
+                                        
+                                        for (i, (name, wins)) in leaderboard.into_iter().enumerate() {
+                                            ui.label(format!("#{}", i + 1));
+                                            ui.label(name);
+                                            ui.label(wins.to_string());
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+
                             ui.collapsing("🔍 Verification", |ui| {
                                 if self.settings.advanced_mode {
                                     ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
@@ -191,6 +228,7 @@ impl AppModals for MyApp {
                                         intended_bboxes,
                                         use_pdfrest: self.settings.use_pdfrest,
                                         pdfrest_key: self.config.pdfrest_api_key.clone(),
+                                        auto_match_dpi: self.settings.auto_match_dpi,
                                     });
                                     self.in_flight += 1;
                                 }
@@ -244,6 +282,10 @@ impl AppModals for MyApp {
                                 ui.add(egui::Slider::new(&mut self.settings.default_dpi, 72.0..=600.0).step_by(1.0))
                                     .on_hover_text("Higher = sharper render, slower load");
                             });
+                            ui.checkbox(&mut self.settings.auto_match_dpi, "Auto-match DPI to PDF Document Size")
+                                .on_hover_text("Safely scales based on physical points (capped at 600 DPI to avoid OOM)");
+                            ui.checkbox(&mut self.settings.transfer_consensus_mode, "Matrix Consensus for Transfers")
+                                .on_hover_text("Runs multiple AIs simultaneously to perform majority-vote extraction & math cross-referencing");
                             ui.checkbox(&mut self.settings.auto_save, "Auto-save history")
                                 .on_hover_text("Persist audit/history.json after every successful edit");
                             if ui
@@ -1400,6 +1442,14 @@ impl AppModals for MyApp {
                         );
                         ui.end_row();
 
+                        ui.label("Mindee Model ID:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_mindee_model_id)
+                                .desired_width(220.0),
+                        )
+                        .on_hover_text("UUID of your V2 custom extraction model (e.g., bank statement).");
+                        ui.end_row();
+
                         ui.label("LlamaParse API key:");
                         ui.add(
                             egui::TextEdit::singleline(&mut self.edit_llamaparse_api_key)
@@ -1411,6 +1461,14 @@ impl AppModals for MyApp {
                         ui.label("pdfRest API key:");
                         ui.add(
                             egui::TextEdit::singleline(&mut self.edit_pdfrest_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("Lipi API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_lipi_api_key)
                                 .password(true)
                                 .desired_width(220.0),
                         );
@@ -1439,6 +1497,25 @@ impl AppModals for MyApp {
                                 .desired_width(220.0),
                         );
                         ui.end_row();
+
+                        ui.label("OpenRouter Model:");
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("or_model_combo")
+                                .selected_text(&self.edit_openrouter_model)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.edit_openrouter_model, "google/gemini-2.0-flash-exp:free".to_string(), "Gemini 2.0 Flash (Free)");
+                                    ui.selectable_value(&mut self.edit_openrouter_model, "meta-llama/llama-3.1-8b-instruct:free".to_string(), "Llama 3.1 8B (Free)");
+                                    ui.selectable_value(&mut self.edit_openrouter_model, "mistralai/mistral-nemo:free".to_string(), "Mistral Nemo (Free)");
+                                    ui.selectable_value(&mut self.edit_openrouter_model, "deepseek/deepseek-chat".to_string(), "DeepSeek Chat");
+                                    ui.selectable_value(&mut self.edit_openrouter_model, "anthropic/claude-3.5-sonnet".to_string(), "Claude 3.5 Sonnet");
+                                    ui.selectable_value(&mut self.edit_openrouter_model, "openai/gpt-4o".to_string(), "GPT-4o");
+                                });
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.edit_openrouter_model)
+                                    .desired_width(180.0),
+                            );
+                        });
+                        ui.end_row();
                     });
 
                 ui.add_space(6.0);
@@ -1448,23 +1525,30 @@ impl AppModals for MyApp {
                             .set_file_name(".env.export")
                             .save_file()
                         {
-                            let content = format!(
-                                "GEMINI_API_KEY={}\nDOCUMENT_AI_PROJECT_ID={}\nDOCUMENT_AI_LOCATION={}\nDOCUMENT_AI_PROCESSOR_ID={}\nGOOGLE_APPLICATION_CREDENTIALS={}\nDOCUMENT_AI_API_KEY={}\nPYMUPDF_PRO_KEY={}\nGEMINI_AUTH_MODE={}\nMINDEE_API_KEY={}\nLLAMAPARSE_API_KEY={}\nPDFREST_API_KEY={}\nAPPLITOOLS_API_KEY={}\nGROQ_API_KEY={}\nOPENROUTER_API_KEY={}\n",
-                                self.edit_gemini_api_key.trim(),
-                                self.edit_docai_project_id.trim(),
-                                self.edit_docai_location.trim(),
-                                self.edit_docai_processor_id.trim(),
-                                self.edit_docai_service_account.trim(),
-                                self.edit_docai_api_key.trim(),
-                                self.edit_pymupdf_pro_key.trim(),
-                                if self.edit_gemini_use_vertex { "vertex" } else { "api_key" },
-                                self.edit_mindee_api_key.trim(),
-                                self.edit_llamaparse_api_key.trim(),
-                                self.edit_pdfrest_api_key.trim(),
-                                self.edit_applitools_api_key.trim(),
-                                self.edit_groq_api_key.trim(),
-                                self.edit_openrouter_api_key.trim(),
-                            );
+                            let new_config = vec![
+                                ("GEMINI_API_KEY", self.edit_gemini_api_key.trim(), false),
+                                ("GEMINI_AUTH_MODE", if self.edit_gemini_use_vertex { "vertex" } else { "api_key" }, false),
+                                ("DOCUMENT_AI_PROJECT_ID", self.edit_docai_project_id.trim(), false),
+                                ("DOCUMENT_AI_LOCATION", self.edit_docai_location.trim(), false),
+                                ("DOCUMENT_AI_PROCESSOR_ID", self.edit_docai_processor_id.trim(), false),
+                                ("GOOGLE_APPLICATION_CREDENTIALS", self.edit_docai_service_account.trim(), true), // don't quote paths
+                                ("DOCUMENT_AI_API_KEY", self.edit_docai_api_key.trim(), false),
+                                ("PYMUPDF_PRO_KEY", self.edit_pymupdf_pro_key.trim(), false),
+                                ("MINDEE_API_KEY", self.edit_mindee_api_key.trim(), false),
+                                ("MINDEE_MODEL_ID", self.edit_mindee_model_id.trim(), false),
+                                ("LLAMAPARSE_API_KEY", self.edit_llamaparse_api_key.trim(), false),
+                                ("PDFREST_API_KEY", self.edit_pdfrest_api_key.trim(), false),
+                                ("LIPI_API_KEY", self.edit_lipi_api_key.trim(), false),
+                                ("APPLITOOLS_API_KEY", self.edit_applitools_api_key.trim(), false),
+                                ("GROQ_API_KEY", self.edit_groq_api_key.trim(), false),
+                                ("OPENROUTER_API_KEY", self.edit_openrouter_api_key.trim(), false),
+                                ("OPENROUTER_MODEL", self.edit_openrouter_model.trim(), false),
+                            ];
+                            let content: String = new_config.iter()
+                                .map(|(k, v, _)| format!("{}={}", k, v))
+                                .collect::<Vec<_>>()
+                                .join("\n") + "\n";
+
                             if let Err(e) = std::fs::write(&path, content) {
                                 self.toast(ToastKind::Error, format!("Failed to export: {}", e));
                             } else {
@@ -1492,11 +1576,14 @@ impl AppModals for MyApp {
                                                 );
                                             },
                                             "MINDEE_API_KEY" => self.edit_mindee_api_key = val,
+                                            "MINDEE_MODEL_ID" => self.edit_mindee_model_id = val,
                                             "LLAMAPARSE_API_KEY" => self.edit_llamaparse_api_key = val,
                                             "PDFREST_API_KEY" => self.edit_pdfrest_api_key = val,
+                                            "LIPI_API_KEY" => self.edit_lipi_api_key = val,
                                             "APPLITOOLS_API_KEY" => self.edit_applitools_api_key = val,
                                             "GROQ_API_KEY" => self.edit_groq_api_key = val,
                                             "OPENROUTER_API_KEY" => self.edit_openrouter_api_key = val,
+                                            "OPENROUTER_MODEL" => self.edit_openrouter_model = val,
                                             _ => {}
                                         }
                                 }
@@ -1540,11 +1627,14 @@ impl AppModals for MyApp {
                             "vertex" | "vertex_ai" | "vertexai"
                         );
                         self.edit_mindee_api_key = std::env::var("MINDEE_API_KEY").unwrap_or_default();
+                        self.edit_mindee_model_id = std::env::var("MINDEE_MODEL_ID").unwrap_or_default();
                         self.edit_llamaparse_api_key = std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default();
                         self.edit_pdfrest_api_key = std::env::var("PDFREST_API_KEY").unwrap_or_default();
+                        self.edit_lipi_api_key = std::env::var("LIPI_API_KEY").unwrap_or_default();
                         self.edit_applitools_api_key = std::env::var("APPLITOOLS_API_KEY").unwrap_or_default();
                         self.edit_groq_api_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
                         self.edit_openrouter_api_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
+                        self.edit_openrouter_model = std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string());
                         self.toast(ToastKind::Info, "Reloaded keys from environment");
                     }
                     if ui

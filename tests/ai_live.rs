@@ -81,6 +81,13 @@ async fn document_ai_can_parse_a_real_statement() {
         eprintln!("SKIP: Document AI not configured");
         return;
     }
+    let sa_path = &cfg.document_ai.as_ref().unwrap().service_account_path;
+    let adc_path = &cfg.document_ai.as_ref().unwrap().adc_path;
+    if (sa_path.is_empty() || !std::path::Path::new(sa_path).exists()) && (adc_path.is_empty() || !std::path::Path::new(adc_path).exists()) {
+        eprintln!("SKIP: Document AI credentials file not found");
+        return;
+    }
+
     let pdf = std::path::PathBuf::from("examples/sample.pdf");
     if !pdf.exists() {
         eprintln!("SKIP: examples/sample.pdf not present");

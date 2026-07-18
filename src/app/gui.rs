@@ -284,6 +284,10 @@ pub struct AppSettings {
     pub theme: Theme,
     pub auto_save: bool,
     pub default_dpi: f32,
+    #[serde(default)]
+    pub auto_match_dpi: bool,
+    #[serde(default = "default_true")]
+    pub transfer_consensus_mode: bool,
     pub use_pdfrest: bool,
     #[serde(default = "default_true")]
     pub use_applitools: bool,
@@ -349,6 +353,8 @@ impl Default for AppSettings {
             theme: Theme::Midnight,
             auto_save: true,
             default_dpi: 300.0,
+            auto_match_dpi: false,
+            transfer_consensus_mode: true,
             use_pdfrest: false,
             use_applitools: true,
             deep_font_replication: false,
@@ -568,11 +574,14 @@ pub struct MyApp {
     pub edit_docai_api_key: String,
     pub edit_pymupdf_pro_key: String,
     pub edit_mindee_api_key: String,
+    pub edit_mindee_model_id: String,
     pub edit_llamaparse_api_key: String,
     pub edit_pdfrest_api_key: String,
     pub edit_applitools_api_key: String,
     pub edit_groq_api_key: String,
     pub edit_openrouter_api_key: String,
+    pub edit_openrouter_model: String,
+    pub edit_lipi_api_key: String,
     /// Gemini auth mode buffer: false = API key (default), true = Vertex AI
     /// (service-account / ADC). Persisted as `GEMINI_AUTH_MODE`.
     pub edit_gemini_use_vertex: bool,
@@ -716,11 +725,14 @@ impl MyApp {
             edit_docai_api_key: std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default(),
             edit_pymupdf_pro_key: std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default(),
             edit_mindee_api_key: std::env::var("MINDEE_API_KEY").unwrap_or_default(),
+            edit_mindee_model_id: std::env::var("MINDEE_MODEL_ID").unwrap_or_default(),
             edit_llamaparse_api_key: std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default(),
             edit_pdfrest_api_key: std::env::var("PDFREST_API_KEY").unwrap_or_default(),
             edit_applitools_api_key: std::env::var("APPLITOOLS_API_KEY").unwrap_or_default(),
             edit_groq_api_key: std::env::var("GROQ_API_KEY").unwrap_or_default(),
             edit_openrouter_api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
+            edit_openrouter_model: std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string()),
+            edit_lipi_api_key: std::env::var("LIPI_API_KEY").unwrap_or_default(),
             edit_gemini_use_vertex: matches!(
                 std::env::var("GEMINI_AUTH_MODE")
                     .unwrap_or_default()
@@ -2557,6 +2569,7 @@ impl MyApp {
                             use_pdfrest: self.settings.verification_renderer
                                 == crate::app::config::VerificationMode::PdfRestCloud,
                             pdfrest_key: self.config.pdfrest_api_key.clone(),
+                            auto_match_dpi: self.settings.auto_match_dpi,
                         });
                         self.in_flight += 1;
                     }
@@ -3856,6 +3869,7 @@ impl MyApp {
                                 intended_bboxes: Vec::new(),
                                 use_pdfrest: self.settings.verification_renderer == crate::app::config::VerificationMode::PdfRestCloud,
                                 pdfrest_key: self.config.pdfrest_api_key.clone(),
+                                auto_match_dpi: self.settings.auto_match_dpi,
                             }) { tracing::error!("Runtime disconnected: {}", e); }
                             self.in_flight += 1;
                         }

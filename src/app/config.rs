@@ -292,10 +292,12 @@ pub struct AppConfig {
     pub lipi_api_key: Option<String>,
     pub groq_api_key: Option<String>,
     pub openrouter_api_key: Option<String>,
+    pub openrouter_model: String,
     pub ai_provider: AiProviderMode,
     pub document_ai: Option<DocumentAiConfig>,
-    /// Mindee API key for the Financial Document model.
     pub mindee_api_key: Option<String>,
+    /// Mindee API model id for the V2 Extraction Models.
+    pub mindee_model_id: Option<String>,
     pub pymupdf_pro_key: Option<String>, // Changed to Option - must come from env
     pub passphrase: String,
     pub otel_endpoint: Option<String>,
@@ -328,9 +330,11 @@ impl Default for AppConfig {
             lipi_api_key: None,
             groq_api_key: None,
             openrouter_api_key: None,
+            openrouter_model: "deepseek/deepseek-chat".to_string(),
             ai_provider: AiProviderMode::default(),
             document_ai: None,
             mindee_api_key: None,
+            mindee_model_id: None,
             pymupdf_pro_key: None,
             passphrase: "DEV_PASSPHRASE".into(),
             otel_endpoint: None,
@@ -368,9 +372,11 @@ impl AppConfig {
         let gemini_api_key = clean_key(env::var("GEMINI_API_KEY"));
         let groq_api_key = clean_key(env::var("GROQ_API_KEY"));
         let openrouter_api_key = clean_key(env::var("OPENROUTER_API_KEY"));
+        let openrouter_model = clean_key(env::var("OPENROUTER_MODEL")).unwrap_or_else(|| "deepseek/deepseek-chat".to_string());
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
+        let mindee_model_id = clean_key(env::var("MINDEE_MODEL_ID"));
         let llamaparse_api_key = clean_key(env::var("LLAMAPARSE_API_KEY"));
         let applitools_api_key = clean_key(env::var("APPLITOOLS_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
@@ -472,11 +478,13 @@ impl AppConfig {
             gemini_api_key,
             groq_api_key,
             openrouter_api_key,
+            openrouter_model,
             ai_provider,
             pdfrest_api_key,
             lipi_api_key,
             document_ai: doc_ai,
             mindee_api_key,
+            mindee_model_id,
             llamaparse_api_key,
             applitools_api_key,
             pymupdf_pro_key,
@@ -592,7 +600,7 @@ impl AppConfig {
     /// Returns true if the application has valid AI configuration for extraction.
     pub fn has_ai_for_extraction(&self) -> bool {
         self.document_ai.is_some()
-            || self.mindee_api_key.is_some()
+            || (self.mindee_api_key.is_some() && self.mindee_model_id.is_some())
             || self.llamaparse_api_key.is_some()
     }
 

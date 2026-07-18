@@ -240,7 +240,7 @@ pub enum Job {
         output_dir: PathBuf,
         intended_bboxes: Vec<(usize, [f32; 4])>,
         use_pdfrest: bool,
-        pdfrest_key: Option<String>,
+        pdfrest_key: Option<String>, auto_match_dpi: bool,
     },
 
     /// Cancel a previously-enqueued job by its [`JobId`]. Best-effort; the
@@ -919,6 +919,7 @@ impl Runtime {
                         let cfg = config_for_tokio.clone();
                         let py_tx = python_tx_clone.clone();
                         let engine_for_tokio = engine_for_tokio.clone();
+                        let router = fallback_router.clone();
                         tokio::spawn(async move {
                             use crate::engine::transfer::*;
 
@@ -928,7 +929,7 @@ impl Runtime {
                             // Construct AI mapping client — Transfer requires an AI provider
                             // for format mapping (this is an intentional AI-required exception;
                             // see AGENTS.md "Fallback chain rules").
-                            let gemini = match crate::ai::backend::AiBackend::from_app_config(&cfg) {
+                            let mut gemini = match crate::ai::backend::AiBackend::from_app_config(&cfg) {
                                 Ok(c) => std::sync::Arc::new(c),
                                 Err(_) => {
                                     let _ = res_tx.send(JobResult::TransferFailed {
@@ -951,61 +952,98 @@ impl Runtime {
                                 });
                             };
 
-                            // ======= STAGE 1: Analyze Source ========
-                            send_progress(&res_tx, TransferStage::AnalyzeSource);
-                            tracing::info!("[TRANSFER] Stage 1: Analyzing source PDF: {:?}", source_pdf);
+                            // ======= STAGE 1 & 2: Analyze Source and Target (Matrix Consensus) ========
+                            
+                            let parse_matrix = |pdf_path: PathBuf, cfg: std::sync::Arc<crate::app::config::AppConfig>, engine: std::sync::Arc<dyn crate::pdf::PdfEngine>, res_tx: std::sync::mpsc::Sender<JobResult>, stage_name: String| async move {
+                                let mut tasks = Vec::new();
 
-                            let source_stmt = if let Some(ref doc_ai) = doc_ai_opt {
-                                match doc_ai.parse_entire_statement(&source_pdf, None).await {
-                                    Ok(s) => s,
-                                    Err(e) => {
-                                        tracing::warn!("[TRANSFER] DocAI source parse failed, trying offline: {e}");
-                                        let eng_clone = engine_for_tokio.clone();
-                                        let path_clone = source_pdf.clone();
-                                        match tokio::task::spawn_blocking(move || {
-                                            crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
-                                        }).await {
-                                            Ok(Ok(s)) => s,
-                                            Ok(Err(e2)) => {
-                                                let _ = res_tx.send(JobResult::TransferFailed {
-                                                    stage: "AnalyzeSource".into(),
-                                                    message: format!("Failed to parse source (DocAI: {e}, offline: {e2})"),
-                                                });
-                                                return;
-                                            }
-                                            Err(e2) => {
-                                                let _ = res_tx.send(JobResult::TransferFailed {
-                                                    stage: "AnalyzeSource".into(),
-                                                    message: format!("Offline parser panicked: {e2}"),
-                                                });
-                                                return;
-                                            }
+                                // 1. DocAI
+                                if let Ok(doc_ai) = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
+                                    let p = pdf_path.clone();
+                                    tasks.push(tokio::spawn(async move {
+                                        ("DocAI", doc_ai.parse_entire_statement(&p, None).await.ok())
+                                    }));
+                                }
+                                
+                                // 2. LlamaParse
+                                if let Ok(llama) = crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
+                                    let p = pdf_path.clone();
+                                    tasks.push(tokio::spawn(async move {
+                                        ("LlamaParse", llama.parse_statement(&p).await.ok())
+                                    }));
+                                }
+                                
+                                // 3. Offline Heuristic
+                                let p = pdf_path.clone();
+                                let e = engine.clone();
+                                tasks.push(tokio::spawn(async move {
+                                    ("Offline", tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&p, e).ok()
+                                    }).await.ok().flatten())
+                                }));
+                                
+                                let results = futures_util::future::join_all(tasks).await;
+                                let mut statements = Vec::new();
+                                for res in results {
+                                    if let Ok((name, Some(s))) = res {
+                                        statements.push((name, s));
+                                    }
+                                }
+                                
+                                if statements.is_empty() {
+                                    let _ = res_tx.send(JobResult::TransferFailed {
+                                        stage: stage_name,
+                                        message: "All matrix consensus parsers failed.".into(),
+                                    });
+                                    return None;
+                                }
+                                
+                                if cfg.transfer_consensus_mode {
+                                    tracing::info!("[TRANSFER] Matrix Consensus: Merging {} successful parses", statements.len());
+                                    
+                                    let mut raw_stmts = Vec::new();
+                                    for (_, s) in &statements {
+                                        raw_stmts.push(s.clone());
+                                    }
+                                    let consensus = crate::engine::consensus::merge_consensus_statements(raw_stmts);
+                                    
+                                    // Update stats
+                                    let mut stats: crate::engine::model::ParserStats = std::fs::read_to_string("audit/parser_stats.json")
+                                        .ok()
+                                        .and_then(|s| serde_json::from_str(&s).ok())
+                                        .unwrap_or_default();
+                                    stats.total_attempts += 1;
+                                    
+                                    // Winner is the one closest to consensus tx count
+                                    let mut best_dist = usize::MAX;
+                                    let mut winner = "";
+                                    for (name, s) in &statements {
+                                        let dist = (s.transactions.len() as isize - consensus.transactions.len() as isize).abs() as usize;
+                                        if dist < best_dist {
+                                            best_dist = dist;
+                                            winner = name;
                                         }
                                     }
-                                }
-                            } else {
-                                tracing::info!("[TRANSFER] No Document AI configured, parsing source offline");
-                                let eng_clone = engine_for_tokio.clone();
-                                let path_clone = source_pdf.clone();
-                                match tokio::task::spawn_blocking(move || {
-                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
-                                }).await {
-                                    Ok(Ok(s)) => s,
-                                    Ok(Err(e)) => {
-                                        let _ = res_tx.send(JobResult::TransferFailed {
-                                            stage: "AnalyzeSource".into(),
-                                            message: format!("Offline source parse failed: {e}"),
-                                        });
-                                        return;
+                                    
+                                    match winner {
+                                        "DocAI" => stats.docai_wins += 1,
+                                        "LlamaParse" => stats.llamaparse_wins += 1,
+                                        "Offline" => stats.offline_wins += 1,
+                                        _ => {}
                                     }
-                                    Err(e) => {
-                                        let _ = res_tx.send(JobResult::TransferFailed {
-                                            stage: "AnalyzeSource".into(),
-                                            message: format!("Offline source parser panicked: {e}"),
-                                        });
-                                        return;
-                                    }
+                                    let _ = std::fs::write("audit/parser_stats.json", serde_json::to_string_pretty(&stats).unwrap_or_default());
+                                    
+                                    Some(consensus)
+                                } else {
+                                    Some(statements.into_iter().next().unwrap().1)
                                 }
+                            };
+
+                            send_progress(&res_tx, TransferStage::AnalyzeSource);
+                            tracing::info!("[TRANSFER] Stage 1: Analyzing source PDF: {:?}", source_pdf);
+                            let source_stmt = match parse_matrix(source_pdf.clone(), cfg.clone(), engine_for_tokio.clone(), res_tx.clone(), "AnalyzeSource".into()).await {
+                                Some(s) => s,
+                                None => return,
                             };
                             let source_transactions = source_stmt.transactions.clone();
                             tracing::info!("[TRANSFER] Source: {} transactions found", source_transactions.len());
@@ -1023,61 +1061,12 @@ impl Runtime {
                                 fraction: 0.10,
                             });
 
-                            // ======= STAGE 2: Analyze Target ========
                             send_progress(&res_tx, TransferStage::AnalyzeTarget);
                             tracing::info!("[TRANSFER] Stage 2: Analyzing target PDF: {:?}", target_pdf);
-
-                            let target_stmt = if let Some(ref doc_ai) = doc_ai_opt {
-                                match doc_ai.parse_entire_statement(&target_pdf, None).await {
-                                    Ok(s) => s,
-                                    Err(e) => {
-                                        tracing::warn!("[TRANSFER] DocAI target parse failed, trying offline: {e}");
-                                        let eng_clone = engine_for_tokio.clone();
-                                        let path_clone = target_pdf.clone();
-                                        match tokio::task::spawn_blocking(move || {
-                                            crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
-                                        }).await {
-                                            Ok(Ok(s)) => s,
-                                            Ok(Err(e2)) => {
-                                                let _ = res_tx.send(JobResult::TransferFailed {
-                                                    stage: "AnalyzeTarget".into(),
-                                                    message: format!("Failed to parse target (DocAI: {e}, offline: {e2})"),
-                                                });
-                                                return;
-                                            }
-                                            Err(e2) => {
-                                                let _ = res_tx.send(JobResult::TransferFailed {
-                                                    stage: "AnalyzeTarget".into(),
-                                                    message: format!("Offline parser panicked: {e2}"),
-                                                });
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                tracing::info!("[TRANSFER] No Document AI configured, parsing target offline");
-                                let eng_clone = engine_for_tokio.clone();
-                                let path_clone = target_pdf.clone();
-                                match tokio::task::spawn_blocking(move || {
-                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
-                                }).await {
-                                    Ok(Ok(s)) => s,
-                                    Ok(Err(e)) => {
-                                        let _ = res_tx.send(JobResult::TransferFailed {
-                                            stage: "AnalyzeTarget".into(),
-                                            message: format!("Offline target parse failed: {e}"),
-                                        });
-                                        return;
-                                    }
-                                    Err(e) => {
-                                        let _ = res_tx.send(JobResult::TransferFailed {
-                                            stage: "AnalyzeTarget".into(),
-                                            message: format!("Offline target parser panicked: {e}"),
-                                        });
-                                        return;
-                                    }
-                                }
+                            
+                            let target_stmt = match parse_matrix(target_pdf.clone(), cfg.clone(), engine_for_tokio.clone(), res_tx.clone(), "AnalyzeTarget".into()).await {
+                                Some(s) => s,
+                                None => return,
                             };
                             let target_transactions = target_stmt.transactions.clone();
                             tracing::info!("[TRANSFER] Target: {} transactions found", target_transactions.len());
@@ -1121,11 +1110,59 @@ impl Runtime {
                                 ).await {
                                     Ok(p) => p,
                                     Err(e) => {
-                                        let _ = res_tx.send(JobResult::TransferFailed {
-                                            stage: "AiFormatMapping".into(),
-                                            message: format!("Gemini format mapping failed: {e}"),
-                                        });
-                                        return;
+                                        tracing::warn!("[TRANSFER] Gemini format mapping failed: {e}");
+                                        if !cfg.interactive_fallbacks {
+                                            let _ = res_tx.send(JobResult::TransferFailed {
+                                                stage: "AiFormatMapping".into(),
+                                                message: format!("Gemini format mapping failed: {e}"),
+                                            });
+                                            return;
+                                        }
+                                        
+                                        let mut req = crate::engine::interactive_fallback::InteractiveFallbackRequest::new(
+                                            "Transfer Transactions Mapping",
+                                            format!("Gemini mapping failed: {e}"),
+                                        );
+                                        req = req.add_alternative("openrouter", "Try OpenRouter (Multi-Model)", None);
+                                        req = req.add_alternative("groq", "Try Groq", None);
+                                        req = req.add_alternative("cancel", "Cancel Transfer", None);
+                                        
+                                        let (tx, rx) = tokio::sync::oneshot::channel();
+                                        {
+                                            let mut map = router.lock().await;
+                                            map.insert(req.id, tx);
+                                        }
+                                        let _ = res_tx.send(JobResult::InteractiveFallbackRequired(req));
+                                        
+                                        let choice = rx.await.unwrap_or_else(|_| "cancel".to_string());
+                                        if choice == "cancel" {
+                                            let _ = res_tx.send(JobResult::TransferFailed {
+                                                stage: "AiFormatMapping".into(),
+                                                message: "User cancelled after failure.".into(),
+                                            });
+                                            return;
+                                        }
+                                        // Update AI backend based on choice
+                                        let mut new_cfg = (*cfg).clone();
+                                        if choice == "openrouter" {
+                                            new_cfg.ai_provider = crate::app::config::AiProviderMode::OpenRouterApiKey;
+                                        } else if choice == "groq" {
+                                            new_cfg.ai_provider = crate::app::config::AiProviderMode::GroqApiKey;
+                                        }
+                                        
+                                        match crate::ai::backend::AiBackend::from_app_config(&new_cfg) {
+                                            Ok(c) => {
+                                                gemini = std::sync::Arc::new(c);
+                                                continue; // Retry loop with new provider
+                                            }
+                                            Err(e) => {
+                                                let _ = res_tx.send(JobResult::TransferFailed {
+                                                    stage: "AiFormatMapping".into(),
+                                                    message: format!("Failed to init fallback provider: {e}"),
+                                                });
+                                                return;
+                                            }
+                                        }
                                     }
                                 };
                                 tracing::info!(
@@ -1581,6 +1618,7 @@ impl Runtime {
                                         opening_balance,
                                         expected_final_balance: None,
                                     },
+                                    cfg.auto_match_dpi,
                                 ).await;
 
                                 let (visual_score, visual_verified, report_files) = match &vis_result {
@@ -1725,12 +1763,8 @@ impl Runtime {
                                 });
 
                                 let all_math_ok = math_verified && gemini_math_ok;
-
-                                if !all_math_ok && attempt < max_retries {
-                                    tracing::warn!("[TRANSFER] Math check failed. Retrying entire planning loop with hint.");
-                                    correction_hint = Some(math_err_msg.clone());
-                                    continue;
-                                }
+                                let current_quality_score = visual_score * (if all_math_ok { 1.0 } else { 0.5 });
+                                let best_quality_score = best_visual_score * (if best_math_verified { 1.0 } else { 0.5 });
 
                                 // STAGE 9: Final Audit setup
                                 let elapsed = started_at.elapsed().as_secs_f64();
@@ -1751,8 +1785,8 @@ impl Runtime {
                                     synthesized_fonts_used,
                                 };
 
-                                // Store best result just in case we don't break loop but run out of attempts
-                                if best_result.is_none() || (all_math_ok && !best_math_verified) || (all_math_ok && visual_score < best_visual_score) {
+                                // Store best result
+                                if best_result.is_none() || current_quality_score > best_quality_score {
                                     best_result = Some(result.clone());
                                     best_visual_score = visual_score;
                                     best_math_verified = all_math_ok;
@@ -1761,7 +1795,60 @@ impl Runtime {
                                 if all_math_ok && visual_verified && !vision_anomaly {
                                     tracing::info!("[TRANSFER] Iteration {} passed all checks perfectly. Breaking loop.", attempt);
                                     break;
-                                } else if attempt >= max_retries {
+                                }
+
+                                // Interactive Fallback Logic for No Improvement / Reduction
+                                if attempt >= 1 && current_quality_score <= best_quality_score {
+                                    tracing::warn!("[TRANSFER] Loop {} yielded no improvement or regression. Quality score: {:.4}, Best: {:.4}", attempt, current_quality_score, best_quality_score);
+                                    if cfg.interactive_fallbacks {
+                                        let mut req = crate::engine::interactive_fallback::InteractiveFallbackRequest::new(
+                                            "Transfer Validation Loop",
+                                            if current_quality_score < best_quality_score {
+                                                "The AI mapping quality degraded on recalculation."
+                                            } else {
+                                                "The AI mapping failed to improve the fidelity issues."
+                                            }
+                                        );
+                                        req = req.add_alternative("openrouter", "Try OpenRouter Backup", None);
+                                        req = req.add_alternative("groq", "Try Groq Backup", None);
+                                        req = req.add_alternative("finish", "Use Best Result & Finish", None);
+                                        
+                                        let (tx, rx) = tokio::sync::oneshot::channel();
+                                        {
+                                            let mut map = router.lock().await;
+                                            map.insert(req.id, tx);
+                                        }
+                                        let _ = res_tx.send(JobResult::InteractiveFallbackRequired(req));
+                                        
+                                        let choice = rx.await.unwrap_or_else(|_| "finish".to_string());
+                                        if choice == "finish" {
+                                            tracing::info!("[TRANSFER] User chose to finish with best result.");
+                                            break;
+                                        } else {
+                                            let mut new_cfg = (*cfg).clone();
+                                            if choice == "openrouter" {
+                                                new_cfg.ai_provider = crate::app::config::AiProviderMode::OpenRouterApiKey;
+                                            } else if choice == "groq" {
+                                                new_cfg.ai_provider = crate::app::config::AiProviderMode::GroqApiKey;
+                                            }
+                                            
+                                            if let Ok(c) = crate::ai::backend::AiBackend::from_app_config(&new_cfg) {
+                                                gemini = std::sync::Arc::new(c);
+                                            }
+                                        }
+                                    } else {
+                                        tracing::warn!("[TRANSFER] Interactive fallbacks disabled. Breaking loop with best result.");
+                                        break;
+                                    }
+                                }
+
+                                if !all_math_ok && attempt < max_retries {
+                                    tracing::warn!("[TRANSFER] Math check failed. Retrying entire planning loop with hint.");
+                                    correction_hint = Some(math_err_msg.clone());
+                                    continue;
+                                }
+
+                                if attempt >= max_retries {
                                     tracing::warn!("[TRANSFER] Reached max retries. Taking best result.");
                                     break;
                                 }
@@ -3369,7 +3456,7 @@ impl Runtime {
                             }
                         }).await.unwrap_or(());
                     }
-                    Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest, pdfrest_key } => {
+                    Job::Verify { original, edited, output_dir, intended_bboxes, use_pdfrest, pdfrest_key, auto_match_dpi } => {
                         let _ = result_tx_clone.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
                         let (reply_tx, reply_rx) = oneshot::channel();
 
@@ -3478,7 +3565,7 @@ impl Runtime {
                                         expected_final_balance, // Now sourced from the original PDF
                                     };
 
-                                    match crate::engine::verification::verify_edit(&original, &edited, &output_dir, &intended_bboxes, math_inputs).await {
+                                    match crate::engine::verification::verify_edit(&original, &edited, &output_dir, &intended_bboxes, math_inputs, auto_match_dpi).await {
                                         Ok(report) => {
                                             let _ = result_tx_clone.send(JobResult::VerificationReport(report));
                                             let _ = result_tx_clone.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
@@ -4520,6 +4607,7 @@ impl Runtime {
                                         math_inputs,
                                         Some(&changed_pages),
                                         crate::engine::workflow::mask_padding_for_attempt(attempt),
+                                        cfg.auto_match_dpi,
                                     )
                                     .await
                                 };

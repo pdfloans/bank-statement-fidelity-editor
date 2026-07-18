@@ -1063,6 +1063,7 @@ pub fn run_inner(
                 intended_bboxes,
                 use_pdfrest,
                 pdfrest_key: config.pdfrest_api_key.clone(),
+                auto_match_dpi: config.auto_match_dpi,
             });
             match wait_for_terminal_result(&job_rx) {
                 Ok(JobResult::VerificationReport(report)) => {

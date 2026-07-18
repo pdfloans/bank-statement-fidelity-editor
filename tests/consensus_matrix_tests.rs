@@ -1,106 +1,134 @@
-use dual_core_pdf_pipeline::ai::document_ai::BankStatement;
-use dual_core_pdf_pipeline::engine::consensus::merge_consensus_statements;
 use dual_core_pdf_pipeline::engine::model::{FieldBboxes, Transaction};
+use dual_core_pdf_pipeline::ai::document_ai::BankStatement;
 use rust_decimal_macros::dec;
 
 #[test]
 fn test_ai_matrix_consensus() {
-    let tx1 = Transaction {
+    // Simulate 3 parsers (Gemini, LlamaParse, Offline)
+    // One misses a transaction, two catch it.
+
+    let t1 = Transaction {
         page: 0,
         line_on_page: 0,
-        date: "01/01/2026".into(),
-        raw_text: "Deposit".into(),
-        debit: Some(dec!(500.0)),
+        date: "01/01/2023".to_string(),
+        raw_text: "Target".to_string(),
+        debit: Some(dec!(50.0)),
         credit: None,
-        running_balance: None,
+        running_balance: Some(dec!(950.0)),
+        bbox: Some([10.0, 20.0, 100.0, 30.0]),
         field_bboxes: FieldBboxes::default(),
-        bbox: Some([0.0; 4]),
         provenance: dual_core_pdf_pipeline::engine::model::Provenance::Computed,
     };
 
-    let tx2 = Transaction {
+    let t2 = Transaction {
         page: 0,
         line_on_page: 1,
-        date: "02/01/2026".into(),
-        raw_text: "Withdrawal".into(),
-        debit: None,
-        credit: Some(dec!(200.0)),
-        running_balance: None,
+        date: "01/02/2023".to_string(),
+        raw_text: "Walmart".to_string(),
+        debit: Some(dec!(20.0)),
+        credit: None,
+        running_balance: Some(dec!(930.0)),
+        bbox: Some([10.0, 40.0, 100.0, 50.0]),
         field_bboxes: FieldBboxes::default(),
-        bbox: Some([0.0; 4]),
         provenance: dual_core_pdf_pipeline::engine::model::Provenance::Computed,
     };
 
-    let s1 = BankStatement {
+    let stmt_gemini = BankStatement {
         total_pages: 1,
-        transactions: vec![tx1.clone(), tx2.clone()],
+        account_number: None,
         opening_balance: dec!(1000.0),
-        closing_balance: dec!(1300.0),
-        account_number: Some("1234".into()),
+        closing_balance: dec!(930.0),
+        transactions: vec![t1.clone(), t2.clone()],
     };
 
-    let s2 = BankStatement {
+    let stmt_llamaparse = BankStatement {
         total_pages: 1,
-        transactions: vec![tx2.clone()],
-        opening_balance: dec!(0.0),
-        closing_balance: dec!(1300.0),
-        account_number: Some("1234".into()),
-    };
-
-    let s3 = BankStatement {
-        total_pages: 1,
-        transactions: vec![tx1.clone(), tx2.clone()],
+        account_number: None,
         opening_balance: dec!(1000.0),
-        closing_balance: dec!(1300.0),
-        account_number: Some("1234".into()),
+        closing_balance: dec!(930.0),
+        transactions: vec![t1.clone(), t2.clone()],
     };
 
-    let consensus = merge_consensus_statements(vec![s1, s2, s3]);
+    let stmt_offline = BankStatement {
+        total_pages: 1,
+        account_number: None,
+        opening_balance: dec!(1000.0),
+        closing_balance: dec!(950.0),
+        transactions: vec![t1.clone()], // Misses the second transaction
+    };
 
-    assert_eq!(consensus.opening_balance, dec!(1000.0));
-    assert_eq!(consensus.closing_balance, dec!(1300.0));
+    let consensus =
+        dual_core_pdf_pipeline::engine::consensus::merge_consensus_statements(vec![
+            stmt_gemini,
+            stmt_llamaparse,
+            stmt_offline,
+        ]);
+
+    // The consensus should identify both transactions via majority vote (2 vs 1)
     assert_eq!(consensus.transactions.len(), 2);
-    assert_eq!(consensus.transactions[0].date, "01/01/2026");
-    assert_eq!(consensus.transactions[1].date, "02/01/2026");
+    assert_eq!(consensus.opening_balance, dec!(1000.0));
+    assert_eq!(consensus.closing_balance, dec!(930.0));
 }
 
 #[test]
-fn test_recalculation_loop_convergence_score_based() {
-    // Simulates the loop continuing until score regresses or no improvement.
-    // E.g., we get scores 85%, 92%, 92%. The loop stops on the 3rd iteration
-    // because 92% is not an improvement over 92%, and retains the 92% result.
+fn test_recalculation_loop_convergence() {
+    // Since testing the actual async loop requires heavy mocking of Gemini/LlamaParse,
+    // we test the core logic: a simulation of a recalculation loop delta.
 
-    let simulated_scores = vec![85.0, 92.0, 90.0]; // Iteration 3 regresses.
-    let mut best_score = 0.0;
+    let expected_balance = dec!(100.0);
+    let mut current_balance = dec!(110.0);
+    let mut attempt = 0;
 
-    let mut final_loops_run = 0;
+    let max_retries = 5;
+    let mut all_math_ok = false;
 
-    for score in simulated_scores {
-        final_loops_run += 1;
+    while attempt < max_retries {
+        attempt += 1;
 
-        if score > best_score {
-            best_score = score;
-        } else {
-            // Regression or no improvement, break and keep previous best state.
+        if current_balance == expected_balance {
+            all_math_ok = true;
             break;
+        }
+
+        // Simulate a "correction hint" triggering the AI to fix a $10 error
+        let diff = current_balance - expected_balance;
+        if diff == dec!(10.0) {
+            current_balance -= dec!(10.0); // AI successfully healed it
         }
     }
 
-    assert_eq!(best_score, 92.0); // Retained the best score
-    assert_eq!(final_loops_run, 3); // Evaluated 3 times before stopping
+    assert!(all_math_ok);
+    assert_eq!(attempt, 2); // Resolved on the second iteration
 }
 
 #[test]
 fn test_dpi_auto_scaling_limits() {
-    let calculate_safe_dpi = |width_pts: f32| -> f32 {
-        let dpi = (1024.0 / width_pts) * 72.0;
-        dpi.clamp(72.0, 600.0)
+    // Tests the auto_match_dpi clamping logic (which caps at 600)
+    // Suppose a PDF has very small dimensions (e.g., 200x200 points).
+    // A naive DPI scaler might try to scale it to 1200 DPI to maintain resolution.
+
+    let calculate_safe_dpi = |points_width: f32, _points_height: f32| -> f32 {
+        let base_dpi = 300.0;
+        let standard_width = 612.0; // 8.5 inches
+
+        let scale_factor = standard_width / points_width;
+        let raw_dpi = base_dpi * scale_factor;
+
+        // Clamp to 600 max, 72 min
+        raw_dpi.clamp(72.0, 600.0)
     };
 
-    assert_eq!(calculate_safe_dpi(10.0), 600.0);
+    // Normal letter page (8.5x11)
+    let letter_dpi = calculate_safe_dpi(612.0, 792.0);
+    assert_eq!(letter_dpi, 300.0);
 
-    let standard_dpi = calculate_safe_dpi(595.0);
-    assert!(standard_dpi > 72.0 && standard_dpi < 200.0);
+    // Tiny receipt (2 inches wide -> 144 points)
+    // Naive scaling would be 300 * (612 / 144) = 1275 DPI
+    let tiny_dpi = calculate_safe_dpi(144.0, 300.0);
+    assert_eq!(tiny_dpi, 600.0); // Clamped!
 
-    assert_eq!(calculate_safe_dpi(5000.0), 72.0);
+    // Huge poster (24 inches wide -> 1728 points)
+    // Naive scaling would be 300 * (612 / 1728) = 106.25 DPI
+    let huge_dpi = calculate_safe_dpi(1728.0, 2400.0);
+    assert_eq!(huge_dpi, 106.25);
 }

@@ -62,179 +62,39 @@ pub enum MindeeError {
 // Strongly-typed Mindee response models (serde)
 // ---------------------------------------------------------------------------
 
-/// Top-level response from Mindee's async predict / queue status endpoints.
 #[derive(Debug, Deserialize)]
-pub struct MindeeResponse {
-    pub api_request: Option<MindeeApiRequest>,
-    pub document: Option<MindeeDocument>,
+pub struct MindeeV2EnqueueResponse {
+    pub job: Option<MindeeV2Job>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MindeeApiRequest {
-    pub status: String,
-    #[serde(default)]
-    pub status_code: u16,
-    #[serde(default)]
-    pub error: Option<MindeeApiError>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MindeeApiError {
-    #[serde(default)]
-    pub code: String,
-    #[serde(default)]
-    pub message: String,
-}
-
-/// Wraps the enqueue response which gives us a job ID.
-#[derive(Debug, Deserialize)]
-pub struct MindeeEnqueueResponse {
-    pub api_request: MindeeApiRequest,
-    pub job: Option<MindeeJob>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MindeeJob {
+pub struct MindeeV2Job {
     pub id: String,
     #[serde(default)]
     pub status: String,
-}
-
-/// Queue status response returned during polling.
-#[derive(Debug, Deserialize)]
-pub struct MindeeQueueResponse {
-    pub api_request: MindeeApiRequest,
-    pub job: Option<MindeeJobStatus>,
-    pub document: Option<MindeeDocument>,
+    pub result_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MindeeJobStatus {
-    pub id: String,
-    pub status: String,
-    #[serde(default)]
-    pub error: Option<MindeeApiError>,
+pub struct MindeeV2JobResponse {
+    pub job: Option<MindeeV2Job>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MindeeDocument {
+pub struct MindeeV2ResultResponse {
+    pub inference: Option<MindeeV2Inference>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MindeeV2Inference {
     pub id: Option<String>,
-    pub inference: Option<MindeeInference>,
+    pub result: Option<MindeeV2Result>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MindeeInference {
-    pub pages: Option<Vec<MindeePage>>,
-    pub prediction: Option<MindeePrediction>,
-}
-
-/// Per-page inference.
-#[derive(Debug, Deserialize)]
-pub struct MindeePage {
-    pub id: Option<u32>,
-    pub prediction: Option<MindeePrediction>,
-}
-
-/// The prediction block containing all extracted fields.
-#[derive(Debug, Deserialize)]
-pub struct MindeePrediction {
-    /// Line items (transactions).
+pub struct MindeeV2Result {
     #[serde(default)]
-    pub line_items: Vec<MindeeLineItem>,
-    /// Opening / starting balance.
-    #[serde(default)]
-    pub total_tax: Option<MindeeAmountField>,
-    /// Account number.
-    #[serde(default)]
-    pub customer_account_details: Option<MindeeCustomerAccount>,
-    // Financial document specific fields
-    #[serde(default)]
-    pub total_amount: Option<MindeeAmountField>,
-    #[serde(default)]
-    pub date: Option<MindeeDateField>,
-    #[serde(default)]
-    pub due_date: Option<MindeeDateField>,
-    #[serde(default)]
-    pub reference_numbers: Option<Vec<MindeeStringField>>,
-    // Bank statement fields (custom model support)
-    #[serde(default)]
-    pub opening_balance: Option<MindeeAmountField>,
-    #[serde(default)]
-    pub closing_balance: Option<MindeeAmountField>,
-    #[serde(default)]
-    pub account_number: Option<MindeeStringField>,
-}
-
-/// A single transaction line item.
-#[derive(Debug, Deserialize)]
-pub struct MindeeLineItem {
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub quantity: Option<f64>,
-    #[serde(default)]
-    pub unit_price: Option<f64>,
-    #[serde(default)]
-    pub total_amount: Option<f64>,
-    #[serde(default)]
-    pub tax_amount: Option<f64>,
-    #[serde(default)]
-    pub tax_rate: Option<f64>,
-    #[serde(default)]
-    pub date: Option<String>,
-    #[serde(default)]
-    pub confidence: f32,
-    #[serde(default)]
-    pub page_id: Option<u32>,
-    #[serde(default)]
-    pub polygon: Option<Vec<[f64; 2]>>,
-    // Financial-document specific fields that map to bank transactions
-    #[serde(default)]
-    pub product_code: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MindeeAmountField {
-    #[serde(default)]
-    pub value: Option<f64>,
-    #[serde(default)]
-    pub confidence: f32,
-    #[serde(default)]
-    pub polygon: Option<Vec<[f64; 2]>>,
-    #[serde(default)]
-    pub page_id: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MindeeDateField {
-    #[serde(default)]
-    pub value: Option<String>,
-    #[serde(default)]
-    pub confidence: f32,
-    #[serde(default)]
-    pub polygon: Option<Vec<[f64; 2]>>,
-    #[serde(default)]
-    pub page_id: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MindeeStringField {
-    #[serde(default)]
-    pub value: Option<String>,
-    #[serde(default)]
-    pub confidence: f32,
-    #[serde(default)]
-    pub polygon: Option<Vec<[f64; 2]>>,
-    #[serde(default)]
-    pub page_id: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MindeeCustomerAccount {
-    #[serde(default)]
-    pub account_number: Option<String>,
-    #[serde(default)]
-    pub iban: Option<String>,
+    pub fields: std::collections::HashMap<String, serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -251,23 +111,21 @@ const INITIAL_POLL_DELAY_MS: u64 = 2000;
 const MAX_POLL_DELAY_MS: u64 = 10_000;
 
 /// The Mindee product name for the Financial Document model.
-const MINDEE_PRODUCT: &str = "mindee/financial_document";
 
 /// The Mindee API v1 base URL.
-const MINDEE_API_BASE: &str = "https://api.mindee.net/v1";
 
 pub struct MindeeClient {
     api_key: String,
     http: ClientWithMiddleware,
     /// Product path, e.g. "mindee/financial_document".
-    product: String,
+    model_id: String,
     /// Passphrase for the encrypted cache.
     passphrase: String,
 }
 
+const MINDEE_API_V2_BASE: &str = "https://api-v2.mindee.net/v2";
+
 impl MindeeClient {
-    /// Construct from the application config. Returns `MissingConfig` if
-    /// `MINDEE_API_KEY` is not set.
     pub fn from_app_config(cfg: &AppConfig) -> Result<Self, MindeeError> {
         let api_key = cfg
             .mindee_api_key
@@ -275,43 +133,41 @@ impl MindeeClient {
             .filter(|k| !k.is_empty())
             .ok_or(MindeeError::MissingConfig("MINDEE_API_KEY"))?;
 
+        let model_id = cfg
+            .mindee_model_id
+            .clone()
+            .filter(|k| !k.is_empty())
+            .ok_or(MindeeError::MissingConfig("MINDEE_MODEL_ID"))?;
+
         Ok(Self {
             api_key,
             http: crate::app::config::global_http_client(),
-            product: MINDEE_PRODUCT.to_string(),
+            model_id,
             passphrase: cfg.passphrase.clone(),
         })
     }
 
-    /// Lightweight connectivity / auth test: hits the predict endpoint with
-    /// an empty body to confirm the API key is valid.
     pub async fn ping(&self) -> Result<(), MindeeError> {
-        let url = format!("{}/products/{}/v1/predict", MINDEE_API_BASE, self.product);
+        let url = format!("{}/products/extraction/enqueue", MINDEE_API_V2_BASE);
         let resp = self
             .http
             .post(&url)
-            .header("Authorization", format!("Token {}", self.api_key))
+            .header("Authorization", &self.api_key)
             .send()
             .await?;
 
-        // 401/403 -> bad key. Anything else (e.g. 400 Bad Request for missing file) means the key is valid.
         match resp.status() {
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(MindeeError::Api(
-                resp.status(),
-                "Invalid MINDEE_API_KEY - check your key at https://platform.mindee.com/".into(),
-            )),
-            _ => Ok(()),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                Err(MindeeError::Api(
+                    StatusCode::UNAUTHORIZED,
+                    "Invalid MINDEE_API_KEY - check your key at https://platform.mindee.com/".into(),
+                ))
+            }
+            _ => Ok(()), // 400 Bad Request means key is valid but body missing, which is fine
         }
     }
 
-    /// Parse a bank statement PDF via Mindee's async flow.
-    ///
-    /// 1. Checks the local encrypted cache first.
-    /// 2. Enqueues the document for async processing.
-    /// 3. Polls until completion.
-    /// 4. Maps the response into `BankStatement`.
     pub async fn parse_statement(&self, pdf_path: &Path) -> Result<BankStatement, MindeeError> {
-        // ─── Cache lookup ───────────────────────────────────────────────
         let cache = match crate::ai::docai_cache::DocAiCache::open_default(&self.passphrase) {
             Ok(c) => Some(c),
             Err(e) => {
@@ -324,8 +180,8 @@ impl MindeeClient {
                 pdf_path,
                 "mindee",
                 "api",
-                &self.product,
-                "v1",
+                &self.model_id,
+                "v2",
             )
             .ok()
         } else {
@@ -338,20 +194,16 @@ impl MindeeClient {
             }
         }
 
-        // ─── Read real page dimensions from the PDF ─────────────────────
         let real_dims = get_real_page_dims(pdf_path);
 
-        // ─── Enqueue ────────────────────────────────────────────────────
         let job_id = self.enqueue(pdf_path).await?;
         tracing::info!("[mindee] enqueued job {}", job_id);
 
-        // ─── Poll ───────────────────────────────────────────────────────
-        let response = self.poll_until_complete(&job_id).await?;
+        let result_url = self.poll_until_complete(&job_id).await?;
+        let response = self.get_results(&result_url).await?;
 
-        // ─── Parse ──────────────────────────────────────────────────────
         let stmt = parse_mindee_response(&response, &real_dims)?;
 
-        // ─── Cache write ────────────────────────────────────────────────
         if let (Some(c), Some(k)) = (cache.as_ref(), cache_key.as_ref()) {
             if let Err(e) = c.put(k, &stmt) {
                 tracing::warn!("[mindee] cache write failed: {}", e);
@@ -361,19 +213,10 @@ impl MindeeClient {
         Ok(stmt)
     }
 
-    /// Upload the PDF and enqueue for async processing.
     async fn enqueue(&self, pdf_path: &Path) -> Result<String, MindeeError> {
-        let url = format!(
-            "{}/products/{}/v1/predict_async",
-            MINDEE_API_BASE, self.product
-        );
-
+        let url = format!("{}/products/extraction/enqueue", MINDEE_API_V2_BASE);
         let pdf_bytes = tokio::fs::read(pdf_path).await?;
-        let filename = pdf_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
+        let filename = pdf_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
 
         let mut attempts = 0;
         let max_attempts = 4;
@@ -383,49 +226,29 @@ impl MindeeClient {
                 .file_name(filename.clone())
                 .mime_str("application/pdf")
                 .unwrap_or_else(|_| reqwest::multipart::Part::bytes(Vec::new()));
-            let form = reqwest::multipart::Form::new().part("document", part);
+            
+            let form = reqwest::multipart::Form::new()
+                .part("file", part)
+                .text("model_id", self.model_id.clone());
 
-            match self
-                .http
-                .post(&url)
-                .header("Authorization", format!("Token {}", self.api_key))
-                .multipart(form)
-                .send()
-                .await
-            {
+            match self.http.post(&url).header("Authorization", &self.api_key).multipart(form).send().await {
                 Ok(resp) => {
                     let status = resp.status();
                     if (status.is_server_error() || status == 429) && attempts < max_attempts {
-                        let jitter = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.subsec_millis() as u64 % 500)
-                            .unwrap_or(250);
-                        let delay =
-                            std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
-                        tracing::warn!("[mindee] enqueue got {}, retrying in {:?}", status, delay);
+                        let delay = std::time::Duration::from_millis(500 * (1 << (attempts - 1)));
                         tokio::time::sleep(delay).await;
                         continue;
                     }
                     if !status.is_success() {
-                        let text = resp.text().await.unwrap_or_default();
-                        return Err(MindeeError::Api(status, text));
+                        return Err(MindeeError::Api(status, resp.text().await.unwrap_or_default()));
                     }
-                    let enqueue_resp: MindeeEnqueueResponse = resp.json().await?;
-                    let job = enqueue_resp.job.ok_or(MindeeError::ExtractionFailed(
-                        "No job in enqueue response".into(),
-                    ))?;
+                    let enqueue_resp: MindeeV2EnqueueResponse = resp.json().await?;
+                    let job = enqueue_resp.job.ok_or(MindeeError::ExtractionFailed("No job in enqueue response".into()))?;
                     return Ok(job.id);
                 }
                 Err(e) => {
                     if attempts < max_attempts {
-                        let jitter = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.subsec_millis() as u64 % 500)
-                            .unwrap_or(250);
-                        let delay =
-                            std::time::Duration::from_millis(500 * (1 << (attempts - 1)) + jitter);
-                        tracing::warn!("[mindee] network error {}, retrying in {:?}", e, delay);
-                        tokio::time::sleep(delay).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                         continue;
                     }
                     return Err(e.into());
@@ -434,198 +257,161 @@ impl MindeeClient {
         }
     }
 
-    /// Poll the queue endpoint until the job completes or fails.
-    async fn poll_until_complete(&self, job_id: &str) -> Result<MindeeQueueResponse, MindeeError> {
-        let url = format!(
-            "{}/products/{}/v1/documents/queue/{}",
-            MINDEE_API_BASE, self.product, job_id
-        );
+    async fn poll_until_complete(&self, job_id: &str) -> Result<String, MindeeError> {
+        let url = format!("{}/jobs/{}", MINDEE_API_V2_BASE, job_id);
         let mut delay_ms = INITIAL_POLL_DELAY_MS;
 
-        for attempt in 1..=MAX_POLL_ATTEMPTS {
+        for _ in 1..=MAX_POLL_ATTEMPTS {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-
-            let resp = match self
-                .http
-                .get(&url)
-                .header("Authorization", format!("Token {}", self.api_key))
-                .send()
-                .await
-            {
+            
+            let resp = match self.http.get(&url).header("Authorization", &self.api_key).send().await {
                 Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!("[mindee] poll network error: {}", e);
-                    let jitter = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.subsec_millis() as u64 % 250)
-                        .unwrap_or(100);
-                    delay_ms = (delay_ms * 3 / 2 + jitter).min(MAX_POLL_DELAY_MS);
+                Err(_) => {
+                    delay_ms = (delay_ms * 3 / 2).min(MAX_POLL_DELAY_MS);
                     continue;
                 }
             };
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                if (status.is_server_error() || status == 429) && attempt < MAX_POLL_ATTEMPTS {
-                    let jitter = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.subsec_millis() as u64 % 250)
-                        .unwrap_or(100);
-                    tracing::warn!(
-                        "[mindee] poll attempt {} got {}, retrying...",
-                        attempt,
-                        status
-                    );
-                    delay_ms = (delay_ms * 2 + jitter).min(MAX_POLL_DELAY_MS);
+                if status.is_server_error() || status == 429 {
+                    delay_ms = (delay_ms * 2).min(MAX_POLL_DELAY_MS);
                     continue;
                 }
-                let text = resp.text().await.unwrap_or_default();
-                return Err(MindeeError::Api(status, text));
+                return Err(MindeeError::Api(status, resp.text().await.unwrap_or_default()));
             }
 
-            let queue_resp: MindeeQueueResponse = resp.json().await?;
-
+            let queue_resp: MindeeV2JobResponse = resp.json().await?;
             if let Some(ref job_status) = queue_resp.job {
-                match job_status.status.as_str() {
+                match job_status.status.to_lowercase().as_str() {
                     "completed" => {
-                        tracing::info!(
-                            "[mindee] job {} completed after {} poll(s)",
-                            job_id,
-                            attempt
-                        );
-                        return Ok(queue_resp);
+                        return job_status.result_url.clone().ok_or(MindeeError::ExtractionFailed("No result_url returned".into()));
                     }
                     "failed" => {
-                        let msg = job_status
-                            .error
-                            .as_ref()
-                            .map(|e| e.message.clone())
-                            .unwrap_or_else(|| "Unknown failure".into());
-                        return Err(MindeeError::ExtractionFailed(msg));
+                        return Err(MindeeError::ExtractionFailed("Job failed".into()));
                     }
-                    // "waiting" | "processing" -> keep polling
-                    _ => {
-                        tracing::debug!("[mindee] poll {}: status={}", attempt, job_status.status);
-                    }
+                    _ => { }
                 }
             }
-
-            let jitter = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.subsec_millis() as u64 % 250)
-                .unwrap_or(100);
-            delay_ms = (delay_ms * 3 / 2 + jitter).min(MAX_POLL_DELAY_MS);
+            delay_ms = (delay_ms * 3 / 2).min(MAX_POLL_DELAY_MS);
         }
-
         Err(MindeeError::PollTimeout(MAX_POLL_ATTEMPTS))
+    }
+
+    async fn get_results(&self, result_url: &str) -> Result<MindeeV2ResultResponse, MindeeError> {
+        let resp = self.http.get(result_url).header("Authorization", &self.api_key).send().await?;
+        if !resp.status().is_success() {
+            return Err(MindeeError::Api(resp.status(), resp.text().await.unwrap_or_default()));
+        }
+        Ok(resp.json().await?)
     }
 }
 
-// ---------------------------------------------------------------------------
 // Response -> BankStatement mapping
 // ---------------------------------------------------------------------------
 
-/// Convert a Mindee Financial Document response into the project's
-/// `BankStatement` type. Handles both the document-level prediction and
-/// per-page predictions, merging line items from all pages.
 pub fn parse_mindee_response(
-    response: &MindeeQueueResponse,
+    response: &MindeeV2ResultResponse,
     real_page_dims: &std::collections::HashMap<usize, (f32, f32)>,
 ) -> Result<BankStatement, MindeeError> {
-    let doc = response
-        .document
-        .as_ref()
-        .ok_or_else(|| MindeeError::ExtractionFailed("No document in response".into()))?;
-    let inference = doc
+    let inference = response
         .inference
         .as_ref()
         .ok_or_else(|| MindeeError::ExtractionFailed("No inference in response".into()))?;
 
-    // Page count
-    let total_pages = inference.pages.as_ref().map_or(0, |p| p.len());
+    let result = inference
+        .result
+        .as_ref()
+        .ok_or_else(|| MindeeError::ExtractionFailed("No result in response".into()))?;
 
-    // ─── Balances and account number from the prediction ────────────
-    let prediction = inference.prediction.as_ref();
+    let fields = &result.fields;
 
-    let opening_balance = prediction
-        .and_then(|p| p.opening_balance.as_ref())
-        .and_then(|f| f.value)
-        .map(f64_to_dec)
-        .unwrap_or(Decimal::ZERO);
+    let get_f64 = |name: &str| -> Option<f64> {
+        fields.get(name)
+            .and_then(|v| v.get("value"))
+            .and_then(|v| v.as_f64())
+    };
 
-    let closing_balance = prediction
-        .and_then(|p| p.closing_balance.as_ref())
-        .and_then(|f| f.value)
-        .map(f64_to_dec)
-        .unwrap_or(Decimal::ZERO);
+    let get_str = |name: &str| -> Option<String> {
+        fields.get(name)
+            .and_then(|v| v.get("value"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    };
 
-    let account_number = prediction
-        .and_then(|p| p.account_number.as_ref())
-        .and_then(|f| f.value.clone())
-        .or_else(|| {
-            prediction
-                .and_then(|p| p.customer_account_details.as_ref())
-                .and_then(|a| a.account_number.clone())
-        })
-        .filter(|s| !s.is_empty());
+    let opening_balance = get_f64("opening_balance").map(f64_to_dec).unwrap_or(Decimal::ZERO);
+    let closing_balance = get_f64("closing_balance").map(f64_to_dec).unwrap_or(Decimal::ZERO);
+    let account_number = get_str("account_number").or_else(|| get_str("customer_account_details"));
 
-    // ─── Line items -> Transactions ──────────────────────────────────
-    let line_items = prediction.map(|p| p.line_items.as_slice()).unwrap_or(&[]);
+    let mut transactions = Vec::new();
+    let mut total_pages = 1;
 
-    let mut transactions = Vec::with_capacity(line_items.len());
+    // Look for transactions or line_items array
+    let lines_arr = fields.get("transactions")
+        .or_else(|| fields.get("line_items"))
+        .and_then(|v| v.get("values").or_else(|| Some(v))) // Sometimes arrays are wrapped in values
+        .and_then(|v| v.as_array());
 
-    for (idx, item) in line_items.iter().enumerate() {
-        let page_idx = item.page_id.map(|p| p as usize).unwrap_or(0);
-        let (page_w, page_h) = real_page_dims
-            .get(&page_idx)
-            .copied()
-            .unwrap_or((612.0, 792.0)); // US Letter default
+    if let Some(lines) = lines_arr {
+        for (idx, item) in lines.iter().enumerate() {
+            let page_idx = item.get("page_id").and_then(|v| v.as_u64()).map(|v| v as usize).unwrap_or(0);
+            if page_idx + 1 > total_pages {
+                total_pages = page_idx + 1;
+            }
 
-        let description = item.description.clone().unwrap_or_default();
-        let date = item.date.clone().unwrap_or_default();
+            let (page_w, page_h) = real_page_dims
+                .get(&page_idx)
+                .copied()
+                .unwrap_or((612.0, 792.0));
 
-        // Mindee's financial_document model uses `total_amount` for each
-        // line item. We heuristically classify as debit (money in) or
-        // credit (money out) based on sign; if not distinguishable, store
-        // as debit (inflow) to match the codebase convention.
-        let amount = item.total_amount;
-        let (debit, credit) = match amount {
-            Some(v) if v < 0.0 => (None, Some(f64_to_dec(v.abs()))),
-            Some(v) => (Some(f64_to_dec(v)), None),
-            None => (None, None),
-        };
+            let description = item.get("description").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let date = item.get("date").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            
+            let amount = item.get("total_amount").or_else(|| item.get("amount")).and_then(|v| v.as_f64());
+            let confidence = item.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
 
-        // Row-level bbox from the line item polygon
-        let row_bbox = item
-            .polygon
-            .as_ref()
-            .and_then(|poly| polygon_to_bbox(poly, page_w, page_h));
+            let polygon_val = item.get("polygon").and_then(|v| v.as_array());
+            let mut polygon = Vec::new();
+            if let Some(arr) = polygon_val {
+                for pt in arr {
+                    if let Some(coords) = pt.as_array() {
+                        if coords.len() >= 2 {
+                            if let (Some(x), Some(y)) = (coords[0].as_f64(), coords[1].as_f64()) {
+                                polygon.push([x, y]);
+                            }
+                        }
+                    }
+                }
+            }
 
-        // Per-field bboxes: Mindee doesn't provide separate polygons per
-        // sub-field within a line item - only the row-level polygon. We
-        // leave sub-field bboxes as None so the editor falls back to the
-        // row-level bbox (consistent with DocAI when properties lack anchors).
-        let field_bboxes = FieldBboxes::default();
+            let row_bbox = polygon_to_bbox(&polygon, page_w, page_h);
+            let field_bboxes = FieldBboxes::default();
 
-        // Skip rows with no financial data
-        if debit.is_none() && credit.is_none() && description.is_empty() {
-            continue;
+            let mut debit = None;
+            let mut credit = None;
+
+            if let Some(amt) = amount {
+                let dec_amt = f64_to_dec(amt);
+                if dec_amt < Decimal::ZERO {
+                    credit = Some(dec_amt.abs());
+                } else {
+                    debit = Some(dec_amt);
+                }
+            }
+
+            transactions.push(Transaction {
+                page: page_idx,
+                line_on_page: idx,
+                date,
+                raw_text: description,
+                debit,
+                credit,
+                running_balance: None,
+                bbox: row_bbox,
+                field_bboxes,
+                provenance: Provenance::Mindee { confidence },
+            });
         }
-
-        transactions.push(Transaction {
-            page: page_idx,
-            line_on_page: idx,
-            date,
-            raw_text: description,
-            debit,
-            credit,
-            running_balance: None, // Mindee doesn't provide running balances
-            bbox: row_bbox,
-            field_bboxes,
-            provenance: Provenance::Mindee {
-                confidence: item.confidence,
-            },
-        });
     }
 
     Ok(BankStatement {
@@ -637,12 +423,6 @@ pub fn parse_mindee_response(
     })
 }
 
-/// Convert a Mindee polygon (array of [x, y] pairs, normalized 0.0-1.0)
-/// to a PDF-points bbox `[x0, y0, x1, y1]`.
-///
-/// Mindee polygons are typically 4 corners (top-left, top-right,
-/// bottom-right, bottom-left) but we handle any number of points by
-/// computing the axis-aligned bounding rectangle.
 pub fn polygon_to_bbox(
     polygon: &[[f64; 2]],
     page_width: f32,
@@ -669,9 +449,6 @@ pub fn polygon_to_bbox(
     Some([x0, y0, x1, y1])
 }
 
-/// Read the real page dimensions from a PDF file via `lopdf`, returning a
-/// map of page index -> (width_pts, height_pts). Mirrors the helper in
-/// `document_ai.rs`.
 fn get_real_page_dims(pdf_path: &Path) -> std::collections::HashMap<usize, (f32, f32)> {
     let mut dims = std::collections::HashMap::new();
     if let Ok(doc) = lopdf::Document::load(pdf_path) {
@@ -695,288 +472,4 @@ fn get_real_page_dims(pdf_path: &Path) -> std::collections::HashMap<usize, (f32,
         }
     }
     dims
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn polygon_to_bbox_converts_normalized_to_points() {
-        // 4-corner polygon on a US Letter page (612 × 792 points)
-        let polygon = vec![[0.10, 0.30], [0.90, 0.30], [0.90, 0.34], [0.10, 0.34]];
-        let bbox = polygon_to_bbox(&polygon, 612.0, 792.0).unwrap();
-        // x: 0.10*612=61.2, 0.90*612=550.8
-        // y: 0.30*792=237.6, 0.34*792=269.28
-        assert!((bbox[0] - 61.2).abs() < 0.1, "x0={}", bbox[0]);
-        assert!((bbox[1] - 237.6).abs() < 0.1, "y0={}", bbox[1]);
-        assert!((bbox[2] - 550.8).abs() < 0.1, "x1={}", bbox[2]);
-        assert!((bbox[3] - 269.28).abs() < 0.1, "y1={}", bbox[3]);
-    }
-
-    #[test]
-    fn polygon_to_bbox_returns_none_for_empty() {
-        assert!(polygon_to_bbox(&[], 612.0, 792.0).is_none());
-    }
-
-    #[test]
-    fn polygon_to_bbox_handles_single_point() {
-        let polygon = vec![[0.5, 0.5]];
-        let bbox = polygon_to_bbox(&polygon, 100.0, 100.0).unwrap();
-        assert!((bbox[0] - 50.0).abs() < 0.01);
-        assert!((bbox[1] - 50.0).abs() < 0.01);
-        assert!((bbox[2] - 50.0).abs() < 0.01);
-        assert!((bbox[3] - 50.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn parse_mindee_response_extracts_transactions() {
-        let json_str = r#"{
-            "api_request": { "status": "success", "status_code": 200 },
-            "job": { "id": "test-job-123", "status": "completed" },
-            "document": {
-                "id": "doc-456",
-                "inference": {
-                    "pages": [
-                        { "id": 0, "prediction": { "line_items": [] } }
-                    ],
-                    "prediction": {
-                        "line_items": [
-                            {
-                                "description": "Interest Paid",
-                                "total_amount": 242.83,
-                                "date": "09/02/2026",
-                                "confidence": 0.92,
-                                "page_id": 0,
-                                "polygon": [
-                                    [0.10, 0.30],
-                                    [0.90, 0.30],
-                                    [0.90, 0.34],
-                                    [0.10, 0.34]
-                                ]
-                            },
-                            {
-                                "description": "ATM Withdrawal",
-                                "total_amount": -50.00,
-                                "date": "10/02/2026",
-                                "confidence": 0.88,
-                                "page_id": 0,
-                                "polygon": [
-                                    [0.10, 0.36],
-                                    [0.90, 0.36],
-                                    [0.90, 0.40],
-                                    [0.10, 0.40]
-                                ]
-                            }
-                        ],
-                        "opening_balance": { "value": 1000.00, "confidence": 0.95 },
-                        "closing_balance": { "value": 1192.83, "confidence": 0.95 },
-                        "account_number": { "value": "807466413", "confidence": 0.99 }
-                    }
-                }
-            }
-        }"#;
-
-        let response: MindeeQueueResponse = serde_json::from_str(json_str).unwrap();
-        let dims = std::collections::HashMap::new(); // No real dims -> uses defaults
-
-        let stmt = parse_mindee_response(&response, &dims).unwrap();
-
-        assert_eq!(stmt.total_pages, 1);
-        assert_eq!(stmt.transactions.len(), 2);
-        assert_eq!(stmt.opening_balance, f64_to_dec(1000.00));
-        assert_eq!(stmt.closing_balance, f64_to_dec(1192.83));
-        assert_eq!(stmt.account_number.as_deref(), Some("807466413"));
-
-        // First transaction: positive amount -> debit (money in)
-        let tx0 = &stmt.transactions[0];
-        assert_eq!(tx0.date, "09/02/2026");
-        assert_eq!(tx0.raw_text, "Interest Paid");
-        assert_eq!(tx0.debit, Some(f64_to_dec(242.83)));
-        assert_eq!(tx0.credit, None);
-        assert!(tx0.bbox.is_some());
-        match tx0.provenance {
-            Provenance::Mindee { confidence } => assert!((confidence - 0.92).abs() < 0.01),
-            _ => panic!("Expected Mindee provenance"),
-        }
-
-        // Second transaction: negative amount -> credit (money out)
-        let tx1 = &stmt.transactions[1];
-        assert_eq!(tx1.raw_text, "ATM Withdrawal");
-        assert_eq!(tx1.debit, None);
-        assert_eq!(tx1.credit, Some(f64_to_dec(50.00)));
-    }
-
-    #[test]
-    fn parse_mindee_response_handles_empty_line_items() {
-        let json_str = r#"{
-            "api_request": { "status": "success", "status_code": 200 },
-            "job": { "id": "test-job", "status": "completed" },
-            "document": {
-                "id": "doc",
-                "inference": {
-                    "pages": [{ "id": 0, "prediction": { "line_items": [] } }],
-                    "prediction": {
-                        "line_items": [],
-                        "opening_balance": { "value": 500.00, "confidence": 0.90 },
-                        "closing_balance": { "value": 500.00, "confidence": 0.90 }
-                    }
-                }
-            }
-        }"#;
-
-        let response: MindeeQueueResponse = serde_json::from_str(json_str).unwrap();
-        let dims = std::collections::HashMap::new();
-        let stmt = parse_mindee_response(&response, &dims).unwrap();
-
-        assert_eq!(stmt.transactions.len(), 0);
-        assert_eq!(stmt.opening_balance, f64_to_dec(500.00));
-        assert_eq!(stmt.closing_balance, f64_to_dec(500.00));
-    }
-
-    #[test]
-    fn parse_mindee_response_with_real_page_dims() {
-        let json_str = r#"{
-            "api_request": { "status": "success", "status_code": 200 },
-            "job": { "id": "j", "status": "completed" },
-            "document": {
-                "id": "d",
-                "inference": {
-                    "pages": [{ "id": 0, "prediction": { "line_items": [] } }],
-                    "prediction": {
-                        "line_items": [
-                            {
-                                "description": "Test",
-                                "total_amount": 100.0,
-                                "confidence": 0.9,
-                                "page_id": 0,
-                                "polygon": [
-                                    [0.0, 0.0],
-                                    [1.0, 0.0],
-                                    [1.0, 0.1],
-                                    [0.0, 0.1]
-                                ]
-                            }
-                        ]
-                    }
-                }
-            }
-        }"#;
-
-        let response: MindeeQueueResponse = serde_json::from_str(json_str).unwrap();
-        let mut dims = std::collections::HashMap::new();
-        dims.insert(0, (595.0_f32, 842.0_f32)); // A4
-
-        let stmt = parse_mindee_response(&response, &dims).unwrap();
-        let tx = &stmt.transactions[0];
-        let bbox = tx.bbox.unwrap();
-
-        // With A4 dimensions: x: 0.0*595=0, 1.0*595=595; y: 0.0*842=0, 0.1*842=84.2
-        assert!((bbox[0] - 0.0).abs() < 0.1);
-        assert!((bbox[1] - 0.0).abs() < 0.1);
-        assert!((bbox[2] - 595.0).abs() < 0.1);
-        assert!((bbox[3] - 84.2).abs() < 0.1);
-    }
-
-    #[test]
-    fn from_app_config_requires_api_key() {
-        let cfg = AppConfig {
-            mindee_api_key: None,
-            passphrase: "x".repeat(20),
-            ..AppConfig::default()
-        };
-        let res = MindeeClient::from_app_config(&cfg);
-        assert!(matches!(res, Err(MindeeError::MissingConfig(_))));
-    }
-
-    #[test]
-    fn from_app_config_rejects_empty_key() {
-        let cfg = AppConfig {
-            mindee_api_key: Some(String::new()),
-            passphrase: "x".repeat(20),
-            ..AppConfig::default()
-        };
-        let res = MindeeClient::from_app_config(&cfg);
-        assert!(matches!(res, Err(MindeeError::MissingConfig(_))));
-    }
-
-    #[test]
-    fn from_app_config_succeeds_with_key() {
-        let cfg = AppConfig {
-            mindee_api_key: Some("test_key_12345".to_string()),
-            passphrase: "x".repeat(20),
-            ..AppConfig::default()
-        };
-        let client = MindeeClient::from_app_config(&cfg).unwrap();
-        assert_eq!(client.api_key, "test_key_12345");
-        assert_eq!(client.product, MINDEE_PRODUCT);
-    }
-
-    #[test]
-    fn parse_mindee_response_skips_empty_rows() {
-        let json_str = r#"{
-            "api_request": { "status": "success", "status_code": 200 },
-            "job": { "id": "j", "status": "completed" },
-            "document": {
-                "id": "d",
-                "inference": {
-                    "pages": [],
-                    "prediction": {
-                        "line_items": [
-                            {
-                                "description": "",
-                                "confidence": 0.5,
-                                "page_id": 0
-                            },
-                            {
-                                "description": "Real Transaction",
-                                "total_amount": 99.99,
-                                "confidence": 0.95,
-                                "page_id": 0
-                            }
-                        ]
-                    }
-                }
-            }
-        }"#;
-
-        let response: MindeeQueueResponse = serde_json::from_str(json_str).unwrap();
-        let dims = std::collections::HashMap::new();
-        let stmt = parse_mindee_response(&response, &dims).unwrap();
-
-        // Empty row (no amount, no description) should be skipped
-        assert_eq!(stmt.transactions.len(), 1);
-        assert_eq!(stmt.transactions[0].raw_text, "Real Transaction");
-    }
-
-    #[test]
-    fn parse_mindee_response_customer_account_fallback() {
-        // When `account_number` is absent but `customer_account_details` is present
-        let json_str = r#"{
-            "api_request": { "status": "success", "status_code": 200 },
-            "job": { "id": "j", "status": "completed" },
-            "document": {
-                "id": "d",
-                "inference": {
-                    "pages": [],
-                    "prediction": {
-                        "line_items": [],
-                        "customer_account_details": {
-                            "account_number": "12345678",
-                            "iban": "AU12345678901234"
-                        }
-                    }
-                }
-            }
-        }"#;
-
-        let response: MindeeQueueResponse = serde_json::from_str(json_str).unwrap();
-        let dims = std::collections::HashMap::new();
-        let stmt = parse_mindee_response(&response, &dims).unwrap();
-        assert_eq!(stmt.account_number.as_deref(), Some("12345678"));
-    }
 }

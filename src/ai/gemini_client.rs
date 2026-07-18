@@ -169,17 +169,14 @@ pub struct GeminiClient {
 /// The best available Gemini **Pro** model id, tried first for all reasoning
 /// and vision calls.
 ///
-/// `gemini-2.5-pro` is Google's most advanced generally available reasoning model.
-const GEMINI_PRO_MODEL: &str = "gemini-2.5-pro";
+/// `gemini-2.0-flash` is Google's most advanced generally available reasoning model.
+const GEMINI_PRO_MODEL: &str = "gemini-pro-latest";
 
-/// GA Pro fallback if the preview frontier model isn't enabled for a given
-/// project/key (some projects must allowlist preview models). Still a top-tier
-/// reasoning model and generally available on Vertex AI + the AI Studio API.
-const GEMINI_PRO_FALLBACK: &str = "gemini-1.5-pro";
+/// If `gemini-pro-latest` fails or is unavailable, fallback to next best
+const GEMINI_PRO_FALLBACK: &str = "gemini-flash-latest";
 
-/// Last-resort flash fallback when neither Pro model is available for this
-/// key/project (403/404).
-const GEMINI_FLASH_FALLBACK: &str = "gemini-2.5-flash";
+/// Absolute fallback if both Pro models fail.
+const GEMINI_FLASH_FALLBACK: &str = "gemini-flash-latest";
 
 /// Resolved authentication strategy for a `GeminiClient`.
 #[derive(Clone)]
@@ -1397,7 +1394,7 @@ mod tests {
         let server = MockServer::start().await;
 
         Mock::given(method("POST"))
-            .and(path("/v1beta/models/gemini-2.5-pro:generateContent"))
+            .and(path("/v1beta/models/gemini-pro-latest:generateContent"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "candidates": [{
                     "content": {

@@ -44,7 +44,7 @@ impl OpenAiClient {
                 (
                     k,
                     "https://openrouter.ai/api/v1".to_string(),
-                    "deepseek/deepseek-chat".to_string(),
+                    cfg.openrouter_model.clone(),
                 )
             }
             _ => return Err(OpenAiError::MissingKey),

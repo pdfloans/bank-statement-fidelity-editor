@@ -128,6 +128,16 @@ pub struct ProposedChange {
     pub bbox: Option<[f32; 4]>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ParserStats {
+    pub total_attempts: usize,
+    pub gemini_wins: usize,
+    pub docai_wins: usize,
+    pub llamaparse_wins: usize,
+    pub mindee_wins: usize,
+    pub offline_wins: usize,
+}
+
 // ---------------------------------------------------------------------------
 // Decimal / f64 conversion helpers (Stage 7 / Item #11)
 // ---------------------------------------------------------------------------

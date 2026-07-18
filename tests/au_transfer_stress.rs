@@ -96,6 +96,7 @@ impl PairResult {
 #[test]
 #[ignore]
 fn test_all_au_transfer_pairs() {
+    let _ = dotenvy::dotenv();
     let cfg = Arc::new(AppConfig::from_env().unwrap());
     let dir_path = Path::new("AU Bank Statements");
     let pdfs = collect_pdfs(dir_path);
@@ -118,116 +119,107 @@ fn test_all_au_transfer_pairs() {
     eprintln!();
 
     let total_start = Instant::now();
-    let mut results: Vec<PairResult> = Vec::new();
     let total_pairs = pdfs.len() * (pdfs.len() - 1);
-    let mut pair_idx = 0usize;
+    let mut handles = Vec::new();
 
     for (si, source) in pdfs.iter().enumerate() {
         for (ti, target) in pdfs.iter().enumerate() {
             if si == ti {
                 continue;
             }
-            pair_idx += 1;
 
-            eprintln!("\n┌─────────────────────────────────────────────────────────┐");
-            eprintln!(
-                "│  PAIR {}/{}: {} → {}",
-                pair_idx,
-                total_pairs,
-                stem(source),
-                stem(target)
-            );
-            eprintln!("└─────────────────────────────────────────────────────────┘");
+            let source = source.clone();
+            let target = target.clone();
+            let cfg = cfg.clone();
 
-            let pair_start = Instant::now();
+            handles.push(std::thread::spawn(move || {
+                let pair_start = Instant::now();
 
-            // Each pair gets its own Runtime to avoid state leaks.
-            let tmp = tempdir().unwrap();
-            let audit = AuditLog::open(tmp.path()).unwrap();
-            let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg.clone());
+                // Each pair gets its own Runtime to avoid state leaks.
+                let tmp = tempdir().unwrap();
+                let audit = AuditLog::open(tmp.path()).unwrap();
+                let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
-            let output = tmp
-                .path()
-                .join(format!("{}__to__{}.pdf", stem(source), stem(target)));
+                let output = tmp
+                    .path()
+                    .join(format!("{}__to__{}.pdf", stem(&source), stem(&target)));
 
-            // Send the transfer job
-            job_tx
-                .send(Job::TransferTransactions {
-                    source_pdf: source.clone(),
-                    target_pdf: target.clone(),
-                    output_pdf: output.clone(),
-                })
-                .unwrap();
+                // Send the transfer job
+                job_tx
+                    .send(Job::TransferTransactions {
+                        source_pdf: source.clone(),
+                        target_pdf: target.clone(),
+                        output_pdf: output.clone(),
+                    })
+                    .unwrap();
 
-            // Wait for completion — generous 5-minute timeout per pair
-            let result = drain_until(
-                &job_rx,
-                |r| {
-                    matches!(
-                        r,
-                        JobResult::TransferComplete(_)
-                            | JobResult::TransferFailed { .. }
-                            | JobResult::Error { .. }
-                    )
-                },
-                Duration::from_secs(300),
-            );
+                // Wait for completion — generous 5-minute timeout per pair
+                let result = drain_until(
+                    &job_rx,
+                    |r| {
+                        matches!(
+                            r,
+                            JobResult::TransferComplete(_)
+                                | JobResult::TransferFailed { .. }
+                                | JobResult::Error { .. }
+                        )
+                    },
+                    Duration::from_secs(300),
+                );
 
-            let duration = pair_start.elapsed();
+                let duration = pair_start.elapsed();
 
-            let outcome = match result {
-                Some(JobResult::TransferComplete(tr)) => {
-                    eprintln!(
-                        "  ✅ SUCCESS in {:.1}s — math:{} visual:{} score:{:.4} txns:{}→{}",
-                        duration.as_secs_f64(),
-                        if tr.math_verified { "✓" } else { "✗" },
-                        if tr.visual_verified { "✓" } else { "✗" },
-                        tr.visual_score,
-                        tr.source_tx_count,
-                        tr.target_tx_count,
-                    );
-                    PairOutcome::Success(tr)
-                }
-                Some(JobResult::TransferFailed { stage, message }) => {
-                    eprintln!(
-                        "  ❌ FAILED at stage '{}' in {:.1}s: {}",
-                        stage,
-                        duration.as_secs_f64(),
-                        message
-                    );
-                    PairOutcome::Failed { stage, message }
-                }
-                Some(JobResult::Error { message, .. }) => {
-                    eprintln!("  ❌ ERROR in {:.1}s: {}", duration.as_secs_f64(), message);
-                    PairOutcome::Failed {
-                        stage: "Runtime".into(),
-                        message,
+                let outcome = match result {
+                    Some(JobResult::TransferComplete(tr)) => {
+                        eprintln!(
+                            "  ✅ SUCCESS in {:.1}s — {} → {}",
+                            duration.as_secs_f64(),
+                            stem(&source),
+                            stem(&target)
+                        );
+                        PairOutcome::Success(tr)
                     }
-                }
-                None => {
-                    eprintln!("  ⏱ TIMEOUT after {:.1}s", duration.as_secs_f64());
-                    PairOutcome::Timeout
-                }
-                _ => {
-                    // Unexpected JobResult variant — should not happen since
-                    // drain_until filters, but handle gracefully.
-                    eprintln!(
-                        "  ⚠ UNEXPECTED result variant in {:.1}s",
-                        duration.as_secs_f64()
-                    );
-                    PairOutcome::Failed {
-                        stage: "Unknown".into(),
-                        message: "Unexpected JobResult variant".into(),
+                    Some(JobResult::TransferFailed { stage, message }) => {
+                        eprintln!(
+                            "  ❌ FAILED ({} → {}) at stage '{}' in {:.1}s: {}",
+                            stem(&source), stem(&target),
+                            stage, duration.as_secs_f64(), message
+                        );
+                        PairOutcome::Failed { stage, message }
                     }
-                }
-            };
+                    Some(JobResult::Error { message, .. }) => {
+                        eprintln!("  ❌ ERROR ({} → {}) in {:.1}s: {}", stem(&source), stem(&target), duration.as_secs_f64(), message);
+                        PairOutcome::Failed {
+                            stage: "Runtime".into(),
+                            message,
+                        }
+                    }
+                    None => {
+                        eprintln!("  ⏱ TIMEOUT ({} → {}) after {:.1}s", stem(&source), stem(&target), duration.as_secs_f64());
+                        PairOutcome::Timeout
+                    }
+                    _ => {
+                        PairOutcome::Failed {
+                            stage: "Unknown".into(),
+                            message: "Unexpected JobResult variant".into(),
+                        }
+                    }
+                };
 
-            results.push(PairResult {
-                source: source.clone(),
-                target: target.clone(),
-                outcome,
-                duration,
-            });
+                PairResult {
+                    source,
+                    target,
+                    outcome,
+                    duration,
+                }
+            }));
+        }
+    }
+
+    let mut results: Vec<PairResult> = Vec::new();
+    for handle in handles {
+        if let Ok(res) = handle.join() {
+            results.push(res);
         }
     }
 

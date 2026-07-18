@@ -315,6 +315,7 @@ impl AppPanels for MyApp {
                                     intended_bboxes: Vec::new(),
                                     use_pdfrest: self.settings.use_pdfrest,
                                     pdfrest_key: self.config.pdfrest_api_key.clone(),
+                                    auto_match_dpi: self.settings.auto_match_dpi,
                                 });
                                 self.in_flight += 1;
                             }

@@ -26,6 +26,7 @@ fn drain_until<F: Fn(&JobResult) -> bool>(
 #[test]
 #[ignore]
 fn test_all_au_statements() {
+    let _ = dotenvy::dotenv();
     let cfg = Arc::new(AppConfig::from_env().unwrap());
     let dir_path = Path::new("AU Bank Statements");
 

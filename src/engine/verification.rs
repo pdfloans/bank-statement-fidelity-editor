@@ -94,9 +94,6 @@ const VISUAL_DIFF_THRESHOLD: f64 = 0.02;
 /// wrong page) rather than penalising sub-pixel anti-aliasing noise.
 const SSIM_FAILURE_FLOOR: f64 = 0.40;
 
-/// Base render DPI for whole-page comparison.
-const BASE_DPI: f32 = 300.0;
-
 /// High DPI used around edited regions (Item #18).
 const EDIT_REGION_DPI: f32 = 600.0;
 
@@ -370,6 +367,7 @@ pub async fn verify_edit(
     output_dir: &Path,
     intended_bboxes: &[(usize, [f32; 4])],
     math_inputs: MathInputs,
+    auto_match_dpi: bool,
 ) -> Result<VerificationReport, VerificationError> {
     verify_edit_pages(
         original,
@@ -378,6 +376,7 @@ pub async fn verify_edit(
         intended_bboxes,
         math_inputs,
         None,
+        auto_match_dpi,
     )
     .await
 }
@@ -396,6 +395,7 @@ pub async fn verify_edit_pages(
     intended_bboxes: &[(usize, [f32; 4])],
     math_inputs: MathInputs,
     only_pages: Option<&[usize]>,
+    auto_match_dpi: bool,
 ) -> Result<VerificationReport, VerificationError> {
     verify_edit_pages_with_padding(
         original,
@@ -405,6 +405,7 @@ pub async fn verify_edit_pages(
         math_inputs,
         only_pages,
         0.0,
+        auto_match_dpi,
     )
     .await
 }
@@ -425,6 +426,7 @@ pub async fn verify_edit_pages_with_padding(
     math_inputs: MathInputs,
     only_pages: Option<&[usize]>,
     mask_padding_pts: f32,
+    auto_match_dpi: bool,
 ) -> Result<VerificationReport, VerificationError> {
     std::fs::create_dir_all(output_dir)?;
 
@@ -478,7 +480,19 @@ pub async fn verify_edit_pages_with_padding(
             .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
 
         let width_pts = original_page.width().value;
-        let target_width = (width_pts * BASE_DPI / 72.0) as i32;
+        let height_pts = original_page.height().value;
+        
+        // Dynamically compute DPI if auto_match_dpi is true. Standard A4 is ~595x842 pts.
+        // We want a render width of at least ~1500 pixels for good validation.
+        let base_dpi = if auto_match_dpi {
+            let desired_pixels = 2400.0; // Higher baseline for auto-match to get sharp pixels
+            let computed = (desired_pixels / width_pts) * 72.0;
+            computed.clamp(72.0, 600.0) // Safe bounds
+        } else {
+            300.0 // Default BASE_DPI
+        };
+
+        let target_width = (width_pts * base_dpi / 72.0) as i32;
 
         // Item #19: one pinned config drives BOTH renders.
         let render_config = pinned_render_config(target_width);
@@ -510,7 +524,7 @@ pub async fn verify_edit_pages_with_padding(
         let (original_img, edited_img) = (o_img, e_img);
 
         // Build intended-edit exclusion rects in image space (with padding).
-        let scale = BASE_DPI / 72.0;
+        let scale = base_dpi / 72.0;
         let img_w = original_img.width() as f32;
         let img_h = original_img.height() as f32;
         let mut exclude_rects: Vec<(u32, u32, u32, u32)> = Vec::new();
