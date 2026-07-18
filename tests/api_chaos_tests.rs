@@ -13,7 +13,7 @@ async fn test_gemini_api_chaos_recovery() {
 
     // Simulate Gemini endpoint failing with 429 Too Many Requests
     Mock::given(method("POST"))
-        .and(path("/v1beta/models/gemini-pro-latest:generateContent"))
+        .and(path("/v1beta/models/gemini-flash-latest:generateContent"))
         .respond_with(ResponseTemplate::new(429).set_body_string("Rate limited"))
         .mount(&server)
         .await;

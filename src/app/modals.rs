@@ -616,14 +616,14 @@ impl AppModals for MyApp {
                                 });
 
                             ui.add_space(4.0);
-                            let applitools_label = if avail.applitools {
-                                "Additive: Applitools Visual AI"
+                            let applitools_label = if avail.vision_ai {
+                                "Additive: Vision AI"
                             } else {
                                 "Additive: Applitools \u{26d4} No API Key"
                             };
-                            let cb = egui::Checkbox::new(&mut self.settings.use_applitools, applitools_label);
-                            if !avail.applitools {
-                                ui.add_enabled(false, cb).on_hover_text("\u{26a0} APPLITOOLS_API_KEY not configured. Set it in Settings \u{2192} API Keys.");
+                            let cb = egui::Checkbox::new(&mut self.settings.use_vision_ai, applitools_label);
+                            if !avail.vision_ai {
+                                ui.add_enabled(false, cb).on_hover_text("\u{26a0} VISION_API_KEY not configured. Set it in Settings \u{2192} API Keys.");
                             } else {
                                 ui.add(cb).on_hover_text("Sends screenshots to Applitools Eyes for AI-based visual difference analysis.");
                             }
@@ -1531,9 +1531,9 @@ impl AppModals for MyApp {
                         );
                         ui.end_row();
 
-                        ui.label("Applitools API key:");
+                        ui.label("Vision API key:");
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.edit_applitools_api_key)
+                            egui::TextEdit::singleline(&mut self.edit_vision_api_key)
                                 .password(true)
                                 .desired_width(220.0),
                         );
@@ -1596,7 +1596,7 @@ impl AppModals for MyApp {
                                 ("LLAMAPARSE_API_KEY", self.edit_llamaparse_api_key.trim(), false),
                                 ("PDFREST_API_KEY", self.edit_pdfrest_api_key.trim(), false),
                                 ("LIPI_API_KEY", self.edit_lipi_api_key.trim(), false),
-                                ("APPLITOOLS_API_KEY", self.edit_applitools_api_key.trim(), false),
+                                ("VISION_API_KEY", self.edit_vision_api_key.trim(), false),
                                 ("GROQ_API_KEY", self.edit_groq_api_key.trim(), false),
                                 ("OPENROUTER_API_KEY", self.edit_openrouter_api_key.trim(), false),
                                 ("OPENROUTER_MODEL", self.edit_openrouter_model.trim(), false),
@@ -1637,7 +1637,7 @@ impl AppModals for MyApp {
                                             "LLAMAPARSE_API_KEY" => self.edit_llamaparse_api_key = val,
                                             "PDFREST_API_KEY" => self.edit_pdfrest_api_key = val,
                                             "LIPI_API_KEY" => self.edit_lipi_api_key = val,
-                                            "APPLITOOLS_API_KEY" => self.edit_applitools_api_key = val,
+                                            "VISION_API_KEY" => self.edit_vision_api_key = val,
                                             "GROQ_API_KEY" => self.edit_groq_api_key = val,
                                             "OPENROUTER_API_KEY" => self.edit_openrouter_api_key = val,
                                             "OPENROUTER_MODEL" => self.edit_openrouter_model = val,
@@ -1688,7 +1688,7 @@ impl AppModals for MyApp {
                         self.edit_llamaparse_api_key = std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default();
                         self.edit_pdfrest_api_key = std::env::var("PDFREST_API_KEY").unwrap_or_default();
                         self.edit_lipi_api_key = std::env::var("LIPI_API_KEY").unwrap_or_default();
-                        self.edit_applitools_api_key = std::env::var("APPLITOOLS_API_KEY").unwrap_or_default();
+                        self.edit_vision_api_key = std::env::var("VISION_API_KEY").unwrap_or_default();
                         self.edit_groq_api_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
                         self.edit_openrouter_api_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
                         self.edit_openrouter_model = std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string());
@@ -1701,7 +1701,7 @@ impl AppModals for MyApp {
                     {
                         // Eagerly save any unsaved edits to the environment first, then run validation
                         self.save_credentials();
-                        self.credential_validation_status = None;
+                        
                         let _ = self.job_tx.send(Job::ValidateCredentials);
                     }
                 });
@@ -1724,7 +1724,7 @@ impl AppModals for MyApp {
                     ui.separator();
                     ui.small(format!("pdfRest {}", mark(self.api_availability.pdfrest)));
                     ui.separator();
-                    ui.small(format!("Applitools {}", mark(self.api_availability.applitools)));
+                    ui.small(format!("Vision AI {}", mark(self.api_availability.vision_ai)));
                     ui.separator();
                     ui.small(format!("Offline {}", mark(true)));
                 });

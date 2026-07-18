@@ -626,7 +626,7 @@ impl AppConfig {
             llamaparse: self.llamaparse_api_key.is_some(),
             pdfrest: self.pdfrest_api_key.is_some(),
             pymupdf_pro: self.pro_editing_available(),
-            applitools: self.applitools_api_key.is_some(),
+            vision_ai: std::env::var("VISION_API_KEY").is_ok_and(|k| !k.is_empty()),
             ocr: cfg!(feature = "ocr")
                 && std::path::Path::new("models/text-detection.rten").exists()
                 && std::path::Path::new("models/text-recognition.rten").exists(),
@@ -665,14 +665,30 @@ pub struct ApiAvailability {
     pub pdfrest: bool,
     /// `PYMUPDF_PRO_KEY` is set and well-formed.
     pub pymupdf_pro: bool,
-    /// `APPLITOOLS_API_KEY` is set.
-    pub applitools: bool,
+    /// `VISION_API_KEY` is set.
+    pub vision_ai: bool,
     /// Local OCR is available: `ocr` Cargo feature enabled AND
     /// `models/text-detection.rten` + `models/text-recognition.rten` present.
     pub ocr: bool,
 }
 
 impl ApiAvailability {
+    pub fn disable_service(&mut self, service_name: &str) {
+        match service_name.to_lowercase().as_str() {
+            "gemini" => {
+                self.gemini_api_key = false;
+                self.gemini_vertex = false;
+            }
+            "groq" => self.groq_api_key = false,
+            "openrouter" => self.openrouter_api_key = false,
+            "mindee" => self.mindee = false,
+            "llamaparse" => self.llamaparse = false,
+            "document ai" | "document ai (vertex)" => self.document_ai = false,
+            "vision ai" => self.vision_ai = false,
+            "pdfrest" => self.pdfrest = false,
+            _ => {}
+        }
+    }
     /// Human-readable reason why a specific backend is unavailable.
     /// Returns `None` when the backend IS available.
     pub fn unavailable_reason(&self, backend: &str) -> Option<&'static str> {
@@ -701,8 +717,8 @@ impl ApiAvailability {
             "openrouter_api_key" if !self.openrouter_api_key => {
                 Some("OPENROUTER_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
-            "applitools" if !self.applitools => {
-                Some("APPLITOOLS_API_KEY not configured. Set it in Settings -> API Keys or .env.")
+            "vision_ai" if !self.vision_ai => {
+                Some("VISION_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
             "pymupdf_pro" if !self.pymupdf_pro => {
                 Some("PYMUPDF_PRO_KEY is missing or malformed. Per-segment editing is unavailable.")
@@ -728,7 +744,7 @@ impl ApiAvailability {
             llamaparse = self.llamaparse,
             pdfrest = self.pdfrest,
             pymupdf_pro = self.pymupdf_pro,
-            applitools = self.applitools,
+            vision_ai = self.vision_ai,
             ocr = self.ocr,
             "[boot] API availability detected"
         );
@@ -976,10 +992,11 @@ mod tests {
             llamaparse_api_key: Some("llama".into()),
             pdfrest_api_key: Some("pdfrest".into()),
             pymupdf_pro_key: Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string()),
-            applitools_api_key: Some("applitools".into()),
+            
             ..super::AppConfig::default()
         };
 
+        std::env::set_var("VISION_API_KEY", "test");
         let availability = cfg.detect_availability();
         assert!(availability.gemini_api_key);
         assert!(!availability.groq_api_key);
@@ -987,7 +1004,7 @@ mod tests {
         assert!(availability.llamaparse);
         assert!(availability.pdfrest);
         assert!(availability.pymupdf_pro);
-        assert!(availability.applitools);
+        assert!(availability.vision_ai);
 
         let reason = availability
             .unavailable_reason("groq_api_key")
@@ -1007,11 +1024,11 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_reason_exposes_applitools_guidance_when_unconfigured() {
+    fn unavailable_reason_exposes_vision_ai_guidance_when_unconfigured() {
         let availability = ApiAvailability::default();
         let reason = availability
-            .unavailable_reason("applitools")
-            .expect("missing applitools backend should produce a reason");
-        assert!(reason.contains("APPLITOOLS"));
+            .unavailable_reason("vision_ai")
+            .expect("missing vision backend should produce a reason");
+        assert!(reason.contains("VISION_API_KEY"));
     }
 }

@@ -120,8 +120,8 @@ pub async fn verify_all_api_keys(config: &AppConfig, json_output: bool) -> Verif
     // 6. Verify pdfRest (cloud rendering)
     results.push(verify_pdfrest(config).await);
 
-    // 7. Verify Applitools (visual AI testing)
-    results.push(verify_applitools(config).await);
+    // 7. Verify Vision AI (visual AI testing)
+    results.push(verify_vision(config).await);
 
     let report = VerificationReport::new(results);
 
@@ -449,18 +449,20 @@ async fn verify_pdfrest(config: &AppConfig) -> VerificationResult {
     }
 }
 
-async fn verify_applitools(config: &AppConfig) -> VerificationResult {
+async fn verify_vision(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
-    let key = config.applitools_api_key.as_ref();
+    let key_val = std::env::var("VISION_API_KEY").unwrap_or_default();
+    let key = if key_val.is_empty() { None } else { Some(key_val) };
+    let key = key.as_ref();
 
     if key.is_none() || key.is_some_and(|k| k.is_empty()) {
         return VerificationResult {
-            service: "Applitools".to_string(),
+            service: "Vision AI".to_string(),
             status: VerificationStatus::Skipped,
             latency_ms: start.elapsed().as_millis() as u64,
-            error_message: Some("APPLITOOLS_API_KEY not configured".to_string()),
+            error_message: Some("VISION_API_KEY not configured".to_string()),
             guidance: Some(
-                "Set APPLITOOLS_API_KEY to enable visual AI testing verification layer."
+                "Set VISION_API_KEY to enable visual AI testing verification layer."
                     .to_string(),
             ),
             method_used: None,
@@ -468,7 +470,7 @@ async fn verify_applitools(config: &AppConfig) -> VerificationResult {
     }
 
     VerificationResult {
-        service: "Applitools".to_string(),
+        service: "Vision AI".to_string(),
         status: VerificationStatus::Success,
         latency_ms: start.elapsed().as_millis() as u64,
         error_message: None,

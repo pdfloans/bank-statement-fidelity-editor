@@ -370,10 +370,7 @@ pub enum Job {
 #[derive(Debug)]
 pub enum JobResult {
     Pong,
-    ValidationStatus {
-        gemini_ok: Result<(), String>,
-        docai_ok: Result<(), String>,
-    },
+    ApiKeysVerified(crate::app::api_verification::VerificationReport),
     DocumentLoaded {
         layout_json: String,
         total_pages: usize,
@@ -3356,10 +3353,9 @@ impl Runtime {
                                 Err(e) => Err(e.to_string()),
                             };
 
-                            let _ = res_tx.send(JobResult::ValidationStatus {
-                                gemini_ok: gemini_res,
-                                docai_ok: docai_res,
-                            });
+                            // We pass false for json_output because we just want the report returned
+                            let report = crate::app::api_verification::verify_all_api_keys(&cfg, false).await;
+                            let _ = res_tx.send(JobResult::ApiKeysVerified(report));
 
                             let _ = res_tx.send(JobResult::Progress { label: "Done".into(), fraction: 1.0 });
                         });

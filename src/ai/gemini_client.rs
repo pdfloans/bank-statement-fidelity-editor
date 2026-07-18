@@ -478,7 +478,13 @@ impl GeminiClient {
         });
 
         // Use the cheapest/fastest model for the ping.
-        let _ = self.post_generate(GEMINI_FLASH_FALLBACK, &body).await?;
+        let response = self.post_generate(GEMINI_FLASH_FALLBACK, &body).await?;
+        if !response.status().is_success() {
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
+        }
         Ok(())
     }
 

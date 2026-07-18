@@ -290,7 +290,7 @@ pub struct AppSettings {
     pub transfer_consensus_mode: bool,
     pub use_pdfrest: bool,
     #[serde(default = "default_true")]
-    pub use_applitools: bool,
+    pub use_vision_ai: bool,
     pub deep_font_replication: bool,
     #[serde(default)]
     pub show_welcome: bool,
@@ -356,7 +356,7 @@ impl Default for AppSettings {
             auto_match_dpi: false,
             transfer_consensus_mode: true,
             use_pdfrest: false,
-            use_applitools: true,
+            use_vision_ai: true,
             deep_font_replication: false,
             show_welcome: true,
             webhook_url: String::new(),
@@ -582,7 +582,7 @@ pub struct MyApp {
     pub edit_mindee_model_id: String,
     pub edit_llamaparse_api_key: String,
     pub edit_pdfrest_api_key: String,
-    pub edit_applitools_api_key: String,
+    pub edit_vision_api_key: String,
     pub edit_groq_api_key: String,
     pub edit_openrouter_api_key: String,
     pub edit_openrouter_model: String,
@@ -737,7 +737,7 @@ impl MyApp {
             edit_mindee_model_id: std::env::var("MINDEE_MODEL_ID").unwrap_or_default(),
             edit_llamaparse_api_key: std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default(),
             edit_pdfrest_api_key: std::env::var("PDFREST_API_KEY").unwrap_or_default(),
-            edit_applitools_api_key: std::env::var("APPLITOOLS_API_KEY").unwrap_or_default(),
+            edit_vision_api_key: std::env::var("VISION_API_KEY").unwrap_or_default(),
             edit_groq_api_key: std::env::var("GROQ_API_KEY").unwrap_or_default(),
             edit_openrouter_api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
             edit_openrouter_model: std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string()),
@@ -764,12 +764,12 @@ impl MyApp {
         // Log which API backends were detected at boot for diagnostics.
         app.api_availability.log_summary();
 
-        // Seed USE_APPLITOOLS environment variable from the loaded AppSettings
+        // Seed USE_VISION_AI environment variable from the loaded AppSettings
         // so that the verification engine (running on the tokio runtime) respects
         // the GUI toggle on startup.
         std::env::set_var(
-            "USE_APPLITOOLS",
-            if app.settings.use_applitools {
+            "USE_VISION_AI",
+            if app.settings.use_vision_ai {
                 "1"
             } else {
                 "0"
@@ -790,7 +790,7 @@ impl MyApp {
 
         // Dispatch a one-time ReloadConfig so the runtime's config_holder
         // picks up the persisted provider + any env vars seeded above.
-        // USE_APPLITOOLS is read live by verification, but ai_provider lives
+        // USE_VISION_AI is read live by verification, but ai_provider lives
         // in the config snapshot, so a reload is required.
         if let Err(e) = app.job_tx.send(crate::app::runtime::Job::ReloadConfig) {
             tracing::warn!("[gui] boot ReloadConfig failed (runtime may not be ready): {e}");
@@ -853,8 +853,8 @@ impl MyApp {
                 self.edit_pdfrest_api_key.trim().to_string(),
             ),
             (
-                "APPLITOOLS_API_KEY",
-                self.edit_applitools_api_key.trim().to_string(),
+                "VISION_API_KEY",
+                self.edit_vision_api_key.trim().to_string(),
             ),
             ("GROQ_API_KEY", self.edit_groq_api_key.trim().to_string()),
             (
@@ -880,8 +880,8 @@ impl MyApp {
                 },
             ),
             (
-                "USE_APPLITOOLS",
-                if self.settings.use_applitools {
+                "USE_VISION_AI",
+                if self.settings.use_vision_ai {
                     "1".to_string()
                 } else {
                     "0".to_string()
@@ -1589,11 +1589,20 @@ impl MyApp {
 impl MyApp {
     fn handle_job_result(&mut self, ctx: &egui::Context, res: JobResult) {
         match res {
-            JobResult::ValidationStatus {
-                gemini_ok,
-                docai_ok,
-            } => {
-                self.credential_validation_status = Some((gemini_ok, docai_ok));
+            JobResult::ApiKeysVerified(report) => {
+                use crate::app::api_verification::VerificationStatus;
+                for res in report.results {
+                    if res.status == VerificationStatus::Failed {
+                        let msg = res.error_message.unwrap_or_default();
+                        if msg.contains("429") {
+                            self.toast(ToastKind::Error, format!("{} quota exceeded (429). Temporarily disabled.", res.service));
+                            self.api_availability.disable_service(&res.service);
+                        } else if msg.contains("401") || msg.contains("403") {
+                            self.toast(ToastKind::Error, format!("{} API Key invalid. Temporarily disabled.", res.service));
+                            self.api_availability.disable_service(&res.service);
+                        }
+                    }
+                }
             }
             JobResult::BugReportSubmitted => {
                 self.toast(ToastKind::Success, "Bug report submitted successfully! Thank you.".to_string());

@@ -573,16 +573,30 @@ pub async fn verify_edit_pages_with_padding(
 
         // Multi-Verificational System: Vision AI
         let mut vision_passed = true;
-        let use_vision = std::env::var("USE_VISION_AI").map(|v| v == "1").unwrap_or(true);
-        if use_vision {
+        let img1_path_str = orig_png_path.to_string_lossy();
+        let img2_path_str = edit_png_path.to_string_lossy();
+        let use_vision_ai = std::env::var("USE_VISION_AI")
+            .unwrap_or_else(|_| "true".to_string())
+            == "true";
+        if use_vision_ai {
             if let Ok(vision_key) = std::env::var("VISION_API_KEY") {
                 if !vision_key.is_empty() {
-                    let passed = crate::ai::vision::verify_with_vision(
-                        &vision_key,
-                        &orig_png_path.to_string_lossy(),
-                        &edit_png_path.to_string_lossy(),
-                    ).await;
+                    // Call the new vision API module directly instead of node bridge
+                    let passed = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            crate::ai::vision::verify_with_vision(
+                                &vision_key,
+                                &img1_path_str, 
+                                &img2_path_str, 
+                            ).await
+                        })
+                    });
                     vision_passed = passed;
+                    if !passed {
+                        tracing::warn!("[verification] Vision AI flagged a visual anomaly.");
+                    } else {
+                        tracing::info!("[verification] Vision AI verification passed.");
+                    }
                 }
             }
         }
