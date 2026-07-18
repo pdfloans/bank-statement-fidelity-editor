@@ -315,7 +315,6 @@ pub struct AppConfig {
     /// Which PDF engine backend to use
     pub engine_mode: PdfEngineMode,
     pub llamaparse_api_key: Option<String>,
-    pub applitools_api_key: Option<String>,
     /// Whether to prompt the user with a modal during semi-failures for manual fallback selection.
     pub interactive_fallbacks: bool,
     pub transfer_consensus_mode: bool,
@@ -346,7 +345,6 @@ impl Default for AppConfig {
             connection_mode: ConnectionMode::Local,
             engine_mode: PdfEngineMode::Auto,
             llamaparse_api_key: None,
-            applitools_api_key: None,
             interactive_fallbacks: true,
             transfer_consensus_mode: true,
             auto_match_dpi: true, // Force high fidelity font replication default
@@ -378,7 +376,6 @@ impl AppConfig {
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
         let mindee_model_id = clean_key(env::var("MINDEE_MODEL_ID"));
         let llamaparse_api_key = clean_key(env::var("LLAMAPARSE_API_KEY"));
-        let applitools_api_key = clean_key(env::var("APPLITOOLS_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
 
         // Document AI configuration
@@ -486,7 +483,6 @@ impl AppConfig {
             mindee_api_key,
             mindee_model_id,
             llamaparse_api_key,
-            applitools_api_key,
             pymupdf_pro_key,
             passphrase,
             otel_endpoint,
