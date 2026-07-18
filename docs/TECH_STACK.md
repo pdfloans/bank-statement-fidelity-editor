@@ -1,6 +1,6 @@
 # Technology Stack Breakdown
 
-This document provides a detailed overview of the specific technologies, frameworks, and libraries used to build the Bank Statement Fidelity Editor (`dual-core-pdf-pipeline` v0.5.1).
+This document provides a detailed overview of the specific technologies, frameworks, and libraries used to build the Bank Statement Fidelity Editor (`dual-core-pdf-pipeline` v1.0.0).
 
 ## Core Languages
 

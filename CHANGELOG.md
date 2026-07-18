@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - **Automated Stress Testing Harness:** Added a comprehensive stress testing benchmark suite (`au_transfer_stress.rs`) and result evaluation framework (`tests/stress_results/stress_test_evaluation.md`) for document processing backends. Evaluates PyMuPDF, Document AI, Mindee, LlamaParse, pdfRest, Applitools, and various LLMs for correctness, fidelity, and latency across 7 axes.
 
-## [v0.5.1] - 2026-07-05
+## [v1.0.0] - 2026-07-05
 
 ### Added
 - **Multi-Backend Pipeline Architecture:** Every pipeline stage now supports configurable primary backends with automatic fallback chains. If a cloud API fails or its key is missing, the pipeline gracefully degrades to the next-best offline option.
@@ -71,6 +71,6 @@ All notable changes to this project will be documented in this file.
 - **Legacy Stubs**: Removed placeholder parsing and fake manual heuristics in Python integration and text_editor components.
 
 <!-- link references -->
-[v0.5.1]: https://github.com/maryjpww-star/bank-statement-fidelity-editor/compare/v0.5.0...v0.5.1
+[v1.0.0]: https://github.com/maryjpww-star/bank-statement-fidelity-editor/compare/v0.5.0...v1.0.0
 [v0.5.0]: https://github.com/maryjpww-star/bank-statement-fidelity-editor/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/maryjpww-star/bank-statement-fidelity-editor/releases/tag/v0.4.0

@@ -13,7 +13,7 @@ BENCHMARK HARNESS ΓÇö API AVAILABILITY CHECK
 ======================================================================
 
 ======================================================================
-BANK STATEMENT FIDELITY EDITOR v0.5.1 ΓÇö STRESS TEST BENCHMARK
+BANK STATEMENT FIDELITY EDITOR v1.0.0 ΓÇö STRESS TEST BENCHMARK
 ======================================================================
 
 ======================================================================
@@ -63,7 +63,7 @@ EXECUTING: Test 4: Visual QA
 REPORT: tests/stress_results\stress_test_evaluation.md
 RAW DATA: tests/stress_results\stress_test_raw.json
 ======================================================================
-# Stress Test Evaluation Matrix ΓÇö Bank Statement Fidelity Editor v0.5.1
+# Stress Test Evaluation Matrix ΓÇö Bank Statement Fidelity Editor v1.0.0
 
 **Executed:** 2026-07-13 10:23:25 UTC
 **Platform:** Python 3.14.3, PyMuPDF 1.27.2.3

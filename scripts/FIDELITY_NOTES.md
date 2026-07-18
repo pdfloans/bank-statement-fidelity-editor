@@ -1,6 +1,6 @@
 # Fidelity work — 20-item multi-stage plan
 
-> **Context (v0.5.1):** All 20 items below are complete and integrated. The verification pipeline now includes multi-layer checking (SSIM + Tile-max + Perceptual Hash + optional pdfRest + optional Applitools Eyes + optional Gemini Vision). See `src/engine/verification.rs` for the current implementation. Configurable via Backend Preferences UI (`visual_diff_threshold`, `max_visual_attempts`).
+> **Context (v1.0.0):** All 20 items below are complete and integrated. The verification pipeline now includes multi-layer checking (SSIM + Tile-max + Perceptual Hash + optional pdfRest + optional Applitools Eyes + optional Gemini Vision). See `src/engine/verification.rs` for the current implementation. Configurable via Backend Preferences UI (`visual_diff_threshold`, `max_visual_attempts`).
 
 Verification harnesses (scripts/):
 - `align_diag.py` — round-trips a span to its original value, finds best (dx,dy)

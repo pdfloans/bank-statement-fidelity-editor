@@ -1,6 +1,6 @@
 # Document AI Training Handoff
 
-> **Updated:** v0.5.1 — The app now includes in-app Document AI admin via `Job::ListDocAiVersions`, `Job::TrainDocAiVersion`, `Job::DeployDocAiVersion`, `Job::UndeployDocAiVersion`, and `Job::SetDefaultDocAiVersion`. These can replace several of the manual Console steps below once labelling is complete.
+> **Updated:** v1.0.0 — The app now includes in-app Document AI admin via `Job::ListDocAiVersions`, `Job::TrainDocAiVersion`, `Job::DeployDocAiVersion`, `Job::UndeployDocAiVersion`, and `Job::SetDefaultDocAiVersion`. These can replace several of the manual Console steps below once labelling is complete.
 
 ## What's already done
 

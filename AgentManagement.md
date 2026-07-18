@@ -1,6 +1,6 @@
 # Agent Management Guide
 
-Comprehensive reference for AI agents working on the Bank Statement Fidelity Editor v0.5.1.
+Comprehensive reference for AI agents working on the Bank Statement Fidelity Editor v1.0.0.
 
 ## Project type
 

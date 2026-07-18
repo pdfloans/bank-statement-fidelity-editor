@@ -1,4 +1,4 @@
-# Stress Test Evaluation Matrix — Bank Statement Fidelity Editor v0.5.1
+# Stress Test Evaluation Matrix — Bank Statement Fidelity Editor v1.0.0
 
 **Executed:** 2026-07-18 06:55:12 UTC
 **Platform:** Python 3.14.5, PyMuPDF 1.28.0
