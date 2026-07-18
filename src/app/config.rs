@@ -221,8 +221,8 @@ impl AiProviderMode {
     /// Returns `ManualOnly` on empty/unknown input.
     pub fn from_env_str(s: &str) -> Self {
         match s.trim().to_ascii_lowercase().as_str() {
-            "gemini_api_key" | "gemini" => Self::GeminiApiKey,
-            "gemini_vertex" | "vertex" | "vertex_ai" => Self::GeminiVertex,
+            "gemini_api_key" | "gemini" => Self::OpenRouterApiKey,
+            "gemini_vertex" | "vertex" | "vertex_ai" => Self::OpenRouterApiKey,
             "groq_api_key" | "groq" => Self::GroqApiKey,
             "openrouter_api_key" | "openrouter" => Self::OpenRouterApiKey,
             "manual_only" | "manual" => Self::ManualOnly,

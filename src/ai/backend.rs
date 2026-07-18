@@ -111,7 +111,7 @@ macro_rules! cascade {
                 }
             }
             AiProviderMode::GeminiApiKey | AiProviderMode::GeminiVertex => {
-                if let Some(c) = &$self.gemini {
+                if let Some(c) = &$self.openrouter {
                     match c.$method($($args),*).await {
                         Ok(r) => return Ok(r),
                         Err(e) => last_err = e.to_string(),

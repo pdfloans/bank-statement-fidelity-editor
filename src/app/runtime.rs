@@ -1031,16 +1031,18 @@ impl Runtime {
                                 // 1. DocAI
                                 if let Ok(doc_ai) = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                     let p = pdf_path.clone();
+                                    let wdog_docai = wdog.clone();
                                     tasks.push(tokio::spawn(async move {
-                                        ("DocAI", crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&p, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await.ok())
+                                        ("DocAI", crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&p, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog_docai).await.ok())
                                     }));
                                 }
                                 
                                 // 2. LlamaParse
                                 if let Ok(llama) = crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
                                     let p = pdf_path.clone();
+                                    let wdog_llama = wdog.clone();
                                     tasks.push(tokio::spawn(async move {
-                                        ("LlamaParse", crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { llama.parse_statement(&p).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await.ok())
+                                        ("LlamaParse", crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { llama.parse_statement(&p).await.map_err(|e| anyhow::anyhow!(e)) }, wdog_llama).await.ok())
                                     }));
                                 }
                                 
@@ -4767,6 +4769,7 @@ impl Runtime {
                                 let cfg_math = cfg.clone();
                                 let out_math = output.clone();
                                 let is_math_ok = math_verified_ok;
+                                let wdog_math = wdog.clone();
                                 let math_future = async move {
                                     if is_math_ok {
                                         return Some(Ok(()));
@@ -4775,7 +4778,7 @@ impl Runtime {
                                         crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg_math),
                                         crate::ai::backend::AiBackend::from_app_config(&cfg_math)
                                     ) {
-                                        match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&out_math, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
+                                        match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&out_math, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog_math).await {
                                             Ok(stmt) => {
                                                 let json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
                                                 let opening_f64 = crate::engine::model::dec_to_f64(stmt.opening_balance);

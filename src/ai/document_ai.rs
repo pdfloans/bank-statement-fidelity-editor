@@ -84,6 +84,7 @@ pub struct DocumentAiClient {
 
 impl DocumentAiClient {
     pub fn from_app_config(cfg: &AppConfig) -> Result<Self, DocAiError> {
+        return Err(DocAiError::MissingConfig("Document AI is temporarily disabled via user request."));
         let doc_ai = cfg
             .document_ai
             .clone()
