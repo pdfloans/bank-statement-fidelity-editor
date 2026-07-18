@@ -249,6 +249,11 @@ pub enum Job {
     Cancel {
         id: JobId,
     },
+    SubmitBugReport {
+        description: String,
+        include_logs: bool,
+        include_audit: bool,
+    },
     TypstReconstruct {
         input: std::path::PathBuf,
         output: std::path::PathBuf,
@@ -434,6 +439,7 @@ pub enum JobResult {
     ReconstructComplete {
         output_path: std::path::PathBuf,
     },
+    BugReportSubmitted,
 
     // ----- Multi-stage workflow ------------------------------------------
     WorkflowStageChanged {
@@ -777,6 +783,45 @@ impl Runtime {
                                 let _ = result_tx_clone.send(JobResult::Pong);
                             }
                         }
+                    }
+                    Job::SubmitBugReport { description, include_logs, include_audit } => {
+                        let res_tx = result_tx_clone.clone();
+                        let webhook_url = std::env::var("WEBHOOK_URL").unwrap_or_default();
+                        let log_dir = config_for_tokio.log_dir.clone();
+                        
+                        tokio::spawn(async move {
+                            if webhook_url.is_empty() {
+                                tracing::error!("Cannot submit bug report: WEBHOOK_URL is not configured.");
+                                let _ = res_tx.send(JobResult::Error { job_label: "SubmitBugReport".to_string(), message: "Webhook URL not configured".to_string() });
+                                return;
+                            }
+                            
+                            let mut payload = serde_json::json!({
+                                "content": format!("**New Bug Report**\n\n```\n{}\n```", description)
+                            });
+                            
+                            // In a real implementation we would attach the actual files using reqwest multipart.
+                            // For this beta, we'll just read the tail of the logs if requested and append to content.
+                            if include_logs {
+                                if let Ok(app_log) = tokio::fs::read_to_string(log_dir.join("app.log")).await {
+                                    let tail = app_log.lines().rev().take(50).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                                    payload["content"] = serde_json::Value::String(format!("{}\n\n**App Log (Tail)**\n```\n{}\n```", payload["content"].as_str().unwrap(), tail));
+                                }
+                            }
+                            
+                            let client = reqwest::Client::new();
+                            match client.post(&webhook_url).json(&payload).send().await {
+                                Ok(resp) if resp.status().is_success() => {
+                                    let _ = res_tx.send(JobResult::BugReportSubmitted);
+                                }
+                                Ok(resp) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "SubmitBugReport".to_string(), message: format!("Server returned {}", resp.status()) });
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error { job_label: "SubmitBugReport".to_string(), message: e.to_string() });
+                                }
+                            }
+                        });
                     }
                     Job::Python(py_job, reply_tx) => {
                         match py_job {

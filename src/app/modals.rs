@@ -89,6 +89,7 @@ pub(crate) trait AppModals {
     fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context);
     fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context);
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui);
+    fn draw_feedback_modal(&mut self, ctx: &egui::Context);
     fn draw_modals(&mut self, ctx: &egui::Context);
 }
 
@@ -1173,6 +1174,11 @@ impl AppModals for MyApp {
                     if ui.add_sized([ui.available_width(), 36.0], egui::Button::new("Cancel")).clicked() {
                         resolved_choice = Some("cancel".to_string());
                     }
+                    
+                    ui.add_space(5.0);
+                    if ui.add_sized([ui.available_width(), 36.0], egui::Button::new("🐛 Submit Bug Report")).clicked() {
+                        resolved_choice = Some("report".to_string());
+                    }
                 });
 
             if !keep_open || resolved_choice.is_some() {
@@ -1186,6 +1192,9 @@ impl AppModals for MyApp {
                             self.status = "Please restart app with PDF_ENGINE_MODE=typst for perfect fidelity font synthesis.".into();
                         }
                     }
+                } else if resolved_choice.as_deref() == Some("report") {
+                    self.show_feedback_modal = true;
+                    self.feedback_text = format!("Operation Failed: {}\n\nSteps to reproduce: \n", err);
                 }
             }
         }
@@ -1740,6 +1749,56 @@ impl AppModals for MyApp {
                     );
                 }
             });
+    }
+
+    fn draw_feedback_modal(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_feedback_modal;
+        let mut submit = false;
+        
+        egui::Window::new("🐛 Report a Bug / Feedback")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_size(egui::vec2(450.0, 350.0))
+            .show(ctx, |ui| {
+                ui.label("Describe the issue or what you were trying to do:");
+                ui.add_space(4.0);
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.feedback_text)
+                        .hint_text("Please provide steps to reproduce...")
+                        .desired_rows(6)
+                        .desired_width(f32::INFINITY)
+                );
+                
+                ui.add_space(10.0);
+                ui.checkbox(&mut self.feedback_include_logs, "Attach recent application logs (app.log, error_report.log)");
+                ui.checkbox(&mut self.feedback_include_audit, "Attach recent audit trail");
+                
+                ui.add_space(15.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.show_feedback_modal = false;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("🚀 Submit to Developer").clicked() {
+                            submit = true;
+                        }
+                    });
+                });
+            });
+
+        if submit {
+            self.show_feedback_modal = false;
+            let description = std::mem::take(&mut self.feedback_text);
+            self.toast(ToastKind::Info, "Gathering logs and submitting report...".to_string());
+            let _ = self.job_tx.send(Job::SubmitBugReport {
+                description,
+                include_logs: self.feedback_include_logs,
+                include_audit: self.feedback_include_audit,
+            });
+        } else {
+            self.show_feedback_modal = open;
+        }
     }
 
     fn draw_modals(&mut self, ctx: &egui::Context) {

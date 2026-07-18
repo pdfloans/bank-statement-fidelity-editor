@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 ## [v1.0.0] - 2026-07-05
 
 ### Added
+- **Automated Bug Reporting & Beta Repair Loop:** Integrated interactive fallback UI and webhook telemetry for rapid crash capture and log aggregation during the beta testing phase (`docs/BETA_TESTING.md`).
 - **Multi-Backend Pipeline Architecture:** Every pipeline stage now supports configurable primary backends with automatic fallback chains. If a cloud API fails or its key is missing, the pipeline gracefully degrades to the next-best offline option.
 - **Boot-Time API Availability Detection:** On startup, the app probes all configured API keys (Gemini, Document AI, Mindee, LlamaParse, pdfRest, Applitools, PyMuPDF Pro) and stores availability status in `ApiAvailability`. Logged to console on boot.
 - **Backend Preferences UI:** New settings panel (`Settings → Backend Preferences`) with:

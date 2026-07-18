@@ -81,8 +81,13 @@ All configuration is via environment variables (or a `.env` file). Copy `.env.ex
 | `OTEL_SERVICE_NAME` | Defaults to `dual-core-pdf-pipeline` |
 | `RUST_LOG` | e.g. `info`, `debug` |
 | `LOG_DIR` | Defaults to `./logs` |
+| `WEBHOOK_URL` | Used for submitting automated bug reports and logs during the Beta phase |
 
 Run `dual-core-pdf-pipeline doctor` to print a one-shot health check (env vars set, directories writable, runtime worker reachable).
+
+## Beta Testing
+
+We are currently in a Beta Testing phase for `v1.0.0`. If you encounter a hard crash or a bug, the app features an integrated automated bug reporting tool and interactive repair loop. See the [Beta Testing Guide](docs/BETA_TESTING.md) for details on how telemetry and error submissions work.
 
 ## Backend Preferences
 

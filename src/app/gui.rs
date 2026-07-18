@@ -522,6 +522,11 @@ pub struct MyApp {
     pub command_query: String,
     pub show_transfer_dialog: bool,
     pub transfer_source_path: String,
+    // Feedback modal state
+    pub show_feedback_modal: bool,
+    pub feedback_text: String,
+    pub feedback_include_logs: bool,
+    pub feedback_include_audit: bool,
     // Date Adjust dialog state
     pub show_date_adjust_dialog: bool,
     pub date_adjust_shift_days: String,
@@ -690,8 +695,12 @@ impl MyApp {
             show_settings_modal: false,
             show_transfer_dialog: false,
             transfer_source_path: String::new(),
+            show_feedback_modal: false,
+            feedback_text: String::new(),
+            feedback_include_logs: true,
+            feedback_include_audit: true,
             show_date_adjust_dialog: false,
-            date_adjust_shift_days: "30".to_string(),
+            date_adjust_shift_days: "0".to_string(),
             date_adjust_mode_shift: true,
             date_adjust_from: String::new(),
             date_adjust_to: String::new(),
@@ -1586,6 +1595,9 @@ impl MyApp {
             } => {
                 self.credential_validation_status = Some((gemini_ok, docai_ok));
             }
+            JobResult::BugReportSubmitted => {
+                self.toast(ToastKind::Success, "Bug report submitted successfully! Thank you.".to_string());
+            }
             JobResult::DocumentLoaded { total_pages, .. } => {
                 self.total_pages = total_pages;
                 self.current_page = 0;
@@ -2439,6 +2451,13 @@ impl MyApp {
                                 });
                         });
                     }
+
+                    // Add Report Bug button to the far right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("🐛 Report Bug").clicked() {
+                            self.show_feedback_modal = true;
+                        }
+                    });
                 });
             });
 
