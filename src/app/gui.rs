@@ -578,8 +578,6 @@ pub struct MyApp {
     /// Optional Document AI API key (Beta), takes precedence over OAuth/SA.
     pub edit_docai_api_key: String,
     pub edit_pymupdf_pro_key: String,
-    pub edit_mindee_api_key: String,
-    pub edit_mindee_model_id: String,
     pub edit_llamaparse_api_key: String,
     pub edit_pdfrest_api_key: String,
     pub edit_vision_api_key: String,
@@ -733,8 +731,6 @@ impl MyApp {
                 .unwrap_or_default(),
             edit_docai_api_key: std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default(),
             edit_pymupdf_pro_key: std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default(),
-            edit_mindee_api_key: std::env::var("MINDEE_API_KEY").unwrap_or_default(),
-            edit_mindee_model_id: std::env::var("MINDEE_MODEL_ID").unwrap_or_default(),
             edit_llamaparse_api_key: std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default(),
             edit_pdfrest_api_key: std::env::var("PDFREST_API_KEY").unwrap_or_default(),
             edit_vision_api_key: std::env::var("VISION_API_KEY").unwrap_or_default(),
@@ -841,8 +837,6 @@ impl MyApp {
                 self.edit_pymupdf_pro_key.trim().to_string(),
             ),
             (
-                "MINDEE_API_KEY",
-                self.edit_mindee_api_key.trim().to_string(),
             ),
             (
                 "LLAMAPARSE_API_KEY",

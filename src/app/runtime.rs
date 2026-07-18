@@ -2831,16 +2831,6 @@ impl Runtime {
                                     }
                                 }
                             }
-
-                            // 3. Try Mindee
-                            if final_txs.is_none() {
-                                let _ = res_tx.send(JobResult::Progress { label: "Extracting with Mindee...".to_string(), fraction: 0.2 });
-                                if let Ok(client) = crate::ai::mindee::MindeeClient::from_app_config(&cfg) {
-                                    match client.parse_statement(&path).await {
-                                        Ok(stmt) => final_txs = Some(stmt.transactions),
-                                        Err(e) => tracing::warn!("[extract] Mindee failed: {}", e),
-                                    }
-                                }
                             }
 
                             // 4. Try Offline Parser
@@ -3649,7 +3639,7 @@ impl Runtime {
                                             "Document Parsing",
                                             $err.to_string(),
                                         );
-                                        req = req.add_alternative("mindee", "Try Mindee API", None);
+                                        
                                         req = req.add_alternative("document_ai", "Try Document AI Again", None);
                                         req = req.add_alternative("llamaparse", "Try LlamaParse", None);
                                         req = req.add_alternative("offline_parser", "Fall back to Offline Parser (Local)", None);
@@ -3663,7 +3653,7 @@ impl Runtime {
                                         let _ = $res_tx.send(JobResult::InteractiveFallbackRequired(req));
                                         let choice = rx.await.unwrap_or_else(|_| "cancel".to_string());
                                         match choice.as_str() {
-                                            "mindee" => Some(DocumentParserMode::MindeeFinDoc),
+                                            
                                             "document_ai" => Some(DocumentParserMode::DocumentAi),
                                             "llamaparse" => Some(DocumentParserMode::LlamaParse),
                                             "offline_parser" => Some(DocumentParserMode::PyMuPdfBuiltin),
