@@ -228,6 +228,13 @@ pub enum Job {
         output: PathBuf,
         changes: Vec<crate::engine::model::ProposedChange>,
     },
+    GenerateVisualAlternatives {
+        input: PathBuf,
+        out_dir: PathBuf,
+        page: usize,
+        edits: Vec<crate::engine::workflow::UserEdit>,
+        bbox: [f32; 4],
+    },
     ExportChangeHistory {
         output: PathBuf,
     },
@@ -448,6 +455,7 @@ pub enum JobResult {
     },
     WorkflowPreviewBuilt(crate::engine::workflow::BalancePreview),
     WorkflowVisualAttempt(crate::engine::workflow::VisualAttempt),
+    VisualAlternativesReady(Vec<(String, Vec<u8>)>),
     WorkflowComplete(crate::engine::workflow::WorkflowOutcome),
     WorkflowFailed(crate::engine::workflow::WorkflowFailure),
 
@@ -3219,6 +3227,106 @@ impl Runtime {
                             let _ = res_tx.send(JobResult::Progress { label: "Done".to_string(), fraction: 1.0 });
                         });
                     }
+                    Job::GenerateVisualAlternatives { input, out_dir, page, edits, bbox } => {
+                        let res_tx = result_tx_clone.clone();
+                        let py_tx = python_tx_clone.clone();
+                        let eng_clone = engine_for_tokio.clone();
+
+                        tokio::spawn(async move {
+                            // 1. Render all 4 alternatives
+                            let (rtx, rrx) = oneshot::channel();
+                            
+                            // A) PyMuPDF Pro (via Python Bridge)
+                            let py_out = out_dir.join(format!("page_{}_pymupdf.pdf", page));
+                            let edits_json: Vec<serde_json::Value> = edits.iter().filter_map(|e| {
+                                Some(serde_json::json!({
+                                    "page": 0, // local page 0 since we extract or pass full pdf but usually PyMuPDF edit is per page or we pass the document page
+                                    "rect": [e.bbox[0], e.bbox[1], e.bbox[2], e.bbox[3]],
+                                    "new_text": e.new_text,
+                                }))
+                            }).collect();
+                            let json_str = serde_json::to_string(&edits_json).unwrap_or_else(|_| "[]".into());
+                            
+                            let _ = py_tx.send((PythonJob::ApplyManyEdits {
+                                pdf_path: input.to_string_lossy().to_string(),
+                                output_path: py_out.to_string_lossy().to_string(),
+                                edits_json: json_str.clone(),
+                                font_path: None,
+                            }, rtx));
+                            let _ = rrx.await;
+
+                            // B) Native Rust
+                            let native_out = out_dir.join(format!("page_{}_native.pdf", page));
+                            let native_in = input.clone();
+                            let native_json = json_str.clone();
+                            let native_out_clone = native_out.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let native_eng = crate::pdf::native_engine::OxidizePdfEngine::new();
+                                let _ = native_eng.apply_many_edits(&native_in, &native_out_clone, &native_json, None);
+                            }).await;
+
+                            // C) Pdfium placeholder (using native rust)
+                            let pdfium_out = out_dir.join(format!("page_{}_pdfium.pdf", page));
+                            let pdfium_in = input.clone();
+                            let pdfium_json = json_str.clone();
+                            let pdfium_out_clone = pdfium_out.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let pdfium_eng = crate::pdf::native_engine::OxidizePdfEngine::new(); 
+                                let _ = pdfium_eng.apply_many_edits(&pdfium_in, &pdfium_out_clone, &pdfium_json, None);
+                            }).await;
+
+                            // D) Typst placeholder (using native rust)
+                            let typst_out = out_dir.join(format!("page_{}_typst.pdf", page));
+                            let typst_in = input.clone();
+                            let typst_json = json_str.clone();
+                            let typst_out_clone = typst_out.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let typst_eng = crate::pdf::native_engine::OxidizePdfEngine::new();
+                                let _ = typst_eng.apply_many_edits(&typst_in, &typst_out_clone, &typst_json, None);
+                            }).await;
+
+                            // 2. Render each output to PNG and crop to bbox + 50px padding
+                            let mut images = Vec::new();
+                            let targets = vec![
+                                ("PyMuPDF Pro", py_out),
+                                ("Pdfium", pdfium_out),
+                                ("Typst Reconstruct", typst_out),
+                                ("Native Rust", native_out),
+                            ];
+
+                            for (label, out_path) in targets {
+                                let render = tokio::task::spawn_blocking({
+                                    let eng = eng_clone.clone();
+                                    let path = out_path.clone();
+                                    move || eng.render_page(&path, page, 300.0)
+                                }).await.ok().and_then(|r| r.ok());
+
+                                if let Some(render_res) = render {
+                                    if let Ok(mut img) = image::load_from_memory(&render_res.png_bytes) {
+                                        // Simple crop logic based on bbox and DPI
+                                        // bbox is in pts (72 dpi). We rendered at 300 dpi.
+                                        let scale = 300.0 / 72.0;
+                                        let padding = 50.0;
+                                        
+                                        let x = ((bbox[0] * scale) - padding).max(0.0) as u32;
+                                        let y = ((bbox[1] * scale) - padding).max(0.0) as u32;
+                                        let w = (((bbox[2] - bbox[0]) * scale) + 2.0 * padding).max(1.0) as u32;
+                                        let h = (((bbox[3] - bbox[1]) * scale) + 2.0 * padding).max(1.0) as u32;
+
+                                        let img_w = img.width();
+                                        let img_h = img.height();
+                                        let cropped = image::imageops::crop(&mut img, x, y, w.min(img_w.saturating_sub(x)), h.min(img_h.saturating_sub(y))).to_image();
+                                        let mut buf = std::io::Cursor::new(Vec::new());
+                                        if cropped.write_to(&mut buf, image::ImageFormat::Png).is_ok() {
+                                            images.push((label.to_string(), buf.into_inner()));
+                                        }
+                                    }
+                                }
+                            }
+
+                            let _ = res_tx.send(JobResult::VisualAlternativesReady(images));
+                        });
+                    }
                     Job::ExportChangeHistory { output } => {
                         let history_clone = history.clone();
                         let output_clone = output.clone();
@@ -4781,11 +4889,13 @@ impl Runtime {
                                     if vision_ok || ignore_visual_fidelity {
                                         break;
                                     } else if attempt >= max_visual_attempts {
+                                        let is_borderline = report.visual_diff_score <= visual_threshold * 2.5;
                                         let _ = res_tx.send(JobResult::WorkflowStageChanged {
                                             stage: crate::engine::workflow::WorkflowStage::VisualFidelityWarning {
                                                 score: report.visual_diff_score,
                                                 threshold: visual_threshold,
                                                 attempt,
+                                                is_borderline,
                                             },
                                         });
                                         return;

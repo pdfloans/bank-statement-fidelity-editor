@@ -503,7 +503,7 @@ pub struct MyApp {
     #[allow(dead_code)]
     workflow_df: Option<polars::frame::DataFrame>,
     #[allow(dead_code)]
-    workflow_edits: Vec<crate::engine::workflow::UserEdit>,
+    pub workflow_edits: Vec<crate::engine::workflow::UserEdit>,
     workflow_preview: Option<crate::engine::workflow::BalancePreview>,
     workflow_visual: Option<crate::engine::workflow::VisualAttempt>,
     workflow_outcome: Option<crate::engine::workflow::WorkflowOutcome>,
@@ -1883,6 +1883,12 @@ impl MyApp {
                     }
                     _ => {}
                 }
+            }
+            JobResult::VisualAlternativesReady(images) => {
+                let stage = crate::engine::workflow::WorkflowStage::VisualComparisonActive { images };
+                self.status = format!("Workflow: {}", stage.label());
+                self.workflow_stage = stage;
+                self.show_workflow_hitl_modal = true;
             }
             JobResult::WorkflowParseValidated {
                 validation,

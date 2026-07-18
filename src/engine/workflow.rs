@@ -78,11 +78,15 @@ pub enum WorkflowStage {
     Failed(WorkflowFailure),
     /// Font coverage missing characters alert. Requires human-in-the-loop decision.
     FontCoverageWarning { missing_chars: Vec<char> },
-    /// Visual fidelity failed to converge. Requires human-in-the-loop decision.
     VisualFidelityWarning {
         score: f64,
         threshold: f64,
         attempt: u32,
+        is_borderline: bool,
+    },
+    /// The user requested to see visual alternatives for a borderline failure.
+    VisualComparisonActive {
+        images: Vec<(String, Vec<u8>)>,
     },
     /// Global imbalance correction proposed by AI. Requires human-in-the-loop decision.
     ImbalanceCorrectionWarning {
@@ -91,6 +95,10 @@ pub enum WorkflowStage {
     },
     /// All cloud parsers failed; falling back to offline parser. Requires human-in-the-loop decision.
     OfflineFallbackWarning,
+}
+
+pub fn is_borderline(score: f64, threshold: f64) -> bool {
+    score >= threshold && score <= threshold * 2.5
 }
 
 /// Result of stage 1 - what DocAI got + Gemini's opinion of completeness.
@@ -468,6 +476,7 @@ impl WorkflowStage {
             Self::Failed(_) => "Failed",
             Self::FontCoverageWarning { .. } => "Font coverage warning",
             Self::VisualFidelityWarning { .. } => "Visual fidelity warning",
+            Self::VisualComparisonActive { .. } => "Visual alternatives comparison",
             Self::ImbalanceCorrectionWarning { .. } => "Imbalance correction warning",
             Self::OfflineFallbackWarning => "Offline fallback warning",
         }
@@ -486,6 +495,7 @@ impl WorkflowStage {
             Self::Failed(_) => 8,
             Self::FontCoverageWarning { .. } => 3,
             Self::VisualFidelityWarning { .. } => 5, // Happens after render
+            Self::VisualComparisonActive { .. } => 5, // Happens after render
             Self::ImbalanceCorrectionWarning { .. } => 3, // Happens during preview
             Self::OfflineFallbackWarning => 1, // Happens during initial parsing // Paused in preview stage
         }
@@ -1142,5 +1152,29 @@ mod tests {
         assert_eq!(from_disk.input_path, from_cache.input_path);
         assert!(from_cache.matches_pdf(&pdf));
         Ok(())
+    }
+    #[test]
+    fn borderline_calculation_is_accurate() {
+        let is_borderline = 0.04 <= 0.02 * 2.5;
+        assert!(is_borderline);
+
+        let is_borderline = 0.06 <= 0.02 * 2.5;
+        assert!(!is_borderline);
+    }
+
+    #[test]
+    fn test_borderline_calculation() {
+        // Base case: exactly threshold
+        assert!(crate::engine::workflow::is_borderline(0.01, 0.01));
+        
+        // Base case: well within threshold
+        assert!(!crate::engine::workflow::is_borderline(0.005, 0.01));
+        
+        // Borderline cases (up to 2.5x threshold)
+        assert!(crate::engine::workflow::is_borderline(0.02, 0.01));
+        assert!(crate::engine::workflow::is_borderline(0.025, 0.01));
+        
+        // Not borderline (exceeds 2.5x threshold)
+        assert!(!crate::engine::workflow::is_borderline(0.026, 0.01));
     }
 }

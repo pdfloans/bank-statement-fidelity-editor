@@ -1010,7 +1010,7 @@ impl AppModals for MyApp {
                             }
                         });
                     }
-                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { score, threshold, attempt } => {
+                    crate::engine::workflow::WorkflowStage::VisualFidelityWarning { score, threshold, attempt, is_borderline } => {
                         ui.heading("Visual Fidelity Warning");
                         ui.label(format!("The visual difference score {:.4} exceeds the threshold {:.4} (Attempt {})", score, threshold, attempt));
                         ui.add_space(8.0);
@@ -1022,7 +1022,79 @@ impl AppModals for MyApp {
                             if ui.button("Accept Overlap & Proceed").clicked() {
                                 resolved = true;
                             }
+                            if *is_borderline {
+                                if ui.button("Compare Alternatives (2x2 Grid)").clicked() {
+                                    // Trigger backend job to generate alternatives
+                                    let path = self.current_pdf_path.clone();
+                                    let edits = self.workflow_edits.clone();
+                                    
+                                    // Pick first page of edits or default to page 0
+                                    let page = edits.first().map(|e| e.page).unwrap_or(0);
+                                    // For demo, just pass the edits and a simple bbox of the first edit
+                                    let bbox = edits.first().and_then(|e| Some(e.bbox)).unwrap_or([0.0, 0.0, 100.0, 100.0]);
+                                    
+                                    let _ = self.job_tx.send(Job::GenerateVisualAlternatives {
+                                        input: path,
+                                        out_dir: std::path::PathBuf::from("output"), // or a temp dir
+                                        page,
+                                        edits: edits.clone(),
+                                        bbox,
+                                    });
+                                    self.status = "Generating alternative renders...".to_string();
+                                    // don't resolve yet, keep modal open until job finishes
+                                }
+                            }
                         });
+                    }
+                    crate::engine::workflow::WorkflowStage::VisualComparisonActive { images } => {
+                        ui.heading("Select Best Alternative");
+                        ui.label("The primary renderer produced a borderline anomaly. Select the cleanest output below:");
+                        
+                        egui::ScrollArea::both().show(ui, |ui| {
+                            egui::Grid::new("visual_comparison_grid")
+                                .num_columns(2)
+                                .spacing([16.0, 16.0])
+                                .show(ui, |ui| {
+                                    for (i, (label, img_bytes)) in images.iter().enumerate() {
+                                        ui.vertical(|ui| {
+                                            ui.label(egui::RichText::new(label).strong());
+                                            
+                                            // Render image bytes via egui_extras
+                                            if let Ok(img) = image::load_from_memory(img_bytes) {
+                                                let size = [img.width() as usize, img.height() as usize];
+                                                let pixels = img.into_rgba8();
+                                                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+                                                
+                                                let tex = ctx.load_texture(
+                                                    format!("alt_{i}"),
+                                                    color_image,
+                                                    egui::TextureOptions::default(),
+                                                );
+                                                
+                                                ui.image(&tex);
+                                            } else {
+                                                ui.label("(Failed to load image)");
+                                            }
+                                            
+                                            if ui.button(format!("Use {}", label)).clicked() {
+                                                // Normally here we would send a job to swap the active engine
+                                                // For now, we resolve the modal
+                                                resolved = true;
+                                            }
+                                        });
+                                        
+                                        if i % 2 == 1 {
+                                            ui.end_row();
+                                        }
+                                    }
+                                });
+                        });
+                        
+                        ui.add_space(8.0);
+                        if ui.button("Cancel & Discard").clicked() {
+                            let _ = self.job_tx.send(Job::Cancel { id: 0 });
+                            resolved = true;
+                        }
                     }
                     crate::engine::workflow::WorkflowStage::ImbalanceCorrectionWarning { imbalance, proposed_changes } => {
                         ui.heading("Imbalance Correction Proposal");
