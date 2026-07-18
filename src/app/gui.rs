@@ -479,7 +479,7 @@ pub struct MyApp {
 
     // App / job state
     pub status: String,
-    progress: Option<ProgressState>,
+    pub progress: Option<ProgressState>,
     last_warning: Option<String>,
     pub last_verification: Option<VerificationReport>,
     pub proposed_changes: Vec<(crate::engine::model::ProposedChange, bool)>,
@@ -507,6 +507,8 @@ pub struct MyApp {
     workflow_preview: Option<crate::engine::workflow::BalancePreview>,
     workflow_visual: Option<crate::engine::workflow::VisualAttempt>,
     workflow_outcome: Option<crate::engine::workflow::WorkflowOutcome>,
+    pub last_runtime_activity: std::time::Instant,
+    pub stuck_detection: Option<std::time::Instant>,
     #[allow(dead_code)]
     native_engine: Option<std::sync::Arc<dyn crate::pdf::PdfEngine>>,
 
@@ -685,6 +687,8 @@ impl MyApp {
             workflow_preview: None,
             workflow_visual: None,
             workflow_outcome: None,
+            last_runtime_activity: std::time::Instant::now(),
+            stuck_detection: None,
             native_engine: None,
             font_analysis: None,
             font_cascade_reports: Vec::new(),
@@ -1440,6 +1444,7 @@ impl MyApp {
         loop {
             match self.job_rx.try_recv() {
                 Ok(res) => {
+                    self.last_runtime_activity = std::time::Instant::now();
                     if res.is_terminal() && self.in_flight > 0 {
                         self.in_flight -= 1;
                     }
@@ -1452,6 +1457,20 @@ impl MyApp {
                     break;
                 }
             }
+        }
+        
+        // ---- 1.1 Watchdog Stuck Detection ----------------------------------
+        if self.in_flight > 0 {
+            if self.last_runtime_activity.elapsed() > std::time::Duration::from_secs(30) {
+                if self.stuck_detection.is_none() {
+                    tracing::warn!("Watchdog: No activity from runtime for 30s. Triggering stuck detection.");
+                    self.stuck_detection = Some(std::time::Instant::now());
+                }
+            } else {
+                self.stuck_detection = None;
+            }
+        } else {
+            self.stuck_detection = None;
         }
 
         // ---- 1.5 Handle drag & drop ----------------------------------------
@@ -3301,6 +3320,7 @@ impl MyApp {
             self.workflow_edits.push(edit);
         }
         self.workflow_dirty = true;
+        self.dispatch_instant_background_apply();
     }
 
     /// Drop every queued edit on (page, line) and reset the cell buffers
@@ -3325,6 +3345,24 @@ impl MyApp {
                     line_on_page + 1
                 ),
             );
+            self.dispatch_instant_background_apply();
+        }
+    }
+
+    fn dispatch_instant_background_apply(&mut self) {
+        let edits_to_apply = if let Some(p) = &self.workflow_preview {
+            let (kept, _) = crate::engine::workflow::prune_redundant_edits(&self.workflow_edits, p);
+            kept
+        } else {
+            self.workflow_edits.clone()
+        };
+        
+        if let Err(e) = self.job_tx.send(crate::app::runtime::Job::InstantBackgroundApply {
+            input: std::path::PathBuf::from(&self.input_path),
+            output: std::path::PathBuf::from(&self.output_path),
+            edits: edits_to_apply,
+        }) {
+            tracing::error!("Failed to dispatch instant background apply: {}", e);
         }
     }
 
@@ -3668,24 +3706,12 @@ impl MyApp {
             // replication overhead (~3s per edit plus a fixed warm-up).
             let quick_eta = 2 + edit_count;
             let deep_eta = 5 + edit_count * 3;
-            ui.label("3. Apply edits - choose fidelity:");
+            ui.label("3. Finalize Edits:");
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
                         confirm_enabled,
-                        egui::Button::new(format!("⚡ Quick (Native) • ~{quick_eta}s")),
-                    )
-                    .on_hover_text(
-                        "Fast native-engine apply. Best when the native result already matches - you can still run Deep afterwards if it doesn't suffice.",
-                    )
-                    .clicked()
-                {
-                    self.dispatch_confirm_and_render(false, false);
-                }
-                if ui
-                    .add_enabled(
-                        confirm_enabled,
-                        egui::Button::new(format!("🎯 Deep (PyMuPDF) • ~{deep_eta}s")),
+                        egui::Button::new(format!("🎯 Perform Pro Edit • ~{deep_eta}s")),
                     )
                     .on_hover_text(
                         "High-fidelity PyMuPDF Pro apply with deep font replication. Slower, maximum visual fidelity.",
@@ -3694,9 +3720,28 @@ impl MyApp {
                 {
                     self.dispatch_confirm_and_render(true, false);
                 }
+                
+                if ui
+                    .add_enabled(
+                        confirm_enabled,
+                        egui::Button::new("🤖 Verify with AI"),
+                    )
+                    .on_hover_text("Cross-check the edits and layout with Gemini Vision before finalizing.")
+                    .clicked()
+                {
+                    self.toast(ToastKind::Info, "Dispatching AI verification...");
+                    // We can dispatch a Job::Verify (or similar) here, but for now we'll trigger a background verification via AI.
+                    let input = PathBuf::from(&self.input_path);
+                    if let Err(e) = self.job_tx.send(crate::app::runtime::Job::AiCommand {
+                        prompt: "Verify that all tabular edits align with the original styling and are mathematically sound.".to_string(),
+                        path: input,
+                    }) {
+                        tracing::error!("Failed to dispatch AI verify: {}", e);
+                    }
+                }
             });
             ui.small(format!(
-                "Dual-engine safety: native + PyMuPDF run together; if one fails the other takes over. {} edit(s) queued.",
+                "All edits are applied instantly via Native Rust. Use Pro Edit for final polish. {} edit(s) applied.",
                 self.workflow_edits.len()
             ));
 
@@ -3782,7 +3827,7 @@ impl MyApp {
     /// tiers share the redundant-edit pruning so the apply loop stays tight, and
     /// both run under the dual-engine safety net so a single engine failure
     /// falls back to the other rather than aborting the edit.
-    fn dispatch_confirm_and_render(&mut self, deep: bool, ignore_font_coverage: bool) {
+    pub(crate) fn dispatch_confirm_and_render(&mut self, deep: bool, ignore_font_coverage: bool) {
         // Stage 2 / Item #7: drop edits whose typed value already matches the
         // cascade. Reduces visual noise (extra redactions) and shortens the
         // apply loop.

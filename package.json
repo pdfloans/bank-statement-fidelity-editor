@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/maryjpww-star/bank-statement-fidelity-editor#readme",
   "dependencies": {
-    "@applitools/eyes-images": "^4.31.49"
+    "@applitools/eyes-images": "^4.31.49",
+    "agy": "^0.0.0"
   }
 }

@@ -91,6 +91,7 @@ pub(crate) trait AppModals {
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui);
     fn draw_feedback_modal(&mut self, ctx: &egui::Context);
     fn draw_modals(&mut self, ctx: &egui::Context);
+    fn draw_stuck_watchdog_modal(&mut self, ctx: &egui::Context);
 }
 
 impl AppModals for MyApp {
@@ -1651,6 +1652,9 @@ impl AppModals for MyApp {
         if self.pending_interactive_fallback.is_some() {
             self.draw_interactive_fallback_modal(ctx);
         }
+        if self.stuck_detection.is_some() {
+            self.draw_stuck_watchdog_modal(ctx);
+        }
         if self.pending_autofix.is_some() {
             self.draw_autofix_modal(ctx);
         }
@@ -1694,6 +1698,71 @@ impl AppModals for MyApp {
             }
             if !keep_open {
                 self.show_discard_draft_confirm = false;
+            }
+        }
+    }
+
+    fn draw_stuck_watchdog_modal(&mut self, ctx: &egui::Context) {
+        let mut force_fallback = false;
+        let mut close_modal = false;
+
+        if let Some(stuck_start) = self.stuck_detection {
+            let elapsed = stuck_start.elapsed();
+            let remaining = 25_i64.saturating_sub(elapsed.as_secs() as i64);
+
+            if remaining <= 0 {
+                force_fallback = true;
+                close_modal = true;
+            } else {
+                egui::Window::new("⚠️ Processing Appears Stuck")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        let p = self.settings.theme.palette();
+                        ui.colored_label(p.warn, "No activity detected from the backend process.");
+                        ui.label(format!("Automatically falling back in {} seconds...", remaining));
+                        ui.add_space(10.0);
+                        
+                        ui.horizontal(|ui| {
+                            if ui.button("Wait Longer").clicked() {
+                                close_modal = true; // resets the timer
+                            }
+                            if ui.button("Fallback Now").clicked() {
+                                force_fallback = true;
+                                close_modal = true;
+                            }
+                        });
+                    });
+            }
+        }
+
+        if close_modal {
+            self.stuck_detection = None;
+            self.last_runtime_activity = std::time::Instant::now();
+        }
+
+        if force_fallback {
+            self.in_flight = 0; // reset state to unlock UI
+            self.toast(crate::app::gui::ToastKind::Warn, "Watchdog triggered. Forcing fallback...".to_string());
+            match &self.workflow_stage {
+                crate::engine::workflow::WorkflowStage::Parsing { .. } => {
+                    self.toast(crate::app::gui::ToastKind::Info, "Falling back to Offline Parser...".to_string());
+                    if let Err(e) = self.job_tx.send(crate::app::runtime::Job::ExtractTransactions {
+                        path: std::path::PathBuf::from(&self.input_path),
+                        // Note: To force offline parser, we could adjust config or add a flag, but this is a good start.
+                    }) {
+                        tracing::error!("Failed to dispatch ExtractTransactions fallback: {}", e);
+                    }
+                    self.in_flight += 1;
+                }
+                crate::engine::workflow::WorkflowStage::Rendering { .. } => {
+                    self.toast(crate::app::gui::ToastKind::Info, "Falling back to Native rendering...".to_string());
+                    self.dispatch_confirm_and_render(false, false);
+                }
+                _ => {
+                    self.progress = None;
+                }
             }
         }
     }

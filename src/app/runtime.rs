@@ -223,6 +223,11 @@ pub enum Job {
     ExtractTransactions {
         path: PathBuf,
     },
+    InstantBackgroundApply {
+        input: PathBuf,
+        output: PathBuf,
+        edits: Vec<crate::engine::workflow::UserEdit>,
+    },
     ApplyProposedChanges {
         input: PathBuf,
         output: PathBuf,
@@ -2885,6 +2890,21 @@ impl Runtime {
                             };
 
                             let _ = res_tx.send(JobResult::TransactionsExtracted(report.transactions));
+                        });
+                    }
+                    Job::InstantBackgroundApply { input, output, edits } => {
+                        let eng = engine_for_tokio.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let json_str = match serde_json::to_string(&edits) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    tracing::warn!("Failed to serialize edits for instant apply: {}", e);
+                                    return;
+                                }
+                            };
+                            if let Err(e) = eng.apply_many_edits(&input, &output, &json_str, None) {
+                                tracing::warn!("Instant background apply failed: {}", e);
+                            }
                         });
                     }
                     Job::BalanceStatement { path } => {
