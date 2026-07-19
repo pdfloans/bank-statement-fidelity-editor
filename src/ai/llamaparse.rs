@@ -372,8 +372,11 @@ impl LlamaParseClient {
 
         if transactions.is_empty() {
             tracing::warn!(
-                "[llamaparse] No transactions found in markdown. Returning empty statement."
+                "[llamaparse] No transactions found in markdown. Returning ExtractionFailed to trigger fallback hook."
             );
+            return Err(LlamaParseError::ExtractionFailed(
+                "LlamaParse returned markdown but 0 transactions were extracted. Triggering fallback.".into()
+            ));
         } else {
             tracing::info!(
                 "[llamaparse] Parsed {} transactions from markdown.",

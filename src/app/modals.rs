@@ -1,4 +1,4 @@
-use crate::app::gui::{MyApp, Theme, ToastKind};
+use crate::app::gui::{ActiveModal, MyApp, Theme, ToastKind};
 use crate::app::runtime::Job;
 use egui_plot::{Line, Plot};
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ pub trait CommandPalette {
 
 impl CommandPalette for MyApp {
     fn draw_command_palette(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_command_palette;
+        let mut open = (self.active_modal == ActiveModal::CommandPalette);
         let mut submit_nlp = false;
 
         egui::Window::new("Command Palette")
@@ -70,9 +70,9 @@ impl CommandPalette for MyApp {
             // Note: NLP AI Job would be triggered here in the Job loop.
             // self.job_tx.send(Job::AiNaturalLanguageCommand { prompt, path: self.current_pdf_path.clone() });
 
-            self.show_command_palette = false;
+            self.active_modal = ActiveModal::None;
         } else {
-            self.show_command_palette = open;
+            if open { self.active_modal = ActiveModal::CommandPalette; } else if self.active_modal == ActiveModal::CommandPalette { self.active_modal = ActiveModal::None; }
         }
     }
 }
@@ -92,11 +92,12 @@ pub(crate) trait AppModals {
     fn draw_feedback_modal(&mut self, ctx: &egui::Context);
     fn draw_modals(&mut self, ctx: &egui::Context);
     fn draw_stuck_watchdog_modal(&mut self, ctx: &egui::Context);
+    fn draw_discard_draft_confirm_modal(&mut self, ctx: &egui::Context);
 }
 
 impl AppModals for MyApp {
     fn draw_settings_modal(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_settings_modal;
+        let mut open = (self.active_modal == ActiveModal::Settings);
         egui::Window::new("⚙️ Settings & Tools")
                 .open(&mut open)
                 .default_size(egui::vec2(420.0, 600.0))
@@ -275,7 +276,7 @@ impl AppModals for MyApp {
                                 egui::ComboBox::from_id_salt("settings_theme")
                                     .selected_text(self.settings.theme.label())
                                     .show_ui(ui, |ui| {
-                                        for t in [Theme::System, Theme::Midnight, Theme::Dark, Theme::Light, Theme::Solarized] {
+                                        for t in [Theme::ForensicDark, Theme::ForensicLight] {
                                             ui.selectable_value(&mut self.settings.theme, t, t.label());
                                         }
                                     });
@@ -373,7 +374,7 @@ impl AppModals for MyApp {
                             }
                         });
                 });
-        self.show_settings_modal = open;
+        if open { self.active_modal = ActiveModal::Settings; } else if self.active_modal == ActiveModal::Settings { self.active_modal = ActiveModal::None; }
     }
 
     fn draw_backend_preferences(&mut self, ui: &mut egui::Ui) {
@@ -382,7 +383,7 @@ impl AppModals for MyApp {
         let id = ui.make_persistent_id("backend_prefs_collapsing");
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
             .show_header(ui, |ui| {
-                ui.heading("\u{1f527} Backend Preferences");
+                ui.heading("\u{1f527} System Configuration & Integrations");
             })
             .body(|ui| {
                 ui.small("Choose which backend to use for each stage of the workflow.");
@@ -406,7 +407,7 @@ impl AppModals for MyApp {
                         ui.label("1\u{fe0f}\u{20e3} PyMuPDF Pro (88%) \u{2192} 2\u{fe0f}\u{20e3} Pdfium (76%) \u{2192} 3\u{fe0f}\u{20e3} Typst Reconstruct (70%)");
                         ui.end_row();
 
-                        ui.label("Math Balance:");
+                        ui.label("Ledger Reconciliation:");
                         ui.label("1\u{fe0f}\u{20e3} Local Math Engine (100%)");
                         ui.end_row();
                         
@@ -443,7 +444,7 @@ impl AppModals for MyApp {
                         ui.end_row();
 
                         // ── 7. Visual Validation Thresholds ──
-                        ui.label("\u{1f3af} Visual Threshold:");
+                        ui.label("\u{1f3af} Anomaly Detection Sensitivity:");
                         ui.add(egui::Slider::new(&mut self.settings.visual_diff_threshold, 0.005..=0.10)
                             .text("diff")
                             .logarithmic(true))
@@ -520,7 +521,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_transfer_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_transfer_dialog;
+        let mut open = (self.active_modal == ActiveModal::Transfer);
         egui::Window::new("🔄 Transfer Transactions")
             .open(&mut open)
             .default_size(egui::vec2(1200.0, 750.0))
@@ -629,7 +630,7 @@ impl AppModals for MyApp {
                                 ToastKind::Info,
                                 "Transaction transfer started - this may take 2-3 minutes.",
                             );
-                            self.show_transfer_dialog = false;
+                            self.active_modal = ActiveModal::None;
                         }
 
                         ui.add_space(10.0);
@@ -652,7 +653,7 @@ impl AppModals for MyApp {
 
                         ui.add_space(20.0);
                         if ui.button("Cancel").clicked() {
-                            self.show_transfer_dialog = false;
+                            self.active_modal = ActiveModal::None;
                         }
                     });
 
@@ -699,13 +700,13 @@ impl AppModals for MyApp {
             });
 
         if !open {
-            self.show_transfer_dialog = false;
+            self.active_modal = ActiveModal::None;
         }
-        self.show_transfer_dialog = open;
+        if open { self.active_modal = ActiveModal::Transfer; } else if self.active_modal == ActiveModal::Transfer { self.active_modal = ActiveModal::None; }
     }
 
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_date_adjust_dialog;
+        let mut open = (self.active_modal == ActiveModal::DateAdjust);
         egui::Window::new("📅 Adjust Date Periods")
             .open(&mut open)
             .default_size(egui::vec2(420.0, 320.0))
@@ -792,11 +793,11 @@ impl AppModals for MyApp {
                         self.in_flight += 1;
                         self.status = "Adjusting dates...".into();
                         self.toast(ToastKind::Info, "Date adjustment started.");
-                        self.show_date_adjust_dialog = false;
+                        self.active_modal = ActiveModal::None;
                     }
 
                     if ui.button("Cancel").clicked() {
-                        self.show_date_adjust_dialog = false;
+                        self.active_modal = ActiveModal::None;
                     }
                 });
 
@@ -804,7 +805,7 @@ impl AppModals for MyApp {
                     ui.colored_label(self.settings.theme.palette().warn, "⚠ Load a PDF first");
                 }
             });
-        self.show_date_adjust_dialog = open;
+        if open { self.active_modal = ActiveModal::DateAdjust; } else if self.active_modal == ActiveModal::DateAdjust { self.active_modal = ActiveModal::None; }
     }
 
     fn draw_ai_confirmation_dialog(&mut self, ctx: &egui::Context) {
@@ -971,14 +972,14 @@ impl AppModals for MyApp {
                 if resolved_choice.as_deref() == Some("action") {
                     if let Some(action) = err.suggested_action() {
                         if action.contains("Settings") {
-                            self.show_settings_modal = true;
+                            self.active_modal = ActiveModal::Settings;
                         } else if action.contains("Typst") {
                             // Tell user to set env var since engine_mode is config driven
                             self.status = "Please restart app with PDF_ENGINE_MODE=typst for perfect fidelity font synthesis.".into();
                         }
                     }
                 } else if resolved_choice.as_deref() == Some("report") {
-                    self.show_feedback_modal = true;
+                    self.active_modal = ActiveModal::Feedback;
                     self.feedback_text = format!("Operation Failed: {}\n\nSteps to reproduce: \n", err);
                 }
             }
@@ -986,7 +987,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context) {
-        let mut keep_open = self.show_workflow_hitl_modal;
+        let mut keep_open = (self.active_modal == ActiveModal::WorkflowHitl);
         let mut resolved = false;
 
         egui::Window::new("⚠️ Workflow Human-in-the-Loop Required")
@@ -1140,12 +1141,12 @@ impl AppModals for MyApp {
             });
 
         if resolved || !keep_open {
-            self.show_workflow_hitl_modal = false;
+            self.active_modal = ActiveModal::None;
         }
     }
 
     fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_transfer_test_dialog;
+        let mut open = (self.active_modal == ActiveModal::TransferTest);
         egui::Window::new("🧪 Transfer Test Harness")
             .open(&mut open)
             .default_size(egui::vec2(520.0, 420.0))
@@ -1224,7 +1225,7 @@ impl AppModals for MyApp {
                     }
 
                     if ui.button("Close").clicked() {
-                        self.show_transfer_test_dialog = false;
+                        self.active_modal = ActiveModal::None;
                     }
                 });
 
@@ -1272,7 +1273,7 @@ impl AppModals for MyApp {
                         });
                 }
             });
-        self.show_transfer_test_dialog = open;
+        if open { self.active_modal = ActiveModal::TransferTest; } else if self.active_modal == ActiveModal::TransferTest { self.active_modal = ActiveModal::None; }
     }
 
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui) {
@@ -1590,7 +1591,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_feedback_modal(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_feedback_modal;
+        let mut open = (self.active_modal == ActiveModal::Feedback);
         let mut submit = false;
         
         egui::Window::new("🐛 Report a Bug / Feedback")
@@ -1615,7 +1616,7 @@ impl AppModals for MyApp {
                 ui.add_space(15.0);
                 ui.horizontal(|ui| {
                     if ui.button("Cancel").clicked() {
-                        self.show_feedback_modal = false;
+                        self.active_modal = ActiveModal::None;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("🚀 Submit to Developer").clicked() {
@@ -1626,7 +1627,7 @@ impl AppModals for MyApp {
             });
 
         if submit {
-            self.show_feedback_modal = false;
+            self.active_modal = ActiveModal::None;
             let description = std::mem::take(&mut self.feedback_text);
             self.toast(ToastKind::Info, "Gathering logs and submitting report...".to_string());
             let _ = self.job_tx.send(Job::SubmitBugReport {
@@ -1635,20 +1636,24 @@ impl AppModals for MyApp {
                 include_audit: self.feedback_include_audit,
             });
         } else {
-            self.show_feedback_modal = open;
+            if open { self.active_modal = ActiveModal::Feedback; } else if self.active_modal == ActiveModal::Feedback { self.active_modal = ActiveModal::None; }
         }
     }
 
     fn draw_modals(&mut self, ctx: &egui::Context) {
-        if self.show_settings_modal {
-            self.draw_settings_modal(ctx);
+        match self.active_modal {
+            ActiveModal::Settings => self.draw_settings_modal(ctx),
+            ActiveModal::Transfer => self.draw_transfer_dialog(ctx),
+            ActiveModal::DateAdjust => self.draw_date_adjust_dialog(ctx),
+            ActiveModal::WorkflowHitl => self.draw_workflow_hitl_modal(ctx),
+            ActiveModal::TransferTest => self.draw_transfer_test_dialog(ctx),
+            ActiveModal::CommandPalette => self.draw_command_palette(ctx),
+            ActiveModal::Feedback => self.draw_feedback_modal(ctx),
+            ActiveModal::DiscardDraftConfirm => self.draw_discard_draft_confirm_modal(ctx),
+            ActiveModal::None => {}
         }
-        if self.show_transfer_dialog {
-            self.draw_transfer_dialog(ctx);
-        }
-        if self.show_date_adjust_dialog {
-            self.draw_date_adjust_dialog(ctx);
-        }
+
+        // Modals independent of the ActiveModal router (e.g. dynamic state triggers)
         if !self.pending_ai_confirmations.is_empty() {
             self.draw_ai_confirmation_dialog(ctx);
         }
@@ -1661,47 +1666,42 @@ impl AppModals for MyApp {
         if self.pending_autofix.is_some() {
             self.draw_autofix_modal(ctx);
         }
-        if self.show_workflow_hitl_modal {
-            self.draw_workflow_hitl_modal(ctx);
-        }
-        if self.show_transfer_test_dialog {
-            self.draw_transfer_test_dialog(ctx);
-        }
-        if self.show_discard_draft_confirm {
-            let mut keep_open = true;
-            let mut confirm = false;
-            egui::Window::new("Discard workflow draft?")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .open(&mut keep_open)
-                .show(ctx, |ui| {
-                    ui.label("This will permanently delete audit/workflow.json.");
-                    ui.label("Any pending edits in the current workflow draft will be lost.");
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Cancel").clicked() {
-                            self.show_discard_draft_confirm = false;
-                        }
-                        if ui
-                            .add(
-                                egui::Button::new("Discard")
-                                    .fill(self.settings.theme.palette().warn),
-                            )
-                            .clicked()
-                        {
-                            confirm = true;
-                        }
-                    });
+    }
+
+    fn draw_discard_draft_confirm_modal(&mut self, ctx: &egui::Context) {
+        let mut keep_open = true;
+        let mut confirm = false;
+        egui::Window::new("Discard workflow draft?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut keep_open)
+            .show(ctx, |ui| {
+                ui.label("This will permanently delete audit/workflow.json.");
+                ui.label("Any pending edits in the current workflow draft will be lost.");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.active_modal = ActiveModal::None;
+                    }
+                    if ui
+                        .add(
+                            egui::Button::new("Discard")
+                                .fill(self.settings.theme.palette().warn),
+                        )
+                        .clicked()
+                    {
+                        confirm = true;
+                    }
                 });
-            if confirm {
-                Self::discard_workflow_draft_quiet();
-                self.toast(ToastKind::Info, "Workflow draft discarded");
-                self.show_discard_draft_confirm = false;
-            }
-            if !keep_open {
-                self.show_discard_draft_confirm = false;
-            }
+            });
+        if confirm {
+            Self::discard_workflow_draft_quiet();
+            self.toast(ToastKind::Info, "Workflow draft discarded");
+            self.active_modal = ActiveModal::None;
+        }
+        if !keep_open {
+            self.active_modal = ActiveModal::None;
         }
     }
 

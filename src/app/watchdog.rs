@@ -8,6 +8,7 @@ pub enum WatchdogEvent {
     StallDetected(Duration), // 30s stall hit, countdown begins
     FallbackTriggered,       // 25s countdown hit 0, triggering fallback
     Recovered,               // Activity resumed before fallback
+    Telemetry { cpu_usage: f32, ram_mb: u64 }, // Live CPU and Memory stats
 }
 
 pub struct Watchdog {
@@ -50,14 +51,24 @@ impl Watchdog {
                 
                 let mut activity_detected = false;
                 
+                let mut current_cpu = 0.0;
+                let mut current_ram_mb = 0;
+                
                 if let Some(process) = sys.process(pid) {
-                    if process.cpu_usage() > 1.0 {
+                    current_cpu = process.cpu_usage();
+                    current_ram_mb = process.memory() / (1024 * 1024);
+                    if current_cpu > 1.0 {
                         activity_detected = true;
                     }
                     if process.disk_usage().read_bytes > 0 || process.disk_usage().written_bytes > 0 {
                         activity_detected = true;
                     }
                 }
+                
+                let _ = tx_clone.send(WatchdogEvent::Telemetry { 
+                    cpu_usage: current_cpu, 
+                    ram_mb: current_ram_mb 
+                });
                 
                 // Network usage globally
                 let mut network_activity = 0;

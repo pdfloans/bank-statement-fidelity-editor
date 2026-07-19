@@ -8,10 +8,11 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
+use rusqlite::{params, Connection};
+
 pub struct AuditLog {
-    log_file: Option<File>,
+    db: Option<Connection>,
     log_path: PathBuf,
-    _audit_dir: PathBuf,
     snapshots_dir: PathBuf,
 }
 
@@ -26,14 +27,11 @@ impl AuditLog {
         fs::create_dir_all(&snapshots_dir)
             .map_err(|e| AuditError::open(snapshots_dir.display().to_string(), e))?;
 
-        // ISO-8601-utc-with-no-colons for Windows compatibility
-        let timestamp = Utc::now().format("%Y%m%dt%H%M%SZ").to_string();
-        let log_path = audit_dir.join(format!("{timestamp}.log"));
+        let db_path = audit_dir.join("audit.sqlite");
 
         Ok(Self {
-            log_file: None,
-            log_path,
-            _audit_dir: audit_dir,
+            db: None,
+            log_path: db_path,
             snapshots_dir,
         })
     }
@@ -69,16 +67,13 @@ impl AuditLog {
             record,
         };
 
-        // Write as JSON lines to the master log
-        let mut line = serde_json::to_string(&event).unwrap_or_default();
-        line.push('\n');
-
-        let file = self
-            .log_file
-            .as_mut()
-            .expect("log_file is Some after ensure_open");
-        file.write_all(line.as_bytes()).map_err(AuditError::Write)?;
-        file.flush().map_err(AuditError::Write)?;
+        let json_line = serde_json::to_string(&event).unwrap_or_default();
+        
+        let timestamp = Utc::now().to_rfc3339();
+        self.db.as_ref().unwrap().execute(
+            "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
+            params![timestamp, "write", json_line],
+        ).map_err(|e| AuditError::Write(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
         // Also dump an individual snapshot matching the old verification_report format
         let ts = record.timestamp.replace(':', ""); // safe for filenames
@@ -99,27 +94,31 @@ impl AuditLog {
     /// Returns [`AuditError::Write`] if the log file cannot be opened or written.
     pub fn append_line(&mut self, line: &str) -> AuditResult<()> {
         self.ensure_open()?;
-        let file = self
-            .log_file
-            .as_mut()
-            .expect("log_file is Some after ensure_open");
-        file.write_all(line.as_bytes()).map_err(AuditError::Write)?;
-        if !line.ends_with('\n') {
-            file.write_all(b"\n").map_err(AuditError::Write)?;
-        }
-        file.flush().map_err(AuditError::Write)?;
+        let timestamp = Utc::now().to_rfc3339();
+        self.db.as_ref().unwrap().execute(
+            "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
+            params![timestamp, "append_line", line.trim()],
+        ).map_err(|e| AuditError::Write(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
         Ok(())
     }
 
     /// Lazily opens (creating if needed) the session log file in append mode.
     fn ensure_open(&mut self) -> AuditResult<()> {
-        if self.log_file.is_none() {
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&self.log_path)
-                .map_err(|e| AuditError::open(self.log_path.display().to_string(), e))?;
-            self.log_file = Some(file);
+        if self.db.is_none() {
+            let conn = Connection::open(&self.log_path)
+                .map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT NOT NULL
+                )",
+                [],
+            ).map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            
+            self.db = Some(conn);
         }
         Ok(())
     }
@@ -175,6 +174,31 @@ impl AuditLogParser {
     /// Returns [`AuditError::Read`] if the file cannot be opened or a line
     /// cannot be read.
     pub fn parse_file(path: &Path) -> AuditResult<Vec<ChangeRecord>> {
+        // Try parsing as SQLite first
+        if let Ok(conn) = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            if let Ok(mut stmt) = conn.prepare("SELECT details FROM audit_log WHERE action = 'write'") {
+                let records_iter = stmt.query_map([], |row| {
+                    let details: String = row.get(0)?;
+                    Ok(details)
+                });
+                
+                if let Ok(iter) = records_iter {
+                    let mut records = Vec::new();
+                    for details_res in iter {
+                        if let Ok(details) = details_res {
+                            if let Ok(record) = serde_json::from_str::<ChangeRecord>(&details) {
+                                records.push(record);
+                            }
+                        }
+                    }
+                    if !records.is_empty() {
+                        return Ok(records);
+                    }
+                }
+            }
+        }
+
+        // Fallback to legacy flat file parsing
         let file = File::open(path).map_err(|e| AuditError::read(path.display().to_string(), e))?;
         let reader = BufReader::new(file);
         let mut records = Vec::new();
@@ -317,19 +341,18 @@ mod tests {
 
         audit.write(&rec1, Path::new("in"), Path::new("out"), "test", false)?;
 
-        // write() emits audit_v2_json format (JSON lines).  parse_file() reads
-        // the legacy audit_v1 text format, so it correctly returns 0 records
-        // for a v2 log.  Verify the raw JSON line instead.
-        let raw = std::fs::read_to_string(&audit.log_path)?;
-        let v: serde_json::Value = serde_json::from_str(raw.trim())?;
+        let conn = rusqlite::Connection::open(&audit.log_path)?;
+        let mut stmt = conn.prepare("SELECT details FROM audit_log WHERE action = 'write' LIMIT 1")?;
+        let details: String = stmt.query_row([], |row| row.get(0))?;
+
+        let v: serde_json::Value = serde_json::from_str(&details)?;
         assert_eq!(v["id"], 123);
         assert_eq!(v["old_text"], "foo");
         assert_eq!(v["description"], "Adjustment");
         assert_eq!(v["provenance"], "DocumentAI");
 
-        // parse_file on a v2-only log should return an empty vec (no v1 lines)
         let parsed = AuditLogParser::parse_file(&audit.log_path).map_err(|e| anyhow::anyhow!(e))?;
-        assert_eq!(parsed.len(), 0);
+        assert_eq!(parsed.len(), 1);
         Ok(())
     }
 

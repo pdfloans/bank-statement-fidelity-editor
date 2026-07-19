@@ -4,6 +4,76 @@ use opentelemetry_otlp::WithExportConfig;
 use std::sync::Once;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+use std::io::Write;
+use tracing_subscriber::fmt::MakeWriter;
+
+pub struct ScrubbingWriter<W> {
+    inner: W,
+}
+
+impl<W: Write> ScrubbingWriter<W> {
+    fn scrub(text: &str) -> String {
+        static RE_EMAIL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        static RE_KEYS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        static RE_MAC_PATH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        static RE_WIN_PATH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+        let re_email = RE_EMAIL.get_or_init(|| regex::Regex::new(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+").unwrap());
+        let re_keys = RE_KEYS.get_or_init(|| regex::Regex::new(r#"(?i)(api[_-]?key|token|secret|password|bearer)[\s=:>]+['"]?[A-Za-z0-9\-_]{16,}['"]?"#).unwrap());
+        let re_mac_path = RE_MAC_PATH.get_or_init(|| regex::Regex::new(r"/Users/[a-zA-Z0-9_.-]+").unwrap());
+        let re_win_path = RE_WIN_PATH.get_or_init(|| regex::Regex::new(r"C:\Users\[a-zA-Z0-9_.-]+").unwrap());
+
+        let text = re_email.replace_all(text, "***@***.***");
+        let text = re_keys.replace_all(&text, "${1}=***");
+        let text = re_mac_path.replace_all(&text, "~");
+        let text = re_win_path.replace_all(&text, r"C:\Users\~");
+        
+        text.to_string()
+    }
+}
+
+impl<W: Write> Write for ScrubbingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Ok(s) = std::str::from_utf8(buf) {
+            let scrubbed = Self::scrub(s);
+            self.inner.write_all(scrubbed.as_bytes())?;
+            Ok(buf.len())
+        } else {
+            self.inner.write(buf)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+pub struct ScrubbingMakeWriter<M> {
+    inner: M,
+}
+
+impl<M> ScrubbingMakeWriter<M> {
+    pub fn new(inner: M) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a, M: MakeWriter<'a>> MakeWriter<'a> for ScrubbingMakeWriter<M> {
+    type Writer = ScrubbingWriter<M::Writer>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        ScrubbingWriter {
+            inner: self.inner.make_writer(),
+        }
+    }
+
+    fn make_writer_for(&'a self, meta: &tracing::Metadata<'_>) -> Self::Writer {
+        ScrubbingWriter {
+            inner: self.inner.make_writer_for(meta),
+        }
+    }
+}
+
 static PANIC_HOOK: Once = Once::new();
 
 pub struct TelemetryGuard {
@@ -55,21 +125,23 @@ pub fn init(cfg: &AppConfig) -> TelemetryGuard {
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
+    let stdout_appender = ScrubbingMakeWriter::new(std::io::stdout);
     let stdout_layer = tracing_subscriber::fmt::layer()
+        .with_writer(stdout_appender)
         .with_target(false)
         .with_thread_ids(true)
         .with_thread_names(true);
 
     let file_appender = tracing_appender::rolling::daily(&cfg.log_dir, "app.log");
     let file_layer = tracing_subscriber::fmt::layer()
-        .with_writer(file_appender)
+        .with_writer(ScrubbingMakeWriter::new(file_appender))
         .with_ansi(false)
         .with_thread_ids(true)
         .with_thread_names(true);
 
     let error_appender = tracing_appender::rolling::never("audit", "error_report.log");
     let error_layer = tracing_subscriber::fmt::layer()
-        .with_writer(error_appender)
+        .with_writer(ScrubbingMakeWriter::new(error_appender))
         .with_ansi(false)
         .with_thread_ids(true)
         .with_thread_names(true)

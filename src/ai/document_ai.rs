@@ -937,263 +937,153 @@ impl DocumentAiClient {
         result: &serde_json::Value,
         real_page_dims: Option<&std::collections::HashMap<usize, (f32, f32)>>,
     ) -> Result<BankStatement, DocAiError> {
-        let pages_node = result["document"]["pages"].as_array();
-        let total_pages = pages_node.map_or(0, |p| p.len());
+        let response: DocAiResponse = serde_json::from_value(result.clone())?;
+        let total_pages = response.document.pages.len();
 
-        // Build a page-index -> (width_pts, height_pts) map. DocAI normalizes
-        // bbox vertices in 0..1, so we need page dimensions to convert back
-        // to PyMuPDF points. We must explicitly convert inches/cm/mm into
-        // 72-dpi points, since PyMuPDF works strictly in points.
-        let pages_dim: Vec<(f32, f32, String)> = if let Some(pages) = pages_node {
-            pages
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    if let Some(real_dims) = real_page_dims {
-                        if let Some(&(rw, rh)) = real_dims.get(&i) {
-                            return Ok((rw, rh, "points".to_string()));
-                        }
+        let pages_dim: Vec<(f32, f32, String)> = response.document.pages
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if let Some(real_dims) = real_page_dims {
+                    if let Some(&(rw, rh)) = real_dims.get(&i) {
+                        return Ok((rw, rh, "points".to_string()));
                     }
+                }
 
-                    let w_opt = p["dimension"]["width"].as_f64();
-                    let h_opt = p["dimension"]["height"].as_f64();
-
-                    if w_opt.is_none() || h_opt.is_none() {
-                        return Err(DocAiError::Parse(serde::de::Error::custom(format!(
-                            "Missing physical page dimensions for page {} and no real dimensions provided", i
-                        ))));
-                    }
-
-                    let mut w = w_opt.unwrap() as f32;
-                    let mut h = h_opt.unwrap() as f32;
-                    let unit = p["dimension"]["unit"].as_str().unwrap_or("").to_string();
-
-                    match unit.as_str() {
-                        "inch" | "inches" => {
-                            w *= 72.0;
-                            h *= 72.0;
-                        }
-                        "cm" => {
-                            w *= 72.0 / 2.54;
-                            h *= 72.0 / 2.54;
-                        }
-                        "mm" => {
-                            w *= 72.0 / 25.4;
-                            h *= 72.0 / 25.4;
-                        }
-                        _ => {}
-                    }
-
-                    Ok((w, h, unit))
-                })
-                .collect::<Result<Vec<_>, DocAiError>>()?
-        } else {
-            Vec::new()
-        };
+                let dim = p.dimension.as_ref().ok_or_else(|| {
+                    DocAiError::Parse(serde::de::Error::custom(format!(
+                        "Missing physical page dimensions for page {} and no real dimensions provided", i
+                    )))
+                })?;
+                let w = dim.width.ok_or_else(|| {
+                    DocAiError::Parse(serde::de::Error::custom("Missing width"))
+                })? as f32;
+                let h = dim.height.ok_or_else(|| {
+                    DocAiError::Parse(serde::de::Error::custom("Missing height"))
+                })? as f32;
+                Ok((w, h, "points".to_string()))
+            })
+            .collect::<Result<Vec<_>, DocAiError>>()?;
 
         let mut transactions = Vec::new();
-        let mut opening_balance = Decimal::ZERO;
-        let mut closing_balance = Decimal::ZERO;
-        let mut account_number: Option<String> = None;
+        let mut opening_balance = Decimal::new(0, 2);
+        let mut closing_balance = Decimal::new(0, 2);
+        let mut account_number = None;
 
-        if let Some(entities) = result["document"]["entities"].as_array() {
-            for (idx, entity) in entities.iter().enumerate() {
-                let etype = entity["type"].as_str().unwrap_or("");
-                let text = entity["mentionText"]
-                    .as_str()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                let confidence = entity["confidence"].as_f64().unwrap_or(0.0) as f32;
+        for entity in &response.document.entities {
+            let (page_idx, row_bbox) = entity_page_and_bbox(entity, &pages_dim);
+                        let idx = transactions.len();
+            let text = entity.mention_text.as_deref().unwrap_or_default().trim().to_string();
+            let confidence = entity.confidence.unwrap_or(1.0);
 
-                // Pull the page index and bbox (in PDF-points-equivalent units)
-                // from the entity's pageAnchor. Falls back to (0, None) if the
-                // anchor is missing.
-                let (page_idx, row_bbox) = entity_page_and_bbox(entity, &pages_dim);
+            match entity.entity_type.as_str() {
+                "table_item" => {
+                    let date = extract_string_property(entity, "transaction_deposit_date")
+                        .or_else(|| extract_string_property(entity, "transaction_withdrawal_date"))
+                        .or_else(|| extract_string_property(entity, "transaction_date"))
+                        .unwrap_or_default();
 
-                match etype {
-                    // Document AI Bank Statement Parser emits a `table_item`
-                    // per row, with nested `properties` for each column.
-                    "table_item" => {
-                        // Helper to read either side (deposit or withdrawal)
-                        let date = extract_string_property(entity, "transaction_deposit_date")
-                            .or_else(|| {
-                                extract_string_property(entity, "transaction_withdrawal_date")
-                            })
-                            .or_else(|| extract_string_property(entity, "transaction_date"))
-                            .unwrap_or_default();
+                    let description = extract_string_property(entity, "transaction_deposit_description")
+                        .or_else(|| extract_string_property(entity, "transaction_withdrawal_description"))
+                        .or_else(|| extract_string_property(entity, "transaction_description"))
+                        .unwrap_or_else(|| text.clone());
 
-                        let description =
-                            extract_string_property(entity, "transaction_deposit_description")
-                                .or_else(|| {
-                                    extract_string_property(
-                                        entity,
-                                        "transaction_withdrawal_description",
-                                    )
-                                })
-                                .or_else(|| {
-                                    extract_string_property(entity, "transaction_description")
-                                })
-                                .unwrap_or_else(|| text.clone());
+                    let credit = extract_number_property(entity, "transaction_deposit");
+                    let debit = extract_number_property(entity, "transaction_withdrawal");
+                    let running_balance = extract_number_property(entity, "running_balance")
+                        .or_else(|| extract_number_property(entity, "transaction_balance"));
 
-                        let credit = extract_number_property(entity, "transaction_deposit");
-                        let debit = extract_number_property(entity, "transaction_withdrawal");
-                        let running_balance = extract_number_property(entity, "running_balance")
-                            .or_else(|| extract_number_property(entity, "transaction_balance"));
-
-                        // Skip if neither side has a value (probably a header row).
-                        if credit.is_none() && debit.is_none() && running_balance.is_none() {
-                            continue;
-                        }
-
-                        // Per-field bbox extraction so the binary edit redacts
-                        // the cell, not the whole row. Stage 7.5.
-                        let field_bboxes = FieldBboxes {
-                            date: property_bbox(
-                                entity,
-                                &[
-                                    "transaction_deposit_date",
-                                    "transaction_withdrawal_date",
-                                    "transaction_date",
-                                ],
-                                &pages_dim,
-                            ),
-                            description: property_bbox(
-                                entity,
-                                &[
-                                    "transaction_deposit_description",
-                                    "transaction_withdrawal_description",
-                                    "transaction_description",
-                                ],
-                                &pages_dim,
-                            ),
-                            debit: property_bbox(
-                                entity,
-                                &["transaction_withdrawal", "debit"],
-                                &pages_dim,
-                            ),
-                            credit: property_bbox(
-                                entity,
-                                &["transaction_deposit", "credit"],
-                                &pages_dim,
-                            ),
-                            running_balance: property_bbox(
-                                entity,
-                                &["running_balance", "transaction_balance"],
-                                &pages_dim,
-                            ),
-                        };
-
-                        transactions.push(Transaction {
-                            page: page_idx,
-                            line_on_page: idx,
-                            date,
-                            raw_text: description,
-                            debit,
-                            credit,
-                            running_balance,
-                            bbox: row_bbox,
-                            field_bboxes,
-                            provenance: Provenance::DocumentAI { confidence },
-                        });
+                    if credit.is_none() && debit.is_none() && running_balance.is_none() {
+                        continue;
                     }
 
-                    // Some processors emit "transaction" directly with the
-                    // same property layout - keep this branch as a fallback.
-                    "transaction" => {
-                        let field_bboxes = FieldBboxes {
-                            date: property_bbox(
-                                entity,
-                                &[
-                                    "transaction_date",
-                                    "transaction_deposit_date",
-                                    "transaction_withdrawal_date",
-                                ],
-                                &pages_dim,
-                            ),
-                            description: property_bbox(
-                                entity,
-                                &[
-                                    "transaction_description",
-                                    "transaction_deposit_description",
-                                    "transaction_withdrawal_description",
-                                ],
-                                &pages_dim,
-                            ),
-                            debit: property_bbox(
-                                entity,
-                                &["debit", "transaction_withdrawal"],
-                                &pages_dim,
-                            ),
-                            credit: property_bbox(
-                                entity,
-                                &["credit", "transaction_deposit"],
-                                &pages_dim,
-                            ),
-                            running_balance: property_bbox(
-                                entity,
-                                &["running_balance"],
-                                &pages_dim,
-                            ),
-                        };
+                    let field_bboxes = FieldBboxes {
+                        date: property_bbox(
+                            entity,
+                            &["transaction_deposit_date", "transaction_withdrawal_date", "transaction_date"],
+                            &pages_dim,
+                        ),
+                        description: property_bbox(
+                            entity,
+                            &["transaction_deposit_description", "transaction_withdrawal_description", "transaction_description"],
+                            &pages_dim,
+                        ),
+                        debit: property_bbox(entity, &["transaction_withdrawal", "debit"], &pages_dim),
+                        credit: property_bbox(entity, &["transaction_deposit", "credit"], &pages_dim),
+                        running_balance: property_bbox(entity, &["running_balance", "transaction_balance"], &pages_dim),
+                    };
 
-                        let date = extract_string_property(entity, "transaction_date")
-                            .or_else(|| extract_string_property(entity, "transaction_deposit_date"))
-                            .or_else(|| {
-                                extract_string_property(entity, "transaction_withdrawal_date")
-                            })
-                            .unwrap_or_default();
-
-                        let description =
-                            extract_string_property(entity, "transaction_description")
-                                .or_else(|| {
-                                    extract_string_property(
-                                        entity,
-                                        "transaction_deposit_description",
-                                    )
-                                })
-                                .or_else(|| {
-                                    extract_string_property(
-                                        entity,
-                                        "transaction_withdrawal_description",
-                                    )
-                                })
-                                .unwrap_or_else(|| text.clone());
-
-                        transactions.push(Transaction {
-                            page: page_idx,
-                            line_on_page: idx,
-                            date,
-                            raw_text: description,
-                            debit: extract_number_property(entity, "debit").or_else(|| {
-                                extract_number_property(entity, "transaction_withdrawal")
-                            }),
-                            credit: extract_number_property(entity, "credit")
-                                .or_else(|| extract_number_property(entity, "transaction_deposit")),
-                            running_balance: extract_number_property(entity, "running_balance"),
-                            bbox: row_bbox,
-                            field_bboxes,
-                            provenance: Provenance::DocumentAI { confidence },
-                        });
-                    }
-
-                    "starting_balance" | "opening_balance" => {
-                        if let Ok(v) = text.replace(['$', ','], "").parse::<f64>() {
-                            opening_balance = f64_to_dec(v);
-                        }
-                    }
-                    "ending_balance" | "closing_balance" => {
-                        if let Ok(v) = text.replace(['$', ','], "").parse::<f64>() {
-                            closing_balance = f64_to_dec(v);
-                        }
-                    }
-                    "account_number" => {
-                        if !text.is_empty() {
-                            account_number = Some(text);
-                        }
-                    }
-                    _ => {}
+                    transactions.push(Transaction {
+                        page: page_idx,
+                        line_on_page: idx,
+                        date,
+                        raw_text: description,
+                        debit,
+                        credit,
+                        running_balance,
+                        bbox: row_bbox,
+                        field_bboxes,
+                        provenance: Provenance::DocumentAI { confidence },
+                    });
                 }
+                "transaction" => {
+                    let field_bboxes = FieldBboxes {
+                        date: property_bbox(
+                            entity,
+                            &["transaction_date", "transaction_deposit_date", "transaction_withdrawal_date"],
+                            &pages_dim,
+                        ),
+                        description: property_bbox(
+                            entity,
+                            &["transaction_description", "transaction_deposit_description", "transaction_withdrawal_description"],
+                            &pages_dim,
+                        ),
+                        debit: property_bbox(entity, &["debit", "transaction_withdrawal"], &pages_dim),
+                        credit: property_bbox(entity, &["credit", "transaction_deposit"], &pages_dim),
+                        running_balance: property_bbox(entity, &["running_balance"], &pages_dim),
+                    };
+
+                    let date = extract_string_property(entity, "transaction_date")
+                        .or_else(|| extract_string_property(entity, "transaction_deposit_date"))
+                        .or_else(|| extract_string_property(entity, "transaction_withdrawal_date"))
+                        .unwrap_or_default();
+
+                    let description = extract_string_property(entity, "transaction_description")
+                        .or_else(|| extract_string_property(entity, "transaction_deposit_description"))
+                        .or_else(|| extract_string_property(entity, "transaction_withdrawal_description"))
+                        .unwrap_or_else(|| text.clone());
+
+                    transactions.push(Transaction {
+                        page: page_idx,
+                        line_on_page: idx,
+                        date,
+                        raw_text: description,
+                        debit: extract_number_property(entity, "debit")
+                            .or_else(|| extract_number_property(entity, "transaction_withdrawal")),
+                        credit: extract_number_property(entity, "credit")
+                            .or_else(|| extract_number_property(entity, "transaction_deposit")),
+                        running_balance: extract_number_property(entity, "running_balance"),
+                        bbox: row_bbox,
+                        field_bboxes,
+                        provenance: Provenance::DocumentAI { confidence },
+                    });
+                }
+                "starting_balance" | "opening_balance" => {
+                    if let Ok(v) = text.replace(['$', ','], "").parse::<f64>() {
+                        opening_balance = f64_to_dec(v);
+                    }
+                }
+                "ending_balance" | "closing_balance" => {
+                    if let Ok(v) = text.replace(['$', ','], "").parse::<f64>() {
+                        closing_balance = f64_to_dec(v);
+                    }
+                }
+                "account_number" => {
+                    if !text.is_empty() {
+                        account_number = Some(text);
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -1641,62 +1531,161 @@ fn merge_chunk_results(chunked: Vec<BankStatement>) -> BankStatement {
     merged
 }
 
-fn extract_string_property(entity: &serde_json::Value, kind: &str) -> Option<String> {
-    entity["properties"].as_array().and_then(|props| {
-        props
-            .iter()
-            .find(|p| p["type"].as_str() == Some(kind))
-            .and_then(|p| p["mentionText"].as_str())
-            .map(|s| s.trim().to_string())
-    })
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiResponse {
+    document: DocAiDocument,
 }
 
-fn extract_number_property(entity: &serde_json::Value, kind: &str) -> Option<Decimal> {
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiDocument {
+    #[serde(default)]
+    pages: Vec<DocAiPage>,
+    #[serde(default)]
+    entities: Vec<DocAiEntity>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiPage {
+    dimension: Option<DocAiDimension>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiDimension {
+    width: Option<f64>,
+    height: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiEntity {
+    #[serde(rename = "type")]
+    entity_type: String,
+    mention_text: Option<String>,
+    confidence: Option<f32>,
+    page_anchor: Option<DocAiPageAnchor>,
+    #[serde(default)]
+    properties: Vec<DocAiEntity>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiPageAnchor {
+    #[serde(default)]
+    page_refs: Vec<DocAiPageRef>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiPageRef {
+    #[serde(default)]
+    page: Option<serde_json::Value>,
+    bounding_poly: Option<DocAiBoundingPoly>,
+}
+
+impl DocAiPageRef {
+    fn page_idx(&self) -> usize {
+        match &self.page {
+            Some(serde_json::Value::String(s)) => s.parse().unwrap_or(0),
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) as usize,
+            _ => 0,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiBoundingPoly {
+    #[serde(default)]
+    normalized_vertices: Vec<DocAiVertex>,
+    #[serde(default)]
+    vertices: Vec<DocAiVertex>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocAiVertex {
+    x: Option<f32>,
+    y: Option<f32>,
+}
+
+fn extract_string_property(entity: &DocAiEntity, kind: &str) -> Option<String> {
+    entity.properties
+        .iter()
+        .find(|p| p.entity_type == kind)
+        .and_then(|p| p.mention_text.as_deref())
+        .map(|s| s.trim().to_string())
+}
+
+fn extract_number_property(entity: &DocAiEntity, kind: &str) -> Option<Decimal> {
     extract_string_property(entity, kind)
         .and_then(|s| s.replace(['$', ','], "").parse::<f64>().ok())
         .map(f64_to_dec)
 }
 
-/// Stage 7.5: read the page index (0-based) and the row's bbox in
-/// document-page units from a Document AI entity. Returns `(0, None)` when
-/// the entity has no `pageAnchor.pageRefs[0]`.
-///
-/// `pages_dim` is the per-page `(width, height, unit)` table built from
-/// `document.pages[].dimension`. We multiply normalized vertices by
-/// `(width, height)` to land back in PDF-points-equivalent units. If the
-/// entity stores bbox vertices already in absolute units we use those
-/// directly.
+fn bbox_from_bounding_poly(
+    poly: &DocAiBoundingPoly,
+    page_idx: usize,
+    pages_dim: &[(f32, f32, String)],
+) -> Option<[f32; 4]> {
+    let is_norm = !poly.normalized_vertices.is_empty();
+    let verts = if is_norm {
+        &poly.normalized_vertices
+    } else {
+        &poly.vertices
+    };
+
+    if verts.is_empty() {
+        return None;
+    }
+
+    let mut x0 = f32::MAX;
+    let mut y0 = f32::MAX;
+    let mut x1 = f32::MIN;
+    let mut y1 = f32::MIN;
+
+    for v in verts {
+        let x = v.x.unwrap_or(0.0);
+        let y = v.y.unwrap_or(0.0);
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+
+    if is_norm {
+        if let Some(&(w, h, _)) = pages_dim.get(page_idx) {
+            x0 *= w;
+            x1 *= w;
+            y0 *= h;
+            y1 *= h;
+        }
+    }
+    Some([x0, y0, x1, y1])
+}
+
 fn entity_page_and_bbox(
-    entity: &serde_json::Value,
+    entity: &DocAiEntity,
     pages_dim: &[(f32, f32, String)],
 ) -> (usize, Option<[f32; 4]>) {
-    let Some(refs) = entity["pageAnchor"]["pageRefs"].as_array() else {
-        return (0, None);
-    };
-    let Some(first) = refs.first() else {
-        return (0, None);
-    };
-    let page_idx = first["page"]
-        .as_str()
-        .and_then(|s| s.parse::<usize>().ok())
-        .or_else(|| first["page"].as_u64().map(|n| n as usize))
-        .unwrap_or(0);
-    let bbox = bbox_from_bounding_poly(&first["boundingPoly"], page_idx, pages_dim);
+    let Some(anchor) = &entity.page_anchor else { return (0, None); };
+    let Some(first) = anchor.page_refs.first() else { return (0, None); };
+    let page_idx = first.page_idx();
+    let bbox = first.bounding_poly.as_ref().and_then(|p| bbox_from_bounding_poly(p, page_idx, pages_dim));
     (page_idx, bbox)
 }
 
-/// Same as [`entity_page_and_bbox`] but for one of the entity's nested
-/// `properties` (debit, credit, running_balance, ...). Tries each kind in
-/// order and returns the first one whose property has a bbox.
 fn property_bbox(
-    entity: &serde_json::Value,
+    entity: &DocAiEntity,
     kinds: &[&str],
     pages_dim: &[(f32, f32, String)],
 ) -> Option<[f32; 4]> {
-    let props = entity["properties"].as_array()?;
     for kind in kinds {
-        for p in props {
-            if p["type"].as_str() == Some(*kind) {
+        for p in &entity.properties {
+            if p.entity_type == *kind {
                 let (_, bbox) = entity_page_and_bbox(p, pages_dim);
                 if bbox.is_some() {
                     return bbox;
@@ -1707,85 +1696,6 @@ fn property_bbox(
     None
 }
 
-fn bbox_from_bounding_poly(
-    poly: &serde_json::Value,
-    page_idx: usize,
-    pages_dim: &[(f32, f32, String)],
-) -> Option<[f32; 4]> {
-    // DocAI prefers `normalizedVertices` (0..1). Older responses use
-    // `vertices` in absolute pixel/point units.
-    if let Some(verts) = poly["normalizedVertices"].as_array() {
-        if verts.is_empty() {
-            return None;
-        }
-        let (w, h) = pages_dim
-            .get(page_idx)
-            .map(|(w, h, _)| (*w, *h))
-            .unwrap_or((1.0, 1.0));
-        let mut x0 = f32::MAX;
-        let mut y0 = f32::MAX;
-        let mut x1 = f32::MIN;
-        let mut y1 = f32::MIN;
-        for v in verts {
-            let x = v["x"].as_f64().unwrap_or(0.0) as f32 * w;
-            let y = v["y"].as_f64().unwrap_or(0.0) as f32 * h;
-            x0 = x0.min(x);
-            y0 = y0.min(y);
-            x1 = x1.max(x);
-            y1 = y1.max(y);
-        }
-        return Some([x0, y0, x1, y1]);
-    }
-    if let Some(verts) = poly["vertices"].as_array() {
-        if verts.is_empty() {
-            return None;
-        }
-        let mut x0 = f32::MAX;
-        let mut y0 = f32::MAX;
-        let mut x1 = f32::MIN;
-        let mut y1 = f32::MIN;
-        for v in verts {
-            let x = v["x"].as_f64().unwrap_or(0.0) as f32;
-            let y = v["y"].as_f64().unwrap_or(0.0) as f32;
-            x0 = x0.min(x);
-            y0 = y0.min(y);
-            x1 = x1.max(x);
-            y1 = y1.max(y);
-        }
-        // `vertices` are in the same unit as the DocAI-reported page
-        // dimension. If pages_dim was sourced from the real PDF (in
-        // points), but DocAI was working at a different DPI, we need to
-        // scale. Detect by checking if the computed extent is much larger
-        // than pages_dim (e.g. 1654 pixels vs 595 points).
-        if let Some((pw, ph, _unit)) = pages_dim.get(page_idx) {
-            let _extent_w = (x1 - x0).max(1.0);
-            let _extent_h = (y1 - y0).max(1.0);
-            // If the raw vertex bbox is wider than the page width in points,
-            // the vertices are in a higher-DPI pixel space. Scale them down.
-            if x1 > *pw * 1.05 || y1 > *ph * 1.05 {
-                // Infer the DPI scale from the raw vertex coordinate range
-                // relative to the real page dimension.
-                let sx = *pw / x1.max(1.0);
-                let sy = *ph / y1.max(1.0);
-                // Use max raw coordinate as a proxy for the full page extent
-                // in pixel space, then scale uniformly.
-                let scale = sx.min(sy);
-                x0 *= scale;
-                y0 *= scale;
-                x1 *= scale;
-                y1 *= scale;
-                tracing::debug!(
-                    "[DocAI] Scaled pixel vertices to points: scale={:.4}, page_pts=({:.0},{:.0})",
-                    scale,
-                    pw,
-                    ph,
-                );
-            }
-        }
-        return Some([x0, y0, x1, y1]);
-    }
-    None
-}
 
 #[cfg(test)]
 mod tests {

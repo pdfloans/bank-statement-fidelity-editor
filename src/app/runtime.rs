@@ -379,6 +379,16 @@ pub enum Job {
     },
 }
 
+impl Job {
+    pub fn is_fast(&self) -> bool {
+        matches!(
+            self,
+            Job::Ping | Job::Undo | Job::Redo | Job::Cancel { .. } | Job::ReloadConfig | Job::CleanupTempFiles
+        )
+    }
+}
+
+
 #[derive(Debug)]
 pub enum JobResult {
     Pong,
@@ -766,19 +776,18 @@ impl Runtime {
         let result_tx_clone = result_tx.clone();
         let python_tx_clone = python_tx.clone();
 
-        let (tokio_job_tx, tokio_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
-
-        spawn_runtime_bridge(job_rx, tokio_job_tx.clone(), result_tx.clone());
-
-        let mut tokio_job_rx = tokio_job_rx;
+        let (fast_job_tx, mut fast_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
+        let (slow_job_tx, mut slow_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
+        
+        spawn_runtime_bridge(job_rx, fast_job_tx.clone(), slow_job_tx.clone(), result_tx.clone());
         let engine_for_tokio = engine.clone();
-        let tokio_job_tx_clone = tokio_job_tx.clone();
+        
         // Hot-swappable config: jobs read the *current* config via a per-iteration
         // snapshot, so an in-app API-key/credentials update (Job::ReloadConfig)
         // takes effect on subsequent jobs without an application restart.
 
         let api_semaphore = Arc::new(tokio::sync::Semaphore::new(3));
-        let _ = tokio_job_tx_clone.send(Job::CleanupTempFiles);
+        let _ = fast_job_tx.send(Job::CleanupTempFiles);
 
         let watchdog_clone = watchdog.clone();
         let tokio_rt_handle = tokio_rt.handle().clone();
@@ -789,19 +798,374 @@ impl Runtime {
             }
         });
 
+        let api_poll_tx = result_tx.clone();
+        
+        // 2-second periodic task for .env hot-reloading
+        let hot_reload_job_tx = fast_job_tx.clone();
+        tokio_rt.spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+            let mut last_modified = std::time::SystemTime::UNIX_EPOCH;
+            
+            loop {
+                interval.tick().await;
+                if let Ok(metadata) = std::fs::metadata(".env") {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified > last_modified {
+                            if last_modified != std::time::SystemTime::UNIX_EPOCH {
+                                tracing::info!("[config] .env file changed. Triggering hot-reload.");
+                                let _ = hot_reload_job_tx.send(Job::ReloadConfig);
+                            }
+                            last_modified = modified;
+                        }
+                    }
+                }
+            }
+        });
+
+        let api_poll_config = config_holder.clone();
+        tokio_rt_handle.spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                let cfg = {
+                    if let Ok(g) = api_poll_config.lock() {
+                        g.clone()
+                    } else {
+                        Arc::new(crate::app::config::AppConfig::default())
+                    }
+                };
+                let report = crate::app::api_verification::verify_all_api_keys(&cfg, false).await;
+                if api_poll_tx.send(JobResult::ApiKeysVerified(report)).is_err() {
+                    break;
+                }
+            }
+        });
+
+        
+        let fast_python_tx_clone = python_tx_clone.clone();
+        let fast_result_tx_clone = result_tx_clone.clone();
+        let fast_engine_for_tokio = engine_for_tokio.clone();
+        let fast_history = history.clone();
+        let fast_audit_log = audit_log.clone();
+        let fast_cancellations_for_loop = cancellations_for_loop.clone();
+        let fast_api_semaphore = api_semaphore.clone();
+        let fast_config_holder = config_holder.clone();
+        let fast_watchdog_clone = watchdog_clone.clone();
+
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
             let mut segment_manager: Option<SegmentManager> = None;
             let fallback_router: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, tokio::sync::oneshot::Sender<String>>>> = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
 
-            while let Some(job) = tokio_job_rx.recv().await {
+            while let Some(job) = slow_job_rx.recv().await {
                 let wdog = watchdog_clone.clone();
-                // Re-snapshot the (possibly hot-reloaded) config for this job.
                 let config_for_tokio: Arc<crate::app::config::AppConfig> = config_holder
                     .lock()
                     .map(|g| g.clone())
                     .unwrap_or_else(|p| p.into_inner().clone());
-                match job {
+                process_job_inner(
+                    job,
+                    python_tx_clone.clone(),
+                    result_tx_clone.clone(),
+                    engine_for_tokio.clone(),
+                    config_for_tokio.clone(),
+                    wdog.clone(),
+                    history.clone(),
+                    audit_log.clone(),
+                    cancellations_for_loop.clone(),
+                    api_semaphore.clone(),
+                    &mut segment_map,
+                    &mut segment_manager,
+                    fallback_router.clone(),
+                    slow_job_tx.clone(),
+                    config_holder.clone(),
+                ).await;
+            }
+        });
+
+        tokio_rt.spawn(async move {
+            let mut segment_map: Option<SegmentMap> = None;
+            let mut segment_manager: Option<SegmentManager> = None;
+            let fallback_router: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, tokio::sync::oneshot::Sender<String>>>> = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+
+            while let Some(job) = fast_job_rx.recv().await {
+                let wdog = fast_watchdog_clone.clone();
+                let config_for_tokio: Arc<crate::app::config::AppConfig> = fast_config_holder
+                    .lock()
+                    .map(|g| g.clone())
+                    .unwrap_or_else(|p| p.into_inner().clone());
+                process_job_inner(
+                    job,
+                    fast_python_tx_clone.clone(),
+                    fast_result_tx_clone.clone(),
+                    fast_engine_for_tokio.clone(),
+                    config_for_tokio.clone(),
+                    wdog.clone(),
+                    fast_history.clone(),
+                    fast_audit_log.clone(),
+                    fast_cancellations_for_loop.clone(),
+                    fast_api_semaphore.clone(),
+                    &mut segment_map,
+                    &mut segment_manager,
+                    fallback_router.clone(),
+                    fast_job_tx.clone(),
+                    fast_config_holder.clone(),
+                ).await;
+            }
+        });;
+
+        (
+            Self {
+                _tokio_rt: tokio_rt,
+                cancellations,
+                watchdog: watchdog_for_gui,
+            },
+            job_tx,
+            result_rx,
+        )
+    }
+}
+
+fn spawn_runtime_bridge(
+    job_rx: mpsc::Receiver<Job>,
+    fast_tx: tokio::sync::mpsc::UnboundedSender<Job>,
+    slow_tx: tokio::sync::mpsc::UnboundedSender<Job>,
+    result_tx: mpsc::Sender<JobResult>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        while let Ok(job) = job_rx.recv() {
+            if job.is_fast() {
+                if fast_tx.send(job).is_err() {
+                    let _ = result_tx.send(JobResult::Error {
+                        job_label: "runtime_bridge".into(),
+                        message: "Tokio worker disconnected".into(),
+                    });
+                    break;
+                }
+            } else {
+                if slow_tx.send(job).is_err() {
+                    let _ = result_tx.send(JobResult::Error {
+                        job_label: "runtime_bridge".into(),
+                        message: "Tokio worker disconnected".into(),
+                    });
+                    break;
+                }
+            }
+        }
+    })
+}
+
+/// Dispatches a Python job to the actor thread.
+/// This function MUST forward directly to avoid recursion through the engine selector.
+fn dispatch_python_job(
+    py_job: PythonJob,
+    reply_tx: oneshot::Sender<PythonJobResult>,
+    python_tx: &mpsc::Sender<(PythonJob, oneshot::Sender<PythonJobResult>)>,
+) {
+    if let Err(e) = python_tx.send((py_job, reply_tx)) {
+        // This means the actor thread has died. Log and let the dropped reply
+        // channel surface the error to the caller (oneshot::recv -> RecvError).
+        tracing::error!("[runtime] python actor channel disconnected: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn cancellation_registry_register_and_cancel_round_trip() {
+        let reg = CancellationRegistry::new();
+        let id = alloc_job_id();
+        let token = reg.register(id);
+        assert_eq!(reg.len(), 1);
+        assert!(!token.is_cancelled());
+
+        let cancelled = reg.cancel(id);
+        assert!(cancelled);
+        assert!(token.is_cancelled());
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn cancellation_registry_complete_removes_without_cancelling() {
+        let reg = CancellationRegistry::new();
+        let id = alloc_job_id();
+        let token = reg.register(id);
+        reg.complete(id);
+        assert_eq!(reg.len(), 0);
+        // Completing should not flip the token's cancelled flag.
+        assert!(!token.is_cancelled());
+    }
+
+    #[test]
+    fn cancellation_registry_unknown_id_is_noop() {
+        let reg = CancellationRegistry::new();
+        assert!(!reg.cancel(99999));
+    }
+
+    #[test]
+    fn cancellation_registry_cancel_all_drains_every_token() {
+        let reg = CancellationRegistry::new();
+        let t1 = reg.register(1);
+        let t2 = reg.register(2);
+        let t3 = reg.register(3);
+        reg.cancel_all();
+        assert_eq!(reg.len(), 0);
+        assert!(t1.is_cancelled());
+        assert!(t2.is_cancelled());
+        assert!(t3.is_cancelled());
+    }
+
+    #[test]
+    fn alloc_job_id_is_strictly_monotonic() {
+        let a = alloc_job_id();
+        let b = alloc_job_id();
+        let c = alloc_job_id();
+        assert!(a < b);
+        assert!(b < c);
+    }
+
+    #[test]
+    fn test_bridge_fail_loud() {
+        let (job_tx, job_rx) = mpsc::channel::<Job>();
+        let (tokio_job_tx, tokio_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
+        let (result_tx, result_rx) = mpsc::channel::<JobResult>();
+        let (watchdog, watchdog_rx) = crate::app::watchdog::Watchdog::new();
+        let watchdog = std::sync::Arc::new(watchdog);
+        let watchdog_for_gui = watchdog.clone();
+
+        // Immediately drop the receiver to simulate disconnect
+        drop(tokio_job_rx);
+
+        let handle = spawn_runtime_bridge(job_rx, tokio_job_tx, result_tx);
+
+        // Send a job
+        let _ = job_tx.send(Job::Ping);
+
+        // Expect error
+        match result_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(JobResult::Error { job_label, message }) => {
+                assert_eq!(job_label, "runtime_bridge");
+                assert!(message.contains("disconnected"));
+            }
+            res => panic!("Expected bridge error, got {res:?}"),
+        }
+
+        if let Err(e) = handle.join() {
+            tracing::error!("Worker thread panicked during shutdown: {:?}", e);
+        }
+
+        // Subsequent send should fail because job_rx is dropped
+        assert!(job_tx.send(Job::Ping).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_python_job_recursion_regression() {
+        // GIVEN: A mock setup that mirrors the Runtime's job loop
+        let (job_tx, mut job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
+        let (python_tx, python_rx) =
+            std::sync::mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
+        let python_tx_clone = python_tx.clone();
+
+        // 1. A selector with PyMuPdfEngine (which sends jobs back to a channel)
+        let (_std_job_tx, std_job_rx) = std::sync::mpsc::channel::<Job>();
+        let job_tx_clone = job_tx.clone();
+        std::thread::spawn(move || {
+            while let Ok(job) = std_job_rx.recv() {
+                let _ = job_tx_clone.send(job);
+            }
+        });
+
+        let _engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
+
+        // 2. The Runtime Job::Python handler (the logic we are testing)
+        let handle = tokio::spawn(async move {
+            while let Some(job) = job_rx.recv().await {
+                if let Job::Python(py_job, reply_tx) = job {
+                    dispatch_python_job(py_job, reply_tx, &python_tx_clone);
+                }
+            }
+        });
+
+        // 3. Trigger a job that would cause recursion in the old version
+        let (reply_tx, _reply_rx) = oneshot::channel();
+        job_tx
+            .send(Job::Python(
+                PythonJob::GetTextBlocks {
+                    pdf_path: "input.pdf".into(),
+                    page_num: 0,
+                },
+                reply_tx,
+            ))
+            .unwrap();
+
+        // WHEN: We wait for the message to land on the Python actor
+        let (received_job, python_rx) = tokio::task::spawn_blocking(move || {
+            let res = python_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Python job should be forwarded to actor");
+            (res.0, python_rx)
+        })
+        .await
+        .unwrap();
+
+        // THEN:
+        // 1. It must be the job we sent
+        assert!(matches!(received_job, PythonJob::GetTextBlocks { .. }));
+
+        // 2. Exactly ONE message must be received by the actor (no recursion)
+        let next_res = python_rx.try_recv();
+        assert!(
+            next_res.is_err(),
+            "Recursion detected: multiple messages sent to Python actor"
+        );
+
+        // Cleanup
+        drop(job_tx);
+        handle.abort();
+    }
+
+    #[test]
+    fn runtime_fallback_branch_prefers_offline_parser_when_online_backends_are_unavailable() {
+        let cfg = crate::app::config::AppConfig {
+            document_ai: None,
+
+            ..crate::app::config::AppConfig::default()
+        };
+
+        let availability = cfg.detect_availability();
+        assert!(!availability.document_ai);
+
+
+        // The runtime should keep the offline parser as the final fallback path
+        // when neither Document AI nor Ocr-as-a-Service is configured.
+        assert!(availability.unavailable_reason("document_ai").is_some());
+        assert!(availability.unavailable_reason("llamaparse").is_some());
+    }
+}
+
+
+#[allow(clippy::too_many_arguments)]
+async fn process_job_inner(
+    job: Job,
+    python_tx_clone: std::sync::mpsc::Sender<(PythonJob, tokio::sync::oneshot::Sender<PythonJobResult>)>,
+    result_tx_clone: std::sync::mpsc::Sender<JobResult>,
+    engine_for_tokio: std::sync::Arc<dyn crate::pdf::PdfEngine>,
+    config_for_tokio: std::sync::Arc<crate::app::config::AppConfig>,
+    wdog: std::sync::Arc<crate::app::watchdog::Watchdog>,
+    history: std::sync::Arc<std::sync::Mutex<crate::engine::history::ChangeHistory>>,
+    audit_log: std::sync::Arc<std::sync::Mutex<crate::app::audit::AuditLog>>,
+    cancellations_for_loop: crate::app::runtime::CancellationRegistry,
+    api_semaphore: std::sync::Arc<tokio::sync::Semaphore>,
+    segment_map: &mut Option<SegmentMap>,
+    segment_manager: &mut Option<SegmentManager>,
+    fallback_router: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, tokio::sync::oneshot::Sender<String>>>>,
+    tokio_job_tx_clone: tokio::sync::mpsc::UnboundedSender<Job>,
+    config_holder: std::sync::Arc<std::sync::Mutex<std::sync::Arc<crate::app::config::AppConfig>>>,
+) {
+    match job {
                     Job::Ping => {
                         let (reply_tx, reply_rx) = oneshot::channel();
                         if python_tx_clone.send((PythonJob::Ping, reply_tx)).is_ok() {
@@ -879,16 +1243,16 @@ impl Runtime {
                         if let Some(mgr) = segment_manager.take() {
                             mgr.cleanup();
                         }
-                        segment_map = None;
+                        *segment_map = None;
 
                         if three_page_mode {
                             match SegmentManager::new() {
                                 Ok(mgr) => {
                                     match mgr.prepare(&path, 3) {
                                         Ok(map) => {
-                                            segment_map = Some(map.clone());
+                                            *segment_map = Some(map.clone());
                                             let total_pages = map.total_pages;
-                                            segment_manager = Some(mgr);
+                                            *segment_manager = Some(mgr);
                                             let _ = result_tx_clone.send(JobResult::DocumentLoaded { layout_json: "[]".into(), total_pages });
                                             let _ = result_tx_clone.send(JobResult::Progress { label: "Done (3-page mode)".into(), fraction: 1.0 });
                                         }
@@ -967,7 +1331,11 @@ impl Runtime {
                                                     .join("font_analysis_cache");
                                                 let _ = std::fs::create_dir_all(&cache_dir);
                                                 let cache_path = cache_dir.join(format!("{hash}.json"));
-                                                let _ = std::fs::write(&cache_path, &json);
+                                                // Atomic file operation: write to .tmp and rename
+                                                let tmp_path = cache_path.with_extension("tmp");
+                                                if std::fs::write(&tmp_path, &json).is_ok() {
+                                                    let _ = std::fs::rename(tmp_path, &cache_path);
+                                                }
                                             }
                                             let _ = res_tx_fonts.send(JobResult::FontAnalysisReady(analysis));
                                         }
@@ -1104,7 +1472,12 @@ impl Runtime {
                                         "Offline" => stats.offline_wins += 1,
                                         _ => {}
                                     }
-                                    let _ = std::fs::write("audit/parser_stats.json", serde_json::to_string_pretty(&stats).unwrap_or_default());
+                                    // Atomic file operation: write to .tmp and rename
+                                    let stats_path = std::path::PathBuf::from("audit/parser_stats.json");
+                                    let tmp_path = stats_path.with_extension("tmp");
+                                    if std::fs::write(&tmp_path, serde_json::to_string_pretty(&stats).unwrap_or_default()).is_ok() {
+                                        let _ = std::fs::rename(tmp_path, &stats_path);
+                                    }
                                     
                                     Some(consensus)
                                 } else {
@@ -5153,226 +5526,5 @@ impl Runtime {
                     }
 
                 }
-            }
-        });
-
-        (
-            Self {
-                _tokio_rt: tokio_rt,
-                cancellations,
-                watchdog: watchdog_for_gui,
-            },
-            job_tx,
-            result_rx,
-        )
-    }
 }
 
-fn spawn_runtime_bridge(
-    job_rx: mpsc::Receiver<Job>,
-    tokio_job_tx: tokio::sync::mpsc::UnboundedSender<Job>,
-    result_tx: mpsc::Sender<JobResult>,
-) -> JoinHandle<()> {
-    thread::spawn(move || {
-        while let Ok(job) = job_rx.recv() {
-            if tokio_job_tx.send(job).is_err() {
-                let _ = result_tx.send(JobResult::Error {
-                    job_label: "runtime_bridge".into(),
-                    message: "Tokio worker disconnected".into(),
-                });
-                break;
-            }
-        }
-    })
-}
-
-/// Dispatches a Python job to the actor thread.
-/// This function MUST forward directly to avoid recursion through the engine selector.
-fn dispatch_python_job(
-    py_job: PythonJob,
-    reply_tx: oneshot::Sender<PythonJobResult>,
-    python_tx: &mpsc::Sender<(PythonJob, oneshot::Sender<PythonJobResult>)>,
-) {
-    if let Err(e) = python_tx.send((py_job, reply_tx)) {
-        // This means the actor thread has died. Log and let the dropped reply
-        // channel surface the error to the caller (oneshot::recv -> RecvError).
-        tracing::error!("[runtime] python actor channel disconnected: {}", e);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn cancellation_registry_register_and_cancel_round_trip() {
-        let reg = CancellationRegistry::new();
-        let id = alloc_job_id();
-        let token = reg.register(id);
-        assert_eq!(reg.len(), 1);
-        assert!(!token.is_cancelled());
-
-        let cancelled = reg.cancel(id);
-        assert!(cancelled);
-        assert!(token.is_cancelled());
-        assert_eq!(reg.len(), 0);
-    }
-
-    #[test]
-    fn cancellation_registry_complete_removes_without_cancelling() {
-        let reg = CancellationRegistry::new();
-        let id = alloc_job_id();
-        let token = reg.register(id);
-        reg.complete(id);
-        assert_eq!(reg.len(), 0);
-        // Completing should not flip the token's cancelled flag.
-        assert!(!token.is_cancelled());
-    }
-
-    #[test]
-    fn cancellation_registry_unknown_id_is_noop() {
-        let reg = CancellationRegistry::new();
-        assert!(!reg.cancel(99999));
-    }
-
-    #[test]
-    fn cancellation_registry_cancel_all_drains_every_token() {
-        let reg = CancellationRegistry::new();
-        let t1 = reg.register(1);
-        let t2 = reg.register(2);
-        let t3 = reg.register(3);
-        reg.cancel_all();
-        assert_eq!(reg.len(), 0);
-        assert!(t1.is_cancelled());
-        assert!(t2.is_cancelled());
-        assert!(t3.is_cancelled());
-    }
-
-    #[test]
-    fn alloc_job_id_is_strictly_monotonic() {
-        let a = alloc_job_id();
-        let b = alloc_job_id();
-        let c = alloc_job_id();
-        assert!(a < b);
-        assert!(b < c);
-    }
-
-    #[test]
-    fn test_bridge_fail_loud() {
-        let (job_tx, job_rx) = mpsc::channel::<Job>();
-        let (tokio_job_tx, tokio_job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
-        let (result_tx, result_rx) = mpsc::channel::<JobResult>();
-        let (watchdog, watchdog_rx) = crate::app::watchdog::Watchdog::new();
-        let watchdog = std::sync::Arc::new(watchdog);
-        let watchdog_for_gui = watchdog.clone();
-
-        // Immediately drop the receiver to simulate disconnect
-        drop(tokio_job_rx);
-
-        let handle = spawn_runtime_bridge(job_rx, tokio_job_tx, result_tx);
-
-        // Send a job
-        let _ = job_tx.send(Job::Ping);
-
-        // Expect error
-        match result_rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(JobResult::Error { job_label, message }) => {
-                assert_eq!(job_label, "runtime_bridge");
-                assert!(message.contains("disconnected"));
-            }
-            res => panic!("Expected bridge error, got {res:?}"),
-        }
-
-        if let Err(e) = handle.join() {
-            tracing::error!("Worker thread panicked during shutdown: {:?}", e);
-        }
-
-        // Subsequent send should fail because job_rx is dropped
-        assert!(job_tx.send(Job::Ping).is_err());
-    }
-
-    #[tokio::test]
-    async fn test_python_job_recursion_regression() {
-        // GIVEN: A mock setup that mirrors the Runtime's job loop
-        let (job_tx, mut job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
-        let (python_tx, python_rx) =
-            std::sync::mpsc::channel::<(PythonJob, oneshot::Sender<PythonJobResult>)>();
-        let python_tx_clone = python_tx.clone();
-
-        // 1. A selector with PyMuPdfEngine (which sends jobs back to a channel)
-        let (_std_job_tx, std_job_rx) = std::sync::mpsc::channel::<Job>();
-        let job_tx_clone = job_tx.clone();
-        std::thread::spawn(move || {
-            while let Ok(job) = std_job_rx.recv() {
-                let _ = job_tx_clone.send(job);
-            }
-        });
-
-        let _engine = Arc::new(crate::pdf::OxidizePdfEngine::new());
-
-        // 2. The Runtime Job::Python handler (the logic we are testing)
-        let handle = tokio::spawn(async move {
-            while let Some(job) = job_rx.recv().await {
-                if let Job::Python(py_job, reply_tx) = job {
-                    dispatch_python_job(py_job, reply_tx, &python_tx_clone);
-                }
-            }
-        });
-
-        // 3. Trigger a job that would cause recursion in the old version
-        let (reply_tx, _reply_rx) = oneshot::channel();
-        job_tx
-            .send(Job::Python(
-                PythonJob::GetTextBlocks {
-                    pdf_path: "input.pdf".into(),
-                    page_num: 0,
-                },
-                reply_tx,
-            ))
-            .unwrap();
-
-        // WHEN: We wait for the message to land on the Python actor
-        let (received_job, python_rx) = tokio::task::spawn_blocking(move || {
-            let res = python_rx
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Python job should be forwarded to actor");
-            (res.0, python_rx)
-        })
-        .await
-        .unwrap();
-
-        // THEN:
-        // 1. It must be the job we sent
-        assert!(matches!(received_job, PythonJob::GetTextBlocks { .. }));
-
-        // 2. Exactly ONE message must be received by the actor (no recursion)
-        let next_res = python_rx.try_recv();
-        assert!(
-            next_res.is_err(),
-            "Recursion detected: multiple messages sent to Python actor"
-        );
-
-        // Cleanup
-        drop(job_tx);
-        handle.abort();
-    }
-
-    #[test]
-    fn runtime_fallback_branch_prefers_offline_parser_when_online_backends_are_unavailable() {
-        let cfg = crate::app::config::AppConfig {
-            document_ai: None,
-
-            ..crate::app::config::AppConfig::default()
-        };
-
-        let availability = cfg.detect_availability();
-        assert!(!availability.document_ai);
-
-
-        // The runtime should keep the offline parser as the final fallback path
-        // when neither Document AI nor Ocr-as-a-Service is configured.
-        assert!(availability.unavailable_reason("document_ai").is_some());
-        assert!(availability.unavailable_reason("llamaparse").is_some());
-    }
-}

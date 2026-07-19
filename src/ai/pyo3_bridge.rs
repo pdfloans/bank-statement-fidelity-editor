@@ -64,7 +64,12 @@ impl PyEngine {
         let result = std::thread::scope(|s| {
             let handle = s.spawn(move || {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-                    match pyo3::Python::try_attach(f) {
+                    match pyo3::Python::try_attach(|py| {
+                        // Create an explicit GILPool to prevent memory leaks from runaway Python objects
+                        // in this OS thread.
+                        let _pool = unsafe { pyo3::marker::GILPool::new(py) };
+                        f(py)
+                    }) {
                         Some(res) => res,
                         None => Err("Failed to attach Python GIL".to_string()),
                     }

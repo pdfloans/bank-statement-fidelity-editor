@@ -24,252 +24,7 @@ use egui_plot::PlotPoints;
 // Theme palette (Catppuccin-inspired) + helpers
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum Theme {
-    #[default]
-    System,
-    Dark,
-    Light,
-    Midnight,
-    Solarized,
-    // Phase 2 - Stage 4: Accessibility Themes
-    HighContrast,
-    Protanopia,
-    Deuteranopia,
-}
-
-pub struct Palette {
-    pub bg: egui::Color32,
-    pub panel: egui::Color32,
-    pub surface: egui::Color32,
-    pub text: egui::Color32,
-    pub weak: egui::Color32,
-    pub accent: egui::Color32,
-    pub success: egui::Color32,
-    pub warn: egui::Color32,
-    pub error: egui::Color32,
-    pub info: egui::Color32,
-}
-
-impl Theme {
-    pub fn palette(self) -> Palette {
-        let resolved = if self == Theme::System {
-            if dark_light::detect().unwrap_or(dark_light::Mode::Dark) == dark_light::Mode::Light {
-                Theme::Light
-            } else {
-                Theme::Midnight
-            }
-        } else {
-            self
-        };
-
-        match resolved {
-            Theme::System => unreachable!(),
-            Theme::Dark => Palette {
-                bg: egui::Color32::from_rgb(22, 24, 30),
-                panel: egui::Color32::from_rgb(28, 30, 38),
-                surface: egui::Color32::from_rgb(36, 38, 46),
-                text: egui::Color32::from_rgb(220, 220, 230),
-                weak: egui::Color32::from_rgb(140, 140, 160),
-                accent: egui::Color32::from_rgb(122, 162, 247),
-                success: egui::Color32::from_rgb(80, 180, 130),
-                warn: egui::Color32::from_rgb(220, 170, 90),
-                error: egui::Color32::from_rgb(220, 90, 90),
-                info: egui::Color32::from_rgb(122, 162, 247),
-            },
-            Theme::Light => Palette {
-                bg: egui::Color32::from_rgb(245, 245, 248),
-                panel: egui::Color32::from_rgb(255, 255, 255),
-                surface: egui::Color32::from_rgb(238, 240, 245),
-                text: egui::Color32::from_rgb(30, 30, 36),
-                weak: egui::Color32::from_rgb(110, 110, 130),
-                accent: egui::Color32::from_rgb(50, 100, 200),
-                success: egui::Color32::from_rgb(20, 130, 80),
-                warn: egui::Color32::from_rgb(180, 130, 30),
-                error: egui::Color32::from_rgb(190, 50, 50),
-                info: egui::Color32::from_rgb(50, 100, 200),
-            },
-            Theme::Midnight => Palette {
-                bg: egui::Color32::from_rgb(10, 10, 12),
-                panel: egui::Color32::from_rgb(18, 18, 22),
-                surface: egui::Color32::from_rgb(26, 26, 32),
-                text: egui::Color32::from_rgb(240, 240, 245),
-                weak: egui::Color32::from_rgb(150, 150, 160),
-                accent: egui::Color32::from_rgb(99, 102, 241), // Indigo 500
-                success: egui::Color32::from_rgb(34, 197, 94), // Green 500
-                warn: egui::Color32::from_rgb(245, 158, 11),   // Amber 500
-                error: egui::Color32::from_rgb(239, 68, 68),   // Red 500
-                info: egui::Color32::from_rgb(56, 189, 248),   // Sky 400
-            },
-            Theme::Solarized => Palette {
-                bg: egui::Color32::from_rgb(253, 246, 227),
-                panel: egui::Color32::from_rgb(238, 232, 213),
-                surface: egui::Color32::from_rgb(255, 255, 255),
-                text: egui::Color32::from_rgb(101, 123, 131),
-                weak: egui::Color32::from_rgb(147, 161, 161),
-                accent: egui::Color32::from_rgb(38, 139, 210),
-                success: egui::Color32::from_rgb(133, 153, 0),
-                warn: egui::Color32::from_rgb(181, 137, 0),
-                error: egui::Color32::from_rgb(220, 50, 47),
-                info: egui::Color32::from_rgb(38, 139, 210),
-            },
-            Theme::HighContrast => Palette {
-                bg: egui::Color32::from_rgb(0, 0, 0),
-                panel: egui::Color32::from_rgb(0, 0, 0),
-                surface: egui::Color32::from_rgb(0, 0, 0),
-                text: egui::Color32::from_rgb(255, 255, 255),
-                weak: egui::Color32::from_rgb(200, 200, 200),
-                accent: egui::Color32::from_rgb(255, 255, 0), // High contrast yellow
-                success: egui::Color32::from_rgb(0, 255, 255), // Cyan
-                warn: egui::Color32::from_rgb(255, 255, 0),   // Yellow
-                error: egui::Color32::from_rgb(255, 50, 50),  // Bright red
-                info: egui::Color32::from_rgb(255, 255, 255), // White
-            },
-            Theme::Protanopia => Palette {
-                bg: egui::Color32::from_rgb(22, 24, 30),
-                panel: egui::Color32::from_rgb(28, 30, 38),
-                surface: egui::Color32::from_rgb(36, 38, 46),
-                text: egui::Color32::from_rgb(220, 220, 230),
-                weak: egui::Color32::from_rgb(140, 140, 160),
-                accent: egui::Color32::from_rgb(100, 140, 255), // Blue (distinguishable)
-                success: egui::Color32::from_rgb(200, 200, 50), // Yellow-ish
-                warn: egui::Color32::from_rgb(255, 200, 50),    // Orange/Yellow
-                error: egui::Color32::from_rgb(150, 100, 255),  // Purple-ish instead of red
-                info: egui::Color32::from_rgb(100, 140, 255),
-            },
-            Theme::Deuteranopia => Palette {
-                bg: egui::Color32::from_rgb(22, 24, 30),
-                panel: egui::Color32::from_rgb(28, 30, 38),
-                surface: egui::Color32::from_rgb(36, 38, 46),
-                text: egui::Color32::from_rgb(220, 220, 230),
-                weak: egui::Color32::from_rgb(140, 140, 160),
-                accent: egui::Color32::from_rgb(100, 140, 255), // Blue
-                success: egui::Color32::from_rgb(200, 200, 50), // Yellow-ish
-                warn: egui::Color32::from_rgb(255, 200, 50),
-                error: egui::Color32::from_rgb(255, 100, 100), // Distinct red
-                info: egui::Color32::from_rgb(100, 140, 255),
-            },
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Theme::System => "System (Auto)",
-            Theme::Dark => "Dark",
-            Theme::Light => "Light",
-            Theme::Midnight => "Midnight",
-            Theme::Solarized => "Solarized",
-            Theme::HighContrast => "High Contrast",
-            Theme::Protanopia => "Protanopia",
-            Theme::Deuteranopia => "Deuteranopia",
-        }
-    }
-
-    fn apply(self, ctx: &egui::Context) {
-        let p = self.palette();
-
-        let resolved = if self == Theme::System {
-            if dark_light::detect().unwrap_or(dark_light::Mode::Dark) == dark_light::Mode::Light {
-                Theme::Light
-            } else {
-                Theme::Midnight
-            }
-        } else {
-            self
-        };
-
-        let mut visuals = if matches!(resolved, Theme::Dark | Theme::Midnight) {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        };
-
-        // Premium Pro-Suite Aesthetics (sleeker, less bubbly)
-        visuals.window_rounding = egui::Rounding::same(12.0);
-        visuals.menu_rounding = egui::Rounding::same(8.0);
-        visuals.window_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 20.0),
-            blur: 40.0,
-            spread: 0.0,
-            color: egui::Color32::from_black_alpha(150),
-        };
-        visuals.popup_shadow = egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 8.0),
-            blur: 16.0,
-            spread: 0.0,
-            color: egui::Color32::from_black_alpha(120),
-        };
-
-        visuals.panel_fill = p.panel;
-        visuals.window_fill = p.panel;
-        visuals.extreme_bg_color = p.bg;
-        visuals.faint_bg_color = p.surface;
-
-        // Ultra-sleek widget definitions
-        visuals.widgets.noninteractive.bg_fill = p.surface;
-        visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
-        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, p.text);
-
-        visuals.widgets.inactive.bg_fill = p.surface;
-        visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
-        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, p.text);
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-
-        // Hover state (subtle glow and slight outline)
-        visuals.widgets.hovered.bg_fill = p.surface.linear_multiply(1.3);
-        visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, p.weak.linear_multiply(0.5));
-        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, p.text.linear_multiply(1.2));
-
-        // Active state (pressed)
-        visuals.widgets.active.bg_fill = p.accent.linear_multiply(0.8);
-        visuals.widgets.active.rounding = egui::Rounding::same(8.0);
-        visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, p.accent);
-        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.2, egui::Color32::WHITE);
-
-        visuals.hyperlink_color = p.accent;
-        visuals.selection.bg_fill = p.accent.linear_multiply(0.3);
-        visuals.selection.stroke.color = p.accent;
-        visuals.warn_fg_color = p.warn;
-        visuals.error_fg_color = p.error;
-
-        ctx.set_visuals(visuals);
-
-        // Global style and premium typography tweaks
-        let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(12.0, 10.0);
-        style.spacing.button_padding = egui::vec2(16.0, 8.0);
-        style.spacing.window_margin = egui::Margin::same(16.0);
-        style.spacing.menu_margin = egui::Margin::same(8.0);
-
-        // Slightly thicker scrollbars for better visibility
-        style.spacing.scroll.bar_width = 10.0;
-        style.spacing.scroll.bar_inner_margin = 2.0;
-        style.spacing.scroll.bar_outer_margin = 2.0;
-
-        style.text_styles.insert(
-            egui::TextStyle::Heading,
-            egui::FontId::new(22.0, egui::FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Body,
-            egui::FontId::new(14.0, egui::FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Button,
-            egui::FontId::new(14.0, egui::FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Small,
-            egui::FontId::new(12.0, egui::FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Monospace,
-            egui::FontId::new(13.0, egui::FontFamily::Monospace),
-        );
-        ctx.set_style(style);
-    }
-}
+pub use crate::app::theme::{Theme, Palette};
 
 // ---------------------------------------------------------------------------
 // Persistent settings
@@ -350,7 +105,7 @@ impl Default for AppSettings {
         Self {
             recent_files: Vec::new(),
             dark_mode: true,
-            theme: Theme::Midnight,
+            theme: Theme::ForensicDark,
             auto_save: true,
             default_dpi: 300.0,
             auto_match_dpi: false,
@@ -426,6 +181,20 @@ pub enum AppView {
     SingleDocument,
     BatchProcessing,
     AuditExplorer,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ActiveModal {
+    #[default]
+    None,
+    DiscardDraftConfirm,
+    WorkflowHitl,
+    Settings,
+    CommandPalette,
+    Transfer,
+    Feedback,
+    DateAdjust,
+    TransferTest,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -517,20 +286,14 @@ pub struct MyApp {
     font_analysis: Option<crate::engine::font_analysis::FontAnalysis>,
     /// Stage 13 / Item #12: pending modal confirmations. Each entry is
     /// (title, body, on_confirm action).
-    pub show_discard_draft_confirm: bool,
-    pub show_workflow_hitl_modal: bool,
-    pub show_settings_modal: bool,
-    pub show_command_palette: bool,
+    pub active_modal: ActiveModal,
     pub command_query: String,
-    pub show_transfer_dialog: bool,
     pub transfer_source_path: String,
     // Feedback modal state
-    pub show_feedback_modal: bool,
     pub feedback_text: String,
     pub feedback_include_logs: bool,
     pub feedback_include_audit: bool,
     // Date Adjust dialog state
-    pub show_date_adjust_dialog: bool,
     pub date_adjust_shift_days: String,
     pub date_adjust_mode_shift: bool, // true = shift, false = remap
     pub date_adjust_from: String,
@@ -541,13 +304,16 @@ pub struct MyApp {
     pub pending_interactive_fallback:
         Option<crate::engine::interactive_fallback::InteractiveFallbackRequest>,
     // Transfer Test dialog state
-    pub show_transfer_test_dialog: bool,
     pub transfer_test_paths: Vec<String>,
     pub transfer_test_report: Option<crate::engine::transfer_test_harness::TestHarnessReport>,
     /// Stage 12 / Item #3: history of cascade invocations during the
     /// current workflow attempt. Reset on a new workflow start; appended
     /// to whenever the runtime reports `JobResult::FontCascadeUsed`.
     font_cascade_reports: Vec<crate::engine::font_analysis::FontCascadeReport>,
+
+    // Telemetry
+    pub telemetry_cpu: f32,
+    pub telemetry_ram_mb: u64,
 
     /// True when in-memory workflow state has changed since the last
     /// autosave to `audit/workflow.json`. Set whenever
@@ -677,7 +443,6 @@ impl MyApp {
             job_rx,
             pending_python: None,
             last_render_request: None,
-            show_command_palette: false,
             command_query: String::new(),
             workflow_stage: crate::engine::workflow::WorkflowStage::Idle,
             workflow_transactions: Vec::new(),
@@ -692,25 +457,21 @@ impl MyApp {
             native_engine: None,
             font_analysis: None,
             font_cascade_reports: Vec::new(),
-            show_discard_draft_confirm: false,
-            show_workflow_hitl_modal: false,
-            show_settings_modal: false,
-            show_transfer_dialog: false,
+            active_modal: ActiveModal::None,
             transfer_source_path: String::new(),
-            show_feedback_modal: false,
             feedback_text: String::new(),
             feedback_include_logs: true,
             feedback_include_audit: true,
-            show_date_adjust_dialog: false,
             date_adjust_shift_days: "0".to_string(),
             date_adjust_mode_shift: true,
             date_adjust_from: String::new(),
             date_adjust_to: String::new(),
             pending_ai_confirmations: Vec::new(),
             pending_interactive_fallback: None,
-            show_transfer_test_dialog: false,
             transfer_test_paths: Vec::new(),
             transfer_test_report: None,
+            telemetry_cpu: 0.0,
+            telemetry_ram_mb: 0,
             workflow_dirty: false,
             workflow_last_save: None,
             workflow_input_hash: None,
@@ -1603,7 +1364,7 @@ impl MyApp {
         match res {
             JobResult::WatchdogEvent(event) => {
                 match event {
-                    crate::app::watchdog::WatchdogEvent::StallDetected(timeout) => {
+                    crate::app::watchdog::WatchdogEvent::StallDetected(_timeout) => {
                         self.stuck_detection = Some(std::time::Instant::now());
                     }
                     crate::app::watchdog::WatchdogEvent::FallbackTriggered => {
@@ -1613,6 +1374,10 @@ impl MyApp {
                     }
                     crate::app::watchdog::WatchdogEvent::Recovered => {
                         self.stuck_detection = None;
+                    }
+                    crate::app::watchdog::WatchdogEvent::Telemetry { cpu_usage, ram_mb } => {
+                        self.telemetry_cpu = cpu_usage;
+                        self.telemetry_ram_mb = ram_mb;
                     }
                 }
             }
@@ -1913,7 +1678,7 @@ impl MyApp {
                     }
                     | crate::engine::workflow::WorkflowStage::FontCoverageWarning { .. }
                     | crate::engine::workflow::WorkflowStage::OfflineFallbackWarning => {
-                        self.show_workflow_hitl_modal = true;
+                        self.active_modal = ActiveModal::WorkflowHitl;
                     }
                     _ => {}
                 }
@@ -1922,7 +1687,7 @@ impl MyApp {
                 let stage = crate::engine::workflow::WorkflowStage::VisualComparisonActive { images };
                 self.status = format!("Workflow: {}", stage.label());
                 self.workflow_stage = stage;
-                self.show_workflow_hitl_modal = true;
+                self.active_modal = ActiveModal::WorkflowHitl;
             }
             JobResult::WorkflowParseValidated {
                 validation,
@@ -2336,7 +2101,7 @@ impl MyApp {
                     );
                     if opacity > 0.1 {
                         ui.label(
-                            egui::RichText::new("Antigravity\nFidelity Engine")
+                            egui::RichText::new("Antigravity\nStatement Forensics")
                                 .size(12.0)
                                 .color(ui.visuals().text_color().linear_multiply(0.4 * opacity)),
                         );
@@ -2496,8 +2261,8 @@ impl MyApp {
 
                     // Add Report Bug button to the far right
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🐛 Report Bug").clicked() {
-                            self.show_feedback_modal = true;
+                        if ui.button("🐛 Submit Diagnostics").clicked() {
+                            self.active_modal = ActiveModal::Feedback;
                         }
                     });
                 });
@@ -2523,7 +2288,7 @@ impl MyApp {
             .resizable(false)
             .show(ctx, |ui| {
                 ui.add_space(10.0);
-                ui.heading(egui::RichText::new("Editing Toolbox").strong());
+                ui.heading(egui::RichText::new("Statement Forensics & Editing").strong());
                 ui.add_space(24.0);
 
                 if let Some(block) = self.selected_block.clone() {
@@ -2660,15 +2425,14 @@ impl MyApp {
 
     fn draw_transfer_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("⇄ Transfer Transactions Workspace");
+            ui.heading("⇄ Cross-Ledger Migration Engine");
             ui.add_space(20.0);
 
-            ui.horizontal(|ui| {
+            ui.columns(2, |columns| {
                 // Source Dropzone
-                ui.group(|ui| {
-                    ui.set_min_width((ui.available_width() / 2.0) - 10.0);
+                columns[0].group(|ui| {
                     ui.vertical_centered(|ui| {
-                        ui.heading("Source Statement");
+                        ui.heading("Source Ledger");
                         ui.label("Transactions will be extracted from this document.");
                         ui.add_space(10.0);
                         if ui
@@ -2699,10 +2463,9 @@ impl MyApp {
                 });
 
                 // Target Dropzone
-                ui.group(|ui| {
-                    ui.set_min_width(ui.available_width());
+                columns[1].group(|ui| {
                     ui.vertical_centered(|ui| {
-                        ui.heading("Target Statement");
+                        ui.heading("Destination Ledger");
                         ui.label("Transactions will be injected into this document.");
                         ui.add_space(10.0);
                         if ui
@@ -2741,15 +2504,32 @@ impl MyApp {
                     && !self.input_path.is_empty()
                     && self.input_path != "examples/sample.pdf";
 
-                let btn = egui::Button::new("⚡ Execute Complete Transfer")
-                    .min_size(egui::vec2(400.0, 60.0))
-                    .fill(if can_transfer {
-                        egui::Color32::from_rgb(0, 120, 0)
-                    } else {
-                        egui::Color32::DARK_GRAY
-                    });
+                let btn_id = ui.id().with("exec_transfer_btn");
+                let hovered = ui.ctx().data(|d| d.get_temp::<bool>(btn_id)).unwrap_or(false);
+                let anim = ui.ctx().animate_bool_with_time(btn_id, hovered, 0.15);
+                let expand_w = anim * 15.0;
+                let expand_h = anim * 6.0;
 
-                if ui.add_enabled(can_transfer, btn).clicked() {
+                let bg_color = if can_transfer {
+                    egui::Color32::from_rgb(0, 120 + (anim * 40.0) as u8, 0)
+                } else {
+                    egui::Color32::DARK_GRAY
+                };
+
+                let btn = egui::Button::new(
+                    egui::RichText::new("⚡ Execute Complete Transfer")
+                        .size(16.0 + (anim * 1.5))
+                )
+                .min_size(egui::vec2(400.0 + expand_w, 60.0 + expand_h))
+                .fill(bg_color);
+
+                let response = ui.add_enabled(can_transfer, btn);
+                if response.hovered() != hovered {
+                    ui.ctx().data_mut(|d| d.insert_temp(btn_id, response.hovered()));
+                    ui.ctx().request_repaint();
+                }
+
+                if response.clicked() {
                     self.toast(
                         ToastKind::Info,
                         "Initiating Cross-Document Transaction Transfer...",
@@ -2798,7 +2578,7 @@ impl MyApp {
 
     fn draw_settings_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("⚙ï¸  Global Application Settings");
+            ui.heading("⚙️ System Configuration & Integrations");
             ui.separator();
             ui.add_space(10.0);
 
@@ -2810,17 +2590,8 @@ impl MyApp {
                         egui::ComboBox::from_id_salt("theme_selector")
                             .selected_text(format!("{:?}", self.settings.theme))
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.settings.theme, Theme::Dark, "Dark");
-                                ui.selectable_value(
-                                    &mut self.settings.theme,
-                                    Theme::Light,
-                                    "Light",
-                                );
-                                ui.selectable_value(
-                                    &mut self.settings.theme,
-                                    Theme::Midnight,
-                                    "Midnight",
-                                );
+                                ui.selectable_value(&mut self.settings.theme, Theme::ForensicDark, "Forensic Terminal (Dark)");
+                                ui.selectable_value(&mut self.settings.theme, Theme::ForensicLight, "Laboratory (Light)");
                             });
                     });
 
@@ -2905,10 +2676,40 @@ impl MyApp {
                 ui.small(format!("DPI: {:.0}", self.current_page_dpi));
                 ui.separator();
                 ui.small(format!("Zoom: {:.0}%", self.zoom_factor * 100.0));
-                if let Some(w) = &self.last_warning {
+                // Telemetry Footer (Aligned Right)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(w) = &self.last_warning {
+                        ui.colored_label(egui::Color32::YELLOW, format!("⚠ {w}"));
+                        ui.separator();
+                    }
+
+                    ui.small(format!("RAM: {} MB", self.telemetry_ram_mb));
                     ui.separator();
-                    ui.colored_label(egui::Color32::YELLOW, format!("⚠ {w}"));
-                }
+                    
+                    let cpu_color = if self.telemetry_cpu > 80.0 {
+                        egui::Color32::from_rgb(255, 80, 80)
+                    } else if self.telemetry_cpu > 40.0 {
+                        egui::Color32::YELLOW
+                    } else {
+                        egui::Color32::LIGHT_GREEN
+                    };
+                    ui.colored_label(cpu_color, format!("CPU: {:.1}%", self.telemetry_cpu));
+                    ui.separator();
+                    
+                    let engine_state = if self.stuck_detection.is_some() {
+                        "STALLED"
+                    } else if self.in_flight > 0 {
+                        "BUSY"
+                    } else {
+                        "IDLE"
+                    };
+                    let engine_color = match engine_state {
+                        "STALLED" => egui::Color32::from_rgb(255, 80, 80),
+                        "BUSY" => egui::Color32::YELLOW,
+                        _ => egui::Color32::LIGHT_GREEN,
+                    };
+                    ui.colored_label(engine_color, format!("ENG: {}", engine_state));
+                });
             });
         });
     }
@@ -2952,7 +2753,7 @@ impl MyApp {
                     });
 
                 ui.separator();
-                ui.heading("Targeted Edit");
+                ui.heading("Precision Content Editor");
                 if let Some(block) = self.selected_block.clone() {
                     ui.small(format!(
                         "Font: {}",
@@ -3723,27 +3524,45 @@ impl MyApp {
             let deep_eta = 5 + edit_count * 3;
             ui.label("3. Finalize Edits:");
             ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(
-                        confirm_enabled,
-                        egui::Button::new(format!("🎯 Perform Pro Edit • ~{deep_eta}s")),
-                    )
-                    .on_hover_text(
-                        "High-fidelity PyMuPDF Pro apply with deep font replication. Slower, maximum visual fidelity.",
-                    )
-                    .clicked()
-                {
+                let pro_btn_id = ui.id().with("pro_edit_btn");
+                let hovered_pro = ui.ctx().data(|d| d.get_temp::<bool>(pro_btn_id)).unwrap_or(false);
+                let anim_pro = ui.ctx().animate_bool_with_time(pro_btn_id, hovered_pro, 0.15);
+                
+                let pro_btn = egui::Button::new(
+                    egui::RichText::new(format!("🎯 Perform Pro Edit • ~{deep_eta}s"))
+                        .size(14.0 + anim_pro)
+                ).fill(egui::Color32::from_rgb((20.0 * anim_pro) as u8, 80 + (anim_pro * 40.0) as u8, (40.0 * anim_pro) as u8));
+                
+                let resp_pro = ui.add_enabled(confirm_enabled, pro_btn)
+                    .on_hover_text("High-fidelity PyMuPDF Pro apply with deep font replication.");
+                    
+                if resp_pro.hovered() != hovered_pro {
+                    ui.ctx().data_mut(|d| d.insert_temp(pro_btn_id, resp_pro.hovered()));
+                    ui.ctx().request_repaint();
+                }
+
+                if resp_pro.clicked() {
                     self.dispatch_confirm_and_render(true, false);
                 }
                 
-                if ui
-                    .add_enabled(
-                        confirm_enabled,
-                        egui::Button::new("🤖 Verify with AI"),
-                    )
-                    .on_hover_text("Cross-check the edits and layout with Gemini Vision before finalizing.")
-                    .clicked()
-                {
+                let ai_btn_id = ui.id().with("verify_ai_btn");
+                let hovered_ai = ui.ctx().data(|d| d.get_temp::<bool>(ai_btn_id)).unwrap_or(false);
+                let anim_ai = ui.ctx().animate_bool_with_time(ai_btn_id, hovered_ai, 0.15);
+                
+                let ai_btn = egui::Button::new(
+                    egui::RichText::new("🤖 Verify with AI")
+                        .size(14.0 + anim_ai)
+                ).fill(egui::Color32::from_rgb((80.0 * anim_ai) as u8, (30.0 * anim_ai) as u8, 120 + (anim_ai * 40.0) as u8));
+                
+                let resp_ai = ui.add_enabled(confirm_enabled, ai_btn)
+                    .on_hover_text("Cross-check the edits and layout with Gemini Vision before finalizing.");
+                    
+                if resp_ai.hovered() != hovered_ai {
+                    ui.ctx().data_mut(|d| d.insert_temp(ai_btn_id, resp_ai.hovered()));
+                    ui.ctx().request_repaint();
+                }
+
+                if resp_ai.clicked() {
                     self.toast(ToastKind::Info, "Dispatching AI verification...");
                     // We can dispatch a Job::Verify (or similar) here, but for now we'll trigger a background verification via AI.
                     let input = PathBuf::from(&self.input_path);
@@ -4436,12 +4255,12 @@ impl MyApp {
 
                                     ui.add_space(8.0);
                                     if ui.add(egui::Button::new(egui::RichText::new("📅 Dates").color(p.text)).fill(p.bg).rounding(8.0).min_size(egui::vec2(80.0, 36.0))).on_hover_text("Adjust all transaction dates").clicked() {
-                                        self.show_date_adjust_dialog = true;
+                                        self.active_modal = ActiveModal::DateAdjust;
                                     }
 
                                     ui.add_space(8.0);
                                     if ui.add(egui::Button::new(egui::RichText::new("🔄 Transfer").color(p.text)).fill(p.bg).rounding(8.0).min_size(egui::vec2(90.0, 36.0))).on_hover_text("Transfer from another PDF").clicked() {
-                                        self.show_transfer_dialog = true;
+                                        self.active_modal = ActiveModal::Transfer;
                                     }
                                 });
                             });
@@ -4562,7 +4381,7 @@ impl MyApp {
 
                 // Title
                 ui.label(
-                    egui::RichText::new("Antigravity Fidelity Engine")
+                    egui::RichText::new("Antigravity Statement Forensics")
                         .size(26.0)
                         .strong()
                         .color(p.text),
@@ -4572,7 +4391,7 @@ impl MyApp {
 
                 // Subtitle
                 ui.label(
-                    egui::RichText::new("Advanced Bank Statement Processing & AI Validation")
+                    egui::RichText::new("High-Fidelity Ledger Processing & AI-Driven Reconciliation")
                         .size(14.0)
                         .color(p.weak),
                 );
@@ -4581,7 +4400,7 @@ impl MyApp {
 
                 // Primary Action Button
                 let btn = egui::Button::new(
-                    egui::RichText::new("📥   Open a Document to Begin")
+                    egui::RichText::new("⊕ Initialize Workspace Session")
                         .size(16.0)
                         .strong()
                         .color(p.bg),
@@ -4618,7 +4437,7 @@ impl MyApp {
                     ui.add_space(70.0); // Center the secondary actions
                     if ui
                         .button(
-                            egui::RichText::new("▶ Resume Session")
+                            egui::RichText::new("⟲ Restore Previous Session")
                                 .size(13.0)
                                 .color(p.text),
                         )
@@ -4645,7 +4464,7 @@ impl MyApp {
                     ui.add_space(10.0);
                     if ui
                         .button(
-                            egui::RichText::new("📝 Load Draft")
+                            egui::RichText::new("📝 Recover Editing Draft")
                                 .size(13.0)
                                 .color(p.text),
                         )
@@ -4777,10 +4596,10 @@ impl MyApp {
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
         if escape {
-            self.show_settings_modal = false;
-            self.show_transfer_dialog = false;
-            self.show_date_adjust_dialog = false;
-            self.show_transfer_test_dialog = false;
+            self.active_modal = ActiveModal::None;
+            self.active_modal = ActiveModal::None;
+            self.active_modal = ActiveModal::None;
+            self.active_modal = ActiveModal::None;
         }
 
         if ctrl_o {

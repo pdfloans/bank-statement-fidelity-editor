@@ -206,11 +206,21 @@ pub fn auto_correct_final_balance_smart(
     // If neither, default to debit.
     let old_debit = target_tx.debit.unwrap_or(Decimal::ZERO);
     let old_credit = target_tx.credit.unwrap_or(Decimal::ZERO);
+    let net = old_debit - old_credit + discrepancy;
 
-    if old_credit > Decimal::ZERO && old_debit == Decimal::ZERO {
-        target_tx.credit = Some(old_credit - discrepancy);
+    // Advanced mathematical reconciliation: prevent negative amounts
+    // and seamlessly cross the zero boundary if a credit becomes a debit
+    // or vice versa due to severe OCR sign flips.
+    if net > Decimal::ZERO {
+        target_tx.debit = Some(net);
+        target_tx.credit = None;
+    } else if net < Decimal::ZERO {
+        target_tx.credit = Some(-net);
+        target_tx.debit = None;
     } else {
-        target_tx.debit = Some(old_debit + discrepancy);
+        // Exactly zero net delta - keep it empty
+        target_tx.debit = None;
+        target_tx.credit = None;
     }
 
     // Now recalculate the entire ledger with the patched transaction.
