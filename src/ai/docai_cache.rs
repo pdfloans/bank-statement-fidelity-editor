@@ -197,9 +197,9 @@ mod tests {
     use crate::engine::model::{Provenance, Transaction};
     use tempfile::tempdir;
 
-    fn sample_statement() -> BankStatement {
+    fn sample_statement() -> BankStatement { bank_name: None,
         use rust_decimal_macros::dec;
-        BankStatement {
+        BankStatement { bank_name: None,
             total_pages: 1,
             transactions: vec![Transaction {
                 page: 0,
@@ -211,8 +211,8 @@ mod tests {
                 running_balance: Some(dec!(150.00)),
                 bbox: None,
                 field_bboxes: Default::default(),
-                provenance: Provenance::DocumentAI { confidence: 0.95 },
-            }],
+                provenance: Provenance::DocumentAI { confidence: 0.95 }, category: None,
+             category: None, }],
             opening_balance: dec!(100.00),
             closing_balance: dec!(150.00),
             account_number: Some("12345".into()),

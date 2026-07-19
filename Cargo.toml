@@ -40,7 +40,7 @@ dotenvy = "0.15"
 egui = "0.30"                    # Simple, fast, pure-Rust GUI (best for 2026 alpha)
 eframe = "0.30"                  # egui backend for native window
 thiserror = "1.0"                  # Excellent error handling (used in balance_engine + text_editor)
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "signal"] }
 tokio-util = "0.7"
 futures-util = "0.3"
 base64 = "0.22"

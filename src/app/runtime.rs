@@ -862,7 +862,7 @@ impl Runtime {
         let fast_watchdog_clone = watchdog_clone.clone();
 
         let parse_cache = std::sync::Arc::new(tokio::sync::Mutex::new(
-            lru::LruCache::<String, crate::engine::model::BankStatement>::new(std::num::NonZeroUsize::new(20).unwrap())
+            lru::LruCache::<String, crate::ai::document_ai::BankStatement>::new(std::num::NonZeroUsize::new(20).unwrap())
         ));
         let fast_parse_cache = parse_cache.clone();
 
@@ -1009,6 +1009,7 @@ fn dispatch_python_job(
 mod tests {
     use super::*;
     use std::time::Duration;
+    use crate::app::config::AppConfig;
 
     #[test]
     fn cancellation_registry_register_and_cancel_round_trip() {
@@ -1075,7 +1076,7 @@ mod tests {
         // Immediately drop the receiver to simulate disconnect
         drop(tokio_job_rx);
 
-        let handle = spawn_runtime_bridge(job_rx, tokio_job_tx, result_tx);
+        let handle = spawn_runtime_bridge(job_rx, tokio_job_tx.clone(), tokio_job_tx, result_tx);
 
         // Send a job
         let _ = job_tx.send(Job::Ping);
@@ -1196,7 +1197,7 @@ async fn process_job_inner(
     segment_map: &mut Option<SegmentMap>,
     segment_manager: &mut Option<SegmentManager>,
     fallback_router: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, tokio::sync::oneshot::Sender<String>>>>,
-    parse_cache: std::sync::Arc<tokio::sync::Mutex<lru::LruCache<String, crate::engine::model::BankStatement>>>,
+    parse_cache: std::sync::Arc<tokio::sync::Mutex<lru::LruCache<String, crate::ai::document_ai::BankStatement>>>,
     tokio_job_tx_clone: tokio::sync::mpsc::UnboundedSender<Job>,
     config_holder: std::sync::Arc<std::sync::Mutex<std::sync::Arc<crate::app::config::AppConfig>>>,
 ) {
@@ -1436,7 +1437,7 @@ async fn process_job_inner(
                                     let p = pdf_path.clone();
                                     let wdog_docai = wdog.clone();
                                     tasks.push(tokio::spawn(async move {
-                                        ("DocAI", crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&p, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog_docai).await.ok())
+                                        ("DocAI", crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&p, None::<&str>).await.map_err(anyhow::Error::from) }, wdog_docai).await.ok())
                                     }));
                                 }
                                 
@@ -1445,7 +1446,7 @@ async fn process_job_inner(
                                     let p = pdf_path.clone();
                                     let wdog_llama = wdog.clone();
                                     tasks.push(tokio::spawn(async move {
-                                        ("LlamaParse", crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { llama.parse_statement(&p).await.map_err(|e| anyhow::anyhow!(e)) }, wdog_llama).await.ok())
+                                        ("LlamaParse", crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { llama.parse_statement(&p).await.map_err(anyhow::Error::from) }, wdog_llama).await.ok())
                                     }));
                                 }
                                 
@@ -1459,7 +1460,7 @@ async fn process_job_inner(
                                 }));
                                 
                                 let results = futures_util::future::join_all(tasks).await;
-                                let mut statements = Vec::new();
+                                let mut statements: Vec<(&str, crate::ai::document_ai::BankStatement)> = Vec::new();
                                 for res in results {
                                     if let Ok((name, Some(s))) = res {
                                         statements.push((name, s));
@@ -1687,7 +1688,7 @@ async fn process_job_inner(
                                         credit: src.credit,
                                         running_balance: rust_decimal::Decimal::ZERO,
                                         field_bboxes: crate::engine::model::FieldBboxes::default(),
-                                     category: None, });
+                                     });
                                 }
                                 if skipped_invalid > 0 {
                                     tracing::warn!("[TRANSFER] Skipped {} mappings with invalid source_index", skipped_invalid);
@@ -2086,7 +2087,8 @@ async fn process_job_inner(
                                         bbox: None,
                                         field_bboxes: crate::engine::model::FieldBboxes::default(),
                                         provenance: crate::engine::model::Provenance::Computed,
-                                     category: None, }
+                                        category: None,
+                                     }
                                 }).collect();
 
                                 let vis_result = crate::engine::verification::verify_edit(
@@ -2169,7 +2171,7 @@ async fn process_job_inner(
                                 let mut math_err_msg = String::new();
 
                                 let reparsed_stmt = if let Some(ref doc_ai) = doc_ai_opt {
-                                    match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&output_pdf, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
+                                    match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&output_pdf, None::<&str>).await.map_err(anyhow::Error::from) }, wdog.clone()).await {
                                         Ok(s) => Ok(s),
                                         Err(e) => {
                                             tracing::warn!("[TRANSFER] DocAI target reparsing failed, trying offline: {e}");
@@ -2385,8 +2387,8 @@ async fn process_job_inner(
                             // Parse the statement — try Document AI, fall back to offline parser.
                             let stmt = match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                 Ok(c) => {
-                                    let doc_ai = std::sync::Arc::new(c);
-                                    match doc_ai.parse_entire_statement(&input, None).await {
+                                    let doc_ai: std::sync::Arc<crate::ai::document_ai::DocumentAiClient> = std::sync::Arc::new(c);
+                                    match doc_ai.parse_entire_statement(&input, None::<&str>).await {
                                         Ok(s) => s,
                                         Err(e) => {
                                             tracing::warn!("[adjust_dates] Document AI parse failed, falling back to offline parser: {e}");
@@ -2632,7 +2634,7 @@ async fn process_job_inner(
 
                                 // Parse both statements — DocAI with offline fallback
                                 let source_stmt = if let Some(ref doc_ai) = doc_ai_opt {
-                                    match doc_ai.parse_entire_statement(source, None).await {
+                                    match doc_ai.parse_entire_statement(source, None::<&str>).await {
                                         Ok(s) => s,
                                         Err(_e) => {
                                             // DocAI failed, try offline
@@ -2677,7 +2679,7 @@ async fn process_job_inner(
                                     }
                                 };
                                 let target_stmt = if let Some(ref doc_ai) = doc_ai_opt {
-                                    match doc_ai.parse_entire_statement(target, None).await {
+                                    match doc_ai.parse_entire_statement(target, None::<&str>).await {
                                         Ok(s) => s,
                                         Err(_e) => {
                                             let eng_clone = engine_for_tokio.clone();
@@ -2752,7 +2754,7 @@ async fn process_job_inner(
                                             credit: src.credit,
                                             running_balance: rust_decimal::Decimal::ZERO,
                                             field_bboxes: Default::default(),
-                                         category: None, }
+                                         }
                                     }).collect();
                                     crate::engine::transfer::recompute_running_balances(opening, &mut mapped);
 
@@ -3313,7 +3315,7 @@ async fn process_job_inner(
                             if final_txs.is_none() {
                                 let _ = res_tx.send(JobResult::Progress { label: "Extracting with LlamaParse...".to_string(), fraction: 0.1 });
                                 if let Ok(client) = crate::ai::llamaparse::LlamaParseClient::from_app_config(&cfg) {
-                                    match crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { client.parse_statement(&path).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
+                                    match crate::engine::pro_edit::perform_pro_edit("LlamaParse", async { client.parse_statement(&path).await.map_err(anyhow::Error::from) }, wdog.clone()).await {
                                         Ok(stmt) => final_txs = Some(stmt.transactions),
                                         Err(e) => tracing::warn!("[extract] LlamaParse failed: {}", e),
                                     }
@@ -3324,8 +3326,8 @@ async fn process_job_inner(
                             if final_txs.is_none() {
                                 let _ = res_tx.send(JobResult::Progress { label: "Extracting with Document AI...".to_string(), fraction: 0.15 });
                                 if let Ok(client) = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
-                                    let doc_ai = Arc::new(client);
-                                    match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&path, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog.clone()).await {
+                                    let doc_ai: std::sync::Arc<crate::ai::document_ai::DocumentAiClient> = Arc::new(client);
+                                    match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&path, None::<&str>).await.map_err(anyhow::Error::from) }, wdog.clone()).await {
                                         Ok(stmt) => final_txs = Some(stmt.transactions),
                                         Err(e) => tracing::warn!("[extract] Document AI failed: {}", e),
                                     }
@@ -3376,7 +3378,7 @@ async fn process_job_inner(
                                 }
                             };
 
-                            let mut full_stmt = crate::engine::model::BankStatement::default();
+                            let mut full_stmt = crate::ai::document_ai::BankStatement::default();
                             full_stmt.transactions = report.transactions.clone();
                             {
                                 let mut cache = cache_for_job.lock().await;
@@ -4164,7 +4166,8 @@ async fn process_job_inner(
                                             bbox: r.bbox,
                                             field_bboxes: Default::default(),
                                             provenance: crate::engine::model::Provenance::Computed,
-                                         category: None, }
+                                        category: None,
+                                         }
                                     }).collect();
 
                                     let python_tx_clone2 = python_tx_clone.clone();
@@ -4313,7 +4316,7 @@ async fn process_job_inner(
                                         let _ = res_tx.send(JobResult::Progress { label: "Parsing with Document AI".into(), fraction: 0.2 });
                                         match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                             Ok(client) => {
-                                                let doc_ai = std::sync::Arc::new(client);
+                                                let doc_ai: std::sync::Arc<crate::ai::document_ai::DocumentAiClient> = std::sync::Arc::new(client);
                                                 let page_count = {
                                                     let p = input.clone();
                                                     tokio::task::spawn_blocking(move || -> usize {
@@ -5275,7 +5278,7 @@ async fn process_job_inner(
                                         crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg_math),
                                         crate::ai::backend::AiBackend::from_app_config(&cfg_math)
                                     ) {
-                                        match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&out_math, None).await.map_err(|e| anyhow::anyhow!(e)) }, wdog_math).await {
+                                        match crate::engine::pro_edit::perform_pro_edit("DocumentAI", async { doc_ai.parse_entire_statement(&out_math, None::<&str>).await.map_err(anyhow::Error::from) }, wdog_math).await {
                                             Ok(stmt) => {
                                                 let json = serde_json::to_string(&stmt.transactions).unwrap_or_default();
                                                 let opening_f64 = crate::engine::model::dec_to_f64(stmt.opening_balance);
@@ -5500,7 +5503,7 @@ async fn process_job_inner(
                             let re_parsed_count;
                             match crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg) {
                                 Ok(client) => {
-                                    match client.parse_entire_statement(&output, None).await {
+                                    match client.parse_entire_statement(&output, None::<&str>).await {
                                         Ok(stmt) => {
                                             re_parsed_count = stmt.transactions.len();
                                             let opening = stmt.opening_balance;

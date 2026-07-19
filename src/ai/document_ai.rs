@@ -1094,7 +1094,7 @@ impl DocumentAiClient {
             }
         }
 
-        Ok(BankStatement {
+        Ok(BankStatement { bank_name: None,
             total_pages,
             transactions,
             opening_balance,
@@ -1518,8 +1518,8 @@ pub struct ProcessorVersionInfo {
 /// Chunks are assumed to be in document order. Transactions retain their
 /// (already shifted) `page` numbers; total_pages sums; opening balance and
 /// account number come from the first chunk; closing balance from the last.
-fn merge_chunk_results(chunked: Vec<BankStatement>) -> BankStatement {
-    let mut merged = BankStatement {
+fn merge_chunk_results(chunked: Vec<BankStatement>) -> BankStatement { bank_name: None,
+    let mut merged = BankStatement { bank_name: None,
         total_pages: 0,
         transactions: Vec::new(),
         opening_balance: Decimal::ZERO,
@@ -1889,7 +1889,7 @@ mod tests {
 
     #[test]
     fn extract_helpers_pull_nested_properties() {
-        let entity: serde_json::Value = serde_json::from_str(
+        let entity: crate::ai::document_ai::DocAiEntity = serde_json::from_str(
             r#"{
                 "type": "transaction",
                 "mentionText": "Coffee 3.50",
@@ -1935,7 +1935,7 @@ mod tests {
         opening: f64,
         closing: f64,
         tx_pages: &[usize],
-    ) -> BankStatement {
+    ) -> BankStatement { bank_name: None,
         fake_chunk_with_account(page_count, opening, closing, tx_pages, None)
      bank_name: None, }
 
@@ -1945,8 +1945,8 @@ mod tests {
         closing: f64,
         tx_pages: &[usize],
         account: Option<&str>,
-    ) -> BankStatement {
-        BankStatement {
+    ) -> BankStatement { bank_name: None,
+        BankStatement { bank_name: None,
             total_pages: page_count,
             transactions: tx_pages
                 .iter()
@@ -1961,7 +1961,7 @@ mod tests {
                     running_balance: Some(f64_to_dec(opening + 10.0 * (i as f64 + 1.0))),
                     bbox: None,
                     field_bboxes: Default::default(),
-                    provenance: Provenance::DocumentAI { confidence: 0.9 },
+                    provenance: Provenance::DocumentAI { confidence: 0.9 }, category: None,
                 })
                 .collect(),
             opening_balance: f64_to_dec(opening),

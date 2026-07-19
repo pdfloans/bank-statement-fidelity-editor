@@ -87,7 +87,7 @@ impl LlamaParseClient {
             }
         };
 
-        let cache_key = cache.as_ref().and_then(|_c| {
+        let cache_key = cache.as_ref().and_then(|_c: &crate::ai::docai_cache::DocAiCache| {
             crate::ai::docai_cache::DocAiCache::make_key(
                 pdf_path,
                 "llamaparse",
@@ -398,6 +398,6 @@ impl LlamaParseClient {
             opening_balance: Decimal::ZERO,
             closing_balance: Decimal::ZERO,
             account_number: None,
-         bank_name: None, })
+         bank_name: None::<String>, })
     }
 }

@@ -1049,7 +1049,25 @@ impl GeminiClient {
         });
 
         let user_prompt = format!("Instruction: {}\n\nTransactions: {}", prompt, serde_json::to_string_pretty(transactions).unwrap_or_default());
-        let val = self.post_generate_pro(system_prompt, &user_prompt, Some(schema)).await?;
+        
+        let body = serde_json::json!({
+            "system_instruction": {
+                "parts": [{ "text": system_prompt }]
+            },
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": user_prompt }]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema
+            }
+        });
+
+        let response = self.post_generate_pro(&body).await?;
+        let json_resp: serde_json::Value = response.json().await.map_err(|e| GeminiError::Api(reqwest::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        
+        let text = json_resp["candidates"][0]["content"]["parts"][0]["text"].as_str().unwrap_or("[]");
         
         // Parse the resulting array back to transactions, preserving bounding boxes and provenances if possible.
         #[derive(Deserialize)]
@@ -1063,7 +1081,7 @@ impl GeminiClient {
             running_balance: Option<f64>,
         }
 
-        let edited: Vec<EditedTx> = serde_json::from_value(val).map_err(|e| GeminiError::Format(e.to_string()))?;
+        let edited: Vec<EditedTx> = serde_json::from_str(text).map_err(|e| GeminiError::Format(e.to_string()))?;
         
         let mut result = transactions.to_vec();
         for edit in edited {
