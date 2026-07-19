@@ -510,7 +510,16 @@ impl DocumentAiClient {
         
         let raw_text = result["text"].as_str().unwrap_or_default();
         let stmt_clone = stmt.clone();
-        stmt = crate::ai::repair::verify_and_repair_extraction(&self.app_config, stmt, raw_text)
+        
+        let backend = match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("[doc_ai] Failed to init AI backend for repair: {}", e);
+                return Ok(stmt_clone);
+            }
+        };
+        
+        stmt = crate::ai::repair::verify_and_repair_extraction(&backend, stmt, raw_text)
             .await
             .unwrap_or_else(|e| {
                 tracing::error!("[doc_ai] Extraction repair failed completely: {}", e);
@@ -924,7 +933,16 @@ impl DocumentAiClient {
 
         let mut final_stmt = merge_chunk_results(statements);
         let stmt_clone = final_stmt.clone();
-        final_stmt = crate::ai::repair::verify_and_repair_extraction(&self.app_config, final_stmt, &full_raw_text)
+        
+        let backend = match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("[doc_ai] Failed to init AI backend for LRO repair: {}", e);
+                return Ok(stmt_clone);
+            }
+        };
+
+        final_stmt = crate::ai::repair::verify_and_repair_extraction(&backend, final_stmt, &full_raw_text)
             .await
             .unwrap_or_else(|e| {
                 tracing::error!("[doc_ai] LRO Extraction repair failed completely: {}", e);

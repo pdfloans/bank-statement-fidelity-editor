@@ -67,8 +67,11 @@ impl CommandPalette for MyApp {
             let prompt = std::mem::take(&mut self.command_query);
             self.toast(ToastKind::Info, format!("Executing AI command: {}", prompt));
 
-            // Note: NLP AI Job would be triggered here in the Job loop.
-            // self.job_tx.send(Job::AiNaturalLanguageCommand { prompt, path: self.current_pdf_path.clone() });
+            self.in_flight += 1;
+            let _ = self.job_tx.send(Job::NaturalLanguageEdit {
+                prompt,
+                transactions: self.workflow_transactions.clone(),
+            });
 
             self.active_modal = ActiveModal::None;
         } else {

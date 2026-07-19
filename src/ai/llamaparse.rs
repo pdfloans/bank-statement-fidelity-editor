@@ -110,7 +110,16 @@ impl LlamaParseClient {
         let mut stmt = self.parse_markdown_to_statement(&markdown)?;
 
         let stmt_clone = stmt.clone();
-        stmt = crate::ai::repair::verify_and_repair_extraction(&self.app_config, stmt, &markdown)
+        
+        let backend = match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("[llamaparse] Failed to init AI backend for repair: {}", e);
+                return Ok(stmt_clone);
+            }
+        };
+
+        stmt = crate::ai::repair::verify_and_repair_extraction(&backend, stmt, &markdown)
             .await
             .unwrap_or_else(|e| {
                 tracing::error!("[llamaparse] Extraction repair failed completely: {}", e);
