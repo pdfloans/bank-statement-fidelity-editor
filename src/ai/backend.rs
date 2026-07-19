@@ -207,4 +207,15 @@ impl AiBackend {
     ) -> Result<bool, AiBackendError> {
         cascade!(self, verify_transfer_math, mapped_transactions, opening_balance)
     }
+
+    pub async fn repair_extracted_transactions(
+        &self,
+        transactions: &[Transaction],
+        opening_balance: rust_decimal::Decimal,
+        closing_balance: rust_decimal::Decimal,
+        raw_ocr_text: &str,
+        error_message: &str,
+    ) -> Result<Vec<Transaction>, AiBackendError> {
+        cascade!(self, repair_extracted_transactions, transactions, opening_balance, closing_balance, raw_ocr_text, error_message)
+    }
 }

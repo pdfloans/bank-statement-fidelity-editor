@@ -70,10 +70,9 @@ impl PdfEngine for MockFailingEngine {
 
 #[tokio::test]
 async fn test_chaos_fallback_selector_returns_encrypted_error() {
-    let config = Arc::new(std::sync::Mutex::new(Arc::new(AppConfig {
-        engine_mode: PdfEngineMode::PyMuPdfProPrimary,
-        ..Default::default()
-    })));
+    let mut cfg_val = AppConfig::default();
+    cfg_val.engine_mode = PdfEngineMode::PyMuPdfProPrimary;
+    let config = Arc::new(std::sync::Mutex::new(Arc::new(cfg_val)));
 
     let mock_primary = Arc::new(MockFailingEngine);
     let mock_fallback = Arc::new(MockFailingEngine);
@@ -95,9 +94,10 @@ async fn test_chaos_fallback_selector_returns_encrypted_error() {
 
 #[tokio::test]
 async fn test_chaos_fallback_triggers_typst_reconstruct() {
-    let statement = BankStatement {
+    let mut statement = BankStatement {
         total_pages: 1,
         transactions: vec![],
+        bank_name: None,
         opening_balance: Decimal::ZERO,
         closing_balance: Decimal::ZERO,
         account_number: None,

@@ -46,6 +46,7 @@ pub struct LlamaParseClient {
     raw_http: reqwest::Client,
     api_key: String,
     passphrase: Option<String>,
+    app_config: AppConfig,
 }
 
 impl LlamaParseClient {
@@ -68,11 +69,8 @@ impl LlamaParseClient {
             http,
             raw_http,
             api_key,
-            passphrase: if cfg.passphrase.is_empty() {
-                None
-            } else {
-                Some(cfg.passphrase.clone())
-            },
+            passphrase: if cfg.passphrase.is_empty() { None } else { Some(cfg.passphrase.clone()) },
+            app_config: cfg.clone(),
         })
     }
 
@@ -109,7 +107,15 @@ impl LlamaParseClient {
         self.poll_until_complete(&job_id).await?;
         let markdown = self.fetch_markdown(&job_id).await?;
 
-        let stmt = self.parse_markdown_to_statement(&markdown)?;
+        let mut stmt = self.parse_markdown_to_statement(&markdown)?;
+
+        let stmt_clone = stmt.clone();
+        stmt = crate::ai::repair::verify_and_repair_extraction(&self.app_config, stmt, &markdown)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("[llamaparse] Extraction repair failed completely: {}", e);
+                stmt_clone
+            });
 
         if let (Some(ref c), Some(ref h)) = (&cache, &cache_key) {
             if let Err(e) = c.put(h, &stmt) {

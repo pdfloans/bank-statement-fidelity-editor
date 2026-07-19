@@ -81,6 +81,7 @@ pub struct DocumentAiClient {
     pub http: ClientWithMiddleware,
     pub location: String,
     token_cache: Mutex<Option<CachedToken>>,
+    pub app_config: AppConfig,
 }
 
 impl DocumentAiClient {
@@ -110,6 +111,7 @@ impl DocumentAiClient {
             http: crate::app::config::global_http_client(),
             location: doc_ai.location.clone(),
             token_cache: Mutex::new(None),
+            app_config: cfg.clone(),
         })
     }
 
@@ -504,7 +506,16 @@ impl DocumentAiClient {
         }
 
         let result: serde_json::Value = final_resp.json().await?;
-        let stmt = Self::parse_response_into_bank_statement(&result, Some(&real_dims))?;
+        let mut stmt = Self::parse_response_into_bank_statement(&result, Some(&real_dims))?;
+        
+        let raw_text = result["text"].as_str().unwrap_or_default();
+        let stmt_clone = stmt.clone();
+        stmt = crate::ai::repair::verify_and_repair_extraction(&self.app_config, stmt, raw_text)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("[doc_ai] Extraction repair failed completely: {}", e);
+                stmt_clone
+            });
         if let (Some(c), Some(k)) = (cache.as_ref(), cache_key.as_ref()) {
             if let Err(e) = c.put(k, &stmt) {
                 tracing::warn!("[doc_ai] cache write failed: {}", e);
@@ -769,6 +780,7 @@ impl DocumentAiClient {
         gcs_output_uri: &str,
         access_token: &str,
     ) -> Result<BankStatement, DocAiError> {
+        let mut full_raw_text = String::new();
         let uri = gcs_output_uri;
         let bucket = uri
             .strip_prefix("gs://")
@@ -899,6 +911,10 @@ impl DocumentAiClient {
                         continue;
                     }
                     let doc_json: serde_json::Value = dl_resp.json().await?;
+                    if let Some(text) = doc_json.get("text").and_then(|t| t.as_str()) {
+                        full_raw_text.push_str(text);
+                        full_raw_text.push('\n');
+                    }
                     if let Ok(stmt) = Self::parse_response_into_bank_statement(&doc_json, None) {
                         statements.push(stmt);
                     }
@@ -906,7 +922,16 @@ impl DocumentAiClient {
             }
         }
 
-        Ok(merge_chunk_results(statements))
+        let mut final_stmt = merge_chunk_results(statements);
+        let stmt_clone = final_stmt.clone();
+        final_stmt = crate::ai::repair::verify_and_repair_extraction(&self.app_config, final_stmt, &full_raw_text)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("[doc_ai] LRO Extraction repair failed completely: {}", e);
+                stmt_clone
+            });
+
+        Ok(final_stmt)
     }
 
     fn get_real_page_dims(pdf_path: &Path) -> std::collections::HashMap<usize, (f32, f32)> {
@@ -1030,7 +1055,7 @@ impl DocumentAiClient {
                         running_balance,
                         bbox: row_bbox,
                         field_bboxes,
-                        provenance: Provenance::DocumentAI { confidence },
+                        provenance: Provenance::DocumentAI { confidence }, category: None,
                     });
                 }
                 "transaction" => {
@@ -1072,7 +1097,7 @@ impl DocumentAiClient {
                         running_balance: extract_number_property(entity, "running_balance"),
                         bbox: row_bbox,
                         field_bboxes,
-                        provenance: Provenance::DocumentAI { confidence },
+                        provenance: Provenance::DocumentAI { confidence }, category: None,
                     });
                 }
                 "starting_balance" | "opening_balance" => {
@@ -1967,6 +1992,7 @@ mod tests {
             opening_balance: f64_to_dec(opening),
             closing_balance: f64_to_dec(closing),
             account_number: account.map(|s| s.to_string()),
+            bank_name: None,
         }
     }
 

@@ -865,6 +865,10 @@ impl Runtime {
             lru::LruCache::<String, crate::ai::document_ai::BankStatement>::new(std::num::NonZeroUsize::new(20).unwrap())
         ));
         let fast_parse_cache = parse_cache.clone();
+        let sig_audit = audit_log.clone();
+
+        
+
 
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
@@ -931,7 +935,7 @@ impl Runtime {
             }
         });
         
-        let sig_audit = audit_log.clone();
+        
         let sig_cancellations = cancellations.clone();
         tokio_rt.spawn(async move {
             if let Ok(()) = tokio::signal::ctrl_c().await {
@@ -2621,6 +2625,7 @@ async fn process_job_inner(
                                 let mut final_visual_score = 1.0f64;
                                 let mut corrections: Vec<String> = Vec::new();
                                 let mut converged = false;
+                                let mut correction_hint: Option<String> = None;
 
                                 let _ = res_tx.send(JobResult::Progress {
                                     label: format!(
@@ -2731,7 +2736,7 @@ async fn process_job_inner(
                                     let plan = match gemini.plan_transaction_transfer(
                                         &source_stmt.transactions,
                                         &target_stmt.transactions,
-                                        None,
+                                        correction_hint.as_deref(),
                                     ).await {
                                         Ok(p) => p,
                                         Err(e) => {
@@ -2758,16 +2763,53 @@ async fn process_job_inner(
                                     }).collect();
                                     crate::engine::transfer::recompute_running_balances(opening, &mut mapped);
 
-                                    // Verify math
-                                    let math_ok = gemini.verify_transfer_math(&mapped, opening).await.unwrap_or_default();
+                                    // Verify math with engine
+                                    let sim_txns: Vec<crate::engine::model::Transaction> = mapped.iter().map(|m| {
+                                        crate::engine::model::Transaction {
+                                            page: m.target_page,
+                                            line_on_page: m.target_line,
+                                            date: m.date.clone(),
+                                            raw_text: m.description.clone(),
+                                            debit: m.debit,
+                                            credit: m.credit,
+                                            running_balance: Some(m.running_balance),
+                                            bbox: None,
+                                            field_bboxes: Default::default(),
+                                            provenance: crate::engine::model::Provenance::Computed,
+                                            category: None,
+                                        }
+                                    }).collect();
 
+                                    let mut math_err_msg = None;
+                                    match crate::engine::balance::process_and_reconcile(sim_txns, opening, None) {
+                                        Ok((_, None)) => {}
+                                        Ok((_, Some(msg))) => math_err_msg = Some(format!("Balance mismatch: {msg}")),
+                                        Err(e) => math_err_msg = Some(format!("Balance engine error: {e}")),
+                                    }
+
+                                    // Verify math with Gemini
+                                    let gemini_math_ok = gemini.verify_transfer_math(&mapped, opening).await.unwrap_or_default();
+
+                                    let math_ok = math_err_msg.is_none() && gemini_math_ok;
                                     final_math_ok = math_ok;
                                     final_visual_score = 0.0; // would need render for real score
 
                                     if math_ok {
                                         converged = true;
                                     } else {
-                                        corrections.push(format!("Iter {iterations}: math verification failed, retrying"));
+                                        let mut errors = Vec::new();
+                                        if let Some(msg) = &math_err_msg {
+                                            errors.push(msg.clone());
+                                        }
+                                        if !gemini_math_ok {
+                                            errors.push("Gemini math verification failed.".to_string());
+                                        }
+                                        let hint = format!(
+                                            "Your previous mapping failed validation. Errors: {}. Please adjust the mapping to fix these issues.",
+                                            errors.join("; ")
+                                        );
+                                        corrections.push(format!("Iter {iterations}: math verification failed ({}), retrying", errors.join("; ")));
+                                        correction_hint = Some(hint);
                                     }
                                 }
 
@@ -3378,7 +3420,7 @@ async fn process_job_inner(
                                 }
                             };
 
-                            let mut full_stmt = crate::ai::document_ai::BankStatement::default();
+                            let mut full_stmt = crate::ai::document_ai::BankStatement { total_pages: 0, transactions: Vec::new(), opening_balance: rust_decimal::Decimal::ZERO, closing_balance: rust_decimal::Decimal::ZERO, account_number: None, bank_name: None };
                             full_stmt.transactions = report.transactions.clone();
                             {
                                 let mut cache = cache_for_job.lock().await;

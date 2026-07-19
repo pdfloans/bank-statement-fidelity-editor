@@ -18,6 +18,7 @@ fn test_ai_matrix_consensus() {
         bbox: Some([10.0, 20.0, 100.0, 30.0]),
         field_bboxes: FieldBboxes::default(),
         provenance: dual_core_pdf_pipeline::engine::model::Provenance::Computed,
+        category: None,
     };
 
     let t2 = Transaction {
@@ -31,6 +32,7 @@ fn test_ai_matrix_consensus() {
         bbox: Some([10.0, 40.0, 100.0, 50.0]),
         field_bboxes: FieldBboxes::default(),
         provenance: dual_core_pdf_pipeline::engine::model::Provenance::Computed,
+        category: None,
     };
 
     let stmt_gemini = BankStatement {
@@ -39,6 +41,7 @@ fn test_ai_matrix_consensus() {
         opening_balance: dec!(1000.0),
         closing_balance: dec!(930.0),
         transactions: vec![t1.clone(), t2.clone()],
+        bank_name: None,
     };
 
     let stmt_llamaparse = BankStatement {
@@ -47,6 +50,7 @@ fn test_ai_matrix_consensus() {
         opening_balance: dec!(1000.0),
         closing_balance: dec!(930.0),
         transactions: vec![t1.clone(), t2.clone()],
+        bank_name: None,
     };
 
     let stmt_offline = BankStatement {
@@ -55,6 +59,7 @@ fn test_ai_matrix_consensus() {
         opening_balance: dec!(1000.0),
         closing_balance: dec!(950.0),
         transactions: vec![t1.clone()], // Misses the second transaction
+        bank_name: None,
     };
 
     let consensus =

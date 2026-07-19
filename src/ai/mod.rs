@@ -7,4 +7,5 @@ pub mod openai_client;
 
 pub mod pdfrest;
 pub mod pyo3_bridge;
+pub mod repair;
 pub mod vision;

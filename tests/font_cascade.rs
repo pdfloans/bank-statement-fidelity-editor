@@ -56,11 +56,10 @@ fn font_cascade_extends_subset_via_donor() {
     }
 
     let audit = AuditLog::open(dir.path()).unwrap();
-    let cfg = Arc::new(AppConfig {
-        passphrase: "cascade-test-passphrase-1234".into(),
-        log_dir: dir.path().join("logs"),
-        ..AppConfig::default()
-    });
+    let mut cfg_val = AppConfig::default();
+    cfg_val.passphrase = "cascade-test-passphrase-1234".into();
+    cfg_val.log_dir = dir.path().join("logs");
+    let cfg = Arc::new(cfg_val);
     let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
     // 1) Build a subsetted TTF and a minimal PDF that uses it. Done via

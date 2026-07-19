@@ -32,11 +32,10 @@ fn drain_until<F: Fn(&JobResult) -> bool>(
 fn runtime_ping_pong_smoke() {
     let dir = tempdir().unwrap();
     let audit = AuditLog::open(dir.path()).unwrap();
-    let cfg = Arc::new(AppConfig {
-        passphrase: "smoke-passphrase-1234567890".into(),
-        log_dir: dir.path().join("logs"),
-        ..AppConfig::default()
-    });
+    let mut cfg_val = AppConfig::default();
+    cfg_val.passphrase = "smoke-passphrase-1234567890".into();
+    cfg_val.log_dir = dir.path().join("logs");
+    let cfg = Arc::new(cfg_val);
 
     let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
@@ -56,11 +55,10 @@ fn runtime_ping_pong_smoke() {
 fn runtime_load_history_round_trips_through_actor() {
     let dir = tempdir().unwrap();
     let audit = AuditLog::open(dir.path()).unwrap();
-    let cfg = Arc::new(AppConfig {
-        passphrase: "smoke-passphrase-1234567890".into(),
-        log_dir: dir.path().join("logs"),
-        ..AppConfig::default()
-    });
+    let mut cfg_val = AppConfig::default();
+    cfg_val.passphrase = "smoke-passphrase-1234567890".into();
+    cfg_val.log_dir = dir.path().join("logs");
+    let cfg = Arc::new(cfg_val);
 
     // Save a tiny history file ahead of time.
     let mut original = ChangeHistory::new();
