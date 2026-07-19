@@ -22,3 +22,4 @@ pub mod typst_engine;
 pub mod verification;
 pub mod workflow;
 pub mod pro_edit;
+pub mod categorization;

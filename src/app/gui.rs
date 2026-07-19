@@ -1582,6 +1582,15 @@ impl MyApp {
                 self.workflow_dirty = true;
                 self.last_runtime_activity = std::time::Instant::now();
             }
+            JobResult::CategorizationReady(txs) => {
+                self.toast(
+                    ToastKind::Success,
+                    format!("Categorized {} transactions", txs.len()),
+                );
+                self.workflow_transactions = txs;
+                self.workflow_dirty = true;
+                self.last_runtime_activity = std::time::Instant::now();
+            }
             JobResult::FontCompleted(_) => {
                 self.toast(ToastKind::Success, "Font completion finished");
             }
@@ -2871,10 +2880,20 @@ impl MyApp {
         }
         let palette = self.settings.theme.palette();
 
-        ui.label(format!(
-            "📋 Inline edit ({} rows) - Tab to next field, ↶ reverts row",
-            self.workflow_transactions.len()
-        ));
+        ui.horizontal(|ui| {
+            ui.label(format!(
+                "📋 Inline edit ({} rows) - Tab to next field, ↶ reverts row",
+                self.workflow_transactions.len()
+            ));
+            ui.add_space(8.0);
+            if ui.button("🏷 Auto-Categorize").clicked() {
+                if let Err(e) = self.job_tx.send(crate::app::runtime::Job::CategorizeTransactions {
+                    transactions: self.workflow_transactions.clone(),
+                }) {
+                    tracing::error!("Runtime disconnected: {}", e);
+                }
+            }
+        });
 
         // Snapshot what we need; the closure below mutates self.workflow_edits
         // and self.workflow_cell_buffers, so collect transaction copies first.
@@ -2895,13 +2914,14 @@ impl MyApp {
                     .column(Column::auto().at_least(28.0)) // P
                     .column(Column::auto().at_least(28.0)) // L
                     .column(Column::initial(78.0))         // Date
-                    .column(Column::initial(180.0).at_least(120.0)) // Desc
+                    .column(Column::initial(150.0).at_least(100.0)) // Desc
+                    .column(Column::initial(80.0))         // Category
                     .column(Column::initial(82.0))         // Debit
                     .column(Column::initial(82.0))         // Credit
                     .column(Column::initial(94.0))         // Balance
                     .column(Column::auto().at_least(28.0)) // Revert
                     .header(20.0, |mut header| {
-                        for label in ["P", "#", "Date", "Description", "Debit", "Credit", "Balance", ""].iter() {
+                        for label in ["P", "#", "Date", "Description", "Category", "Debit", "Credit", "Balance", ""].iter() {
                             header.col(|ui| { ui.strong(*label); });
                         }
                     })
@@ -2955,7 +2975,7 @@ impl MyApp {
                                         || tx.raw_text.clone(),
                                     );
                                     if ui
-                                        .add(egui::TextEdit::singleline(buf).desired_width(178.0))
+                                        .add(egui::TextEdit::singleline(buf).desired_width(148.0))
                                         .changed()
                                     {
                                         cell_changes.push((
@@ -2967,6 +2987,12 @@ impl MyApp {
                                             tx.raw_text.clone(),
                                         ));
                                     }
+                                });
+
+                                // Category - label
+                                row.col(|ui| {
+                                    let cat_text = tx.category.as_deref().unwrap_or("-");
+                                    ui.label(egui::RichText::new(cat_text).color(palette.weak));
                                 });
 
                                 // Debit / Credit / Balance - money fields with red border on parse failure.

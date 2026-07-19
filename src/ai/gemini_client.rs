@@ -1023,6 +1023,61 @@ impl GeminiClient {
 
         Ok(parsed["math_valid"].as_bool().unwrap_or(false))
     }
+
+    pub async fn apply_natural_language_edit(
+        &self,
+        prompt: &str,
+        transactions: &[Transaction],
+    ) -> Result<Vec<Transaction>, GeminiError> {
+        let system_prompt = "You are a forensic accounting AI. You will receive a list of transactions in JSON and a natural language instruction from the user. Apply the instruction to the transactions and return the fully updated JSON array of transactions. Ensure that amounts are valid numbers and dates are maintained. Respond ONLY with the JSON array.";
+
+        let schema = json!({
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "page": { "type": "integer" },
+                    "line_on_page": { "type": "integer" },
+                    "date": { "type": "string" },
+                    "raw_text": { "type": "string" },
+                    "debit": { "type": "number", "nullable": true },
+                    "credit": { "type": "number", "nullable": true },
+                    "running_balance": { "type": "number", "nullable": true }
+                },
+                "required": ["page", "line_on_page", "date", "raw_text"]
+            }
+        });
+
+        let user_prompt = format!("Instruction: {}\n\nTransactions: {}", prompt, serde_json::to_string_pretty(transactions).unwrap_or_default());
+        let val = self.post_generate_pro(system_prompt, &user_prompt, Some(schema)).await?;
+        
+        // Parse the resulting array back to transactions, preserving bounding boxes and provenances if possible.
+        #[derive(Deserialize)]
+        struct EditedTx {
+            page: usize,
+            line_on_page: usize,
+            date: String,
+            raw_text: String,
+            debit: Option<f64>,
+            credit: Option<f64>,
+            running_balance: Option<f64>,
+        }
+
+        let edited: Vec<EditedTx> = serde_json::from_value(val).map_err(|e| GeminiError::Format(e.to_string()))?;
+        
+        let mut result = transactions.to_vec();
+        for edit in edited {
+            if let Some(tx) = result.iter_mut().find(|t| t.page == edit.page && t.line_on_page == edit.line_on_page) {
+                tx.date = edit.date;
+                tx.raw_text = edit.raw_text;
+                if let Some(d) = edit.debit { tx.debit = Some(rust_decimal::Decimal::from_f64_retain(d).unwrap_or_default()); } else { tx.debit = None; }
+                if let Some(c) = edit.credit { tx.credit = Some(rust_decimal::Decimal::from_f64_retain(c).unwrap_or_default()); } else { tx.credit = None; }
+                if let Some(b) = edit.running_balance { tx.running_balance = Some(rust_decimal::Decimal::from_f64_retain(b).unwrap_or_default()); } else { tx.running_balance = None; }
+            }
+        }
+        
+        Ok(result)
+    }
 }
 
 /// Mint a short-lived Google Cloud OAuth access token (scope

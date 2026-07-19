@@ -56,6 +56,10 @@ pub struct Transaction {
     #[serde(default, skip_serializing_if = "FieldBboxes::is_empty")]
     pub field_bboxes: FieldBboxes,
     pub provenance: Provenance,
+    
+    /// Auto-categorization label (e.g. "Food", "Travel").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 /// Per-field bounding boxes for a single transaction row. All bboxes are

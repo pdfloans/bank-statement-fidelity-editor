@@ -232,6 +232,9 @@ pub enum Job {
         prompt: String,
         transactions: Vec<crate::engine::model::Transaction>,
     },
+    CategorizeTransactions {
+        transactions: Vec<crate::engine::model::Transaction>,
+    },
     ApplyProposedChanges {
         input: PathBuf,
         output: PathBuf,
@@ -422,6 +425,7 @@ pub enum JobResult {
     },
     TransactionsExtracted(Vec<crate::engine::model::Transaction>),
     NaturalLanguageEditReady(Vec<crate::engine::model::Transaction>),
+    CategorizationReady(Vec<crate::engine::model::Transaction>),
     VerificationReport(crate::engine::verification::VerificationReport),
     /// Stage 8.5: per-font usage and coverage breakdown for the loaded PDF.
     /// Sent automatically after `Job::LoadDocument` and on demand from
@@ -3226,7 +3230,53 @@ async fn process_job_inner(
                                     let _ = res_tx.send(JobResult::Error { job_label: "redo".into(), message: format!("History lock poisoned: {e}") });
                                 }
                             }
+                            }
                         }).await;
+                    }
+                    Job::NaturalLanguageEdit { prompt, transactions } => {
+                        let res_tx = result_tx_clone.clone();
+                        let cfg = config_for_tokio.clone();
+                        
+                        tokio::spawn(async move {
+                            let _ = res_tx.send(JobResult::Progress {
+                                label: "Asking AI to apply edits...".into(),
+                                fraction: 0.2,
+                            });
+                            
+                            let gemini = match crate::ai::gemini_client::GeminiClient::from_app_config_async(&cfg).await {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error {
+                                        job_label: "NaturalLanguageEdit".into(),
+                                        message: format!("Gemini configuration error: {e}"),
+                                    });
+                                    return;
+                                }
+                            };
+                            
+                            match gemini.apply_natural_language_edit(&prompt, &transactions).await {
+                                Ok(updated) => {
+                                    let _ = res_tx.send(JobResult::Progress {
+                                        label: "Edits applied successfully!".into(),
+                                        fraction: 1.0,
+                                    });
+                                    let _ = res_tx.send(JobResult::NaturalLanguageEditReady(updated));
+                                }
+                                Err(e) => {
+                                    let _ = res_tx.send(JobResult::Error {
+                                        job_label: "NaturalLanguageEdit".into(),
+                                        message: format!("Failed to apply edits: {e}"),
+                                    });
+                                }
+                            }
+                        });
+                    }
+                    Job::CategorizeTransactions { mut transactions } => {
+                        let res_tx = result_tx_clone.clone();
+                        tokio::spawn(async move {
+                            crate::engine::categorization::categorize_transactions(&mut transactions);
+                            let _ = res_tx.send(JobResult::CategorizationReady(transactions));
+                        });
                     }
                     Job::ExtractTransactions { path } => {
                         let res_tx = result_tx_clone.clone();

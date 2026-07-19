@@ -52,6 +52,7 @@ pub struct BankStatement {
     pub opening_balance: Decimal,
     pub closing_balance: Decimal,
     pub account_number: Option<String>,
+    pub bank_name: Option<String>,
 }
 
 #[derive(Serialize)]
