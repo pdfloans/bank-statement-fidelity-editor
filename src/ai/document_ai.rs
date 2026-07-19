@@ -1094,13 +1094,14 @@ impl DocumentAiClient {
             }
         }
 
-        Ok(BankStatement { bank_name: None,
+        Ok(BankStatement {
             total_pages,
             transactions,
             opening_balance,
             closing_balance,
             account_number,
-         bank_name: None, })
+            bank_name: None,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -1518,14 +1519,15 @@ pub struct ProcessorVersionInfo {
 /// Chunks are assumed to be in document order. Transactions retain their
 /// (already shifted) `page` numbers; total_pages sums; opening balance and
 /// account number come from the first chunk; closing balance from the last.
-fn merge_chunk_results(chunked: Vec<BankStatement>) -> BankStatement { bank_name: None,
-    let mut merged = BankStatement { bank_name: None,
+fn merge_chunk_results(chunked: Vec<BankStatement>) -> BankStatement {
+    let mut merged = BankStatement {
         total_pages: 0,
         transactions: Vec::new(),
         opening_balance: Decimal::ZERO,
         closing_balance: Decimal::ZERO,
         account_number: None,
-     bank_name: None, };
+        bank_name: None,
+    };
     for (i, stmt) in chunked.into_iter().enumerate() {
         merged.total_pages += stmt.total_pages;
         merged.transactions.extend(stmt.transactions);
@@ -1935,18 +1937,16 @@ mod tests {
         opening: f64,
         closing: f64,
         tx_pages: &[usize],
-    ) -> BankStatement { bank_name: None,
+    ) -> BankStatement {
         fake_chunk_with_account(page_count, opening, closing, tx_pages, None)
-     bank_name: None, }
-
-    fn fake_chunk_with_account(
+    }    fn fake_chunk_with_account(
         page_count: usize,
         opening: f64,
         closing: f64,
         tx_pages: &[usize],
         account: Option<&str>,
-    ) -> BankStatement { bank_name: None,
-        BankStatement { bank_name: None,
+    ) -> BankStatement {
+        BankStatement {
             total_pages: page_count,
             transactions: tx_pages
                 .iter()

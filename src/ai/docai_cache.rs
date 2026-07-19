@@ -197,9 +197,9 @@ mod tests {
     use crate::engine::model::{Provenance, Transaction};
     use tempfile::tempdir;
 
-    fn sample_statement() -> BankStatement { bank_name: None,
+    fn sample_statement() -> BankStatement {
         use rust_decimal_macros::dec;
-        BankStatement { bank_name: None,
+        BankStatement {
             total_pages: 1,
             transactions: vec![Transaction {
                 page: 0,
