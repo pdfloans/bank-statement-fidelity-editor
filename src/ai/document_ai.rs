@@ -973,8 +973,14 @@ impl DocumentAiClient {
         for entity in &response.document.entities {
             let (page_idx, row_bbox) = entity_page_and_bbox(entity, &pages_dim);
                         let idx = transactions.len();
-            let text = entity.mention_text.as_deref().unwrap_or_default().trim().to_string();
-            let confidence = entity.confidence.unwrap_or(1.0);
+            let text = entity.mention_text.as_deref().unwrap_or_else(|| {
+                tracing::warn!("Entity '{}' missing mention_text", entity.entity_type);
+                ""
+            }).trim().to_string();
+            let confidence = entity.confidence.unwrap_or_else(|| {
+                tracing::warn!("Entity '{}' missing confidence, defaulting to 1.0", entity.entity_type);
+                1.0
+            });
 
             match entity.entity_type.as_str() {
                 "table_item" => {
@@ -1589,9 +1595,25 @@ struct DocAiPageRef {
 impl DocAiPageRef {
     fn page_idx(&self) -> usize {
         match &self.page {
-            Some(serde_json::Value::String(s)) => s.parse().unwrap_or(0),
-            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) as usize,
-            _ => 0,
+            Some(serde_json::Value::String(s)) => match s.parse() {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("Invalid page string '{}': {}", s, e);
+                    0
+                }
+            },
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or_else(|| {
+                tracing::warn!("Invalid page number '{}'", n);
+                0
+            }) as usize,
+            None => {
+                tracing::warn!("Missing page property in pageRef");
+                0
+            }
+            Some(v) => {
+                tracing::warn!("Unexpected type for page property: {:?}", v);
+                0
+            }
         }
     }
 }
@@ -1613,17 +1635,38 @@ struct DocAiVertex {
 }
 
 fn extract_string_property(entity: &DocAiEntity, kind: &str) -> Option<String> {
-    entity.properties
-        .iter()
-        .find(|p| p.entity_type == kind)
-        .and_then(|p| p.mention_text.as_deref())
-        .map(|s| s.trim().to_string())
+    let prop = entity.properties.iter().find(|p| p.entity_type == kind);
+    match prop {
+        Some(p) => {
+            if p.mention_text.is_none() {
+                tracing::warn!("Property '{}' found but missing mention_text", kind);
+            }
+            p.mention_text.as_deref().map(|s| s.trim().to_string())
+        }
+        None => None,
+    }
 }
 
 fn extract_number_property(entity: &DocAiEntity, kind: &str) -> Option<Decimal> {
-    extract_string_property(entity, kind)
-        .and_then(|s| s.replace(['$', ','], "").parse::<f64>().ok())
-        .map(f64_to_dec)
+    let prop = entity.properties.iter().find(|p| p.entity_type == kind);
+    match prop {
+        Some(p) => {
+            if let Some(text) = p.mention_text.as_deref() {
+                let s = text.replace(['$', ','], "");
+                match s.parse::<f64>() {
+                    Ok(f) => Some(f64_to_dec(f)),
+                    Err(e) => {
+                        tracing::warn!("Property '{}' contains invalid number format '{}': {}", kind, text, e);
+                        None
+                    }
+                }
+            } else {
+                tracing::warn!("Property '{}' found but missing mention_text", kind);
+                None
+            }
+        }
+        None => None,
+    }
 }
 
 fn bbox_from_bounding_poly(
@@ -1648,8 +1691,20 @@ fn bbox_from_bounding_poly(
     let mut y1 = f32::MIN;
 
     for v in verts {
-        let x = v.x.unwrap_or(0.0);
-        let y = v.y.unwrap_or(0.0);
+        let x = match v.x {
+            Some(val) => val,
+            None => {
+                tracing::warn!("Vertex missing 'x' coordinate");
+                0.0
+            }
+        };
+        let y = match v.y {
+            Some(val) => val,
+            None => {
+                tracing::warn!("Vertex missing 'y' coordinate");
+                0.0
+            }
+        };
         x0 = x0.min(x);
         y0 = y0.min(y);
         x1 = x1.max(x);
@@ -1671,10 +1726,19 @@ fn entity_page_and_bbox(
     entity: &DocAiEntity,
     pages_dim: &[(f32, f32, String)],
 ) -> (usize, Option<[f32; 4]>) {
-    let Some(anchor) = &entity.page_anchor else { return (0, None); };
-    let Some(first) = anchor.page_refs.first() else { return (0, None); };
+    let Some(anchor) = &entity.page_anchor else {
+        tracing::warn!("Entity '{}' missing page_anchor", entity.entity_type);
+        return (0, None);
+    };
+    let Some(first) = anchor.page_refs.first() else {
+        tracing::warn!("Entity '{}' has page_anchor but no page_refs", entity.entity_type);
+        return (0, None);
+    };
     let page_idx = first.page_idx();
     let bbox = first.bounding_poly.as_ref().and_then(|p| bbox_from_bounding_poly(p, page_idx, pages_dim));
+    if bbox.is_none() {
+        tracing::warn!("Entity '{}' missing valid bounding_poly on page {}", entity.entity_type, page_idx);
+    }
     (page_idx, bbox)
 }
 

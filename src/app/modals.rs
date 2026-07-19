@@ -585,52 +585,59 @@ impl AppModals for MyApp {
                             && self.input_path != "examples/sample.pdf";
                         let can_start = source_ok && target_ok;
 
-                        let btn = ui.add_enabled(
-                            can_start,
-                            egui::Button::new(
-                                egui::RichText::new("▶ Begin Transfer").size(20.0).color(
-                                    if can_start {
-                                        self.settings.theme.palette().bg
-                                    } else {
-                                        self.settings.theme.palette().text
-                                    },
-                                ),
-                            )
-                            .fill(if can_start {
-                                self.settings.theme.palette().accent
-                            } else {
-                                self.settings.theme.palette().panel
-                            })
-                            .min_size(egui::vec2(180.0, 56.0))
-                            .rounding(8.0),
-                        );
-
-                        if btn.clicked() {
-                            let source = std::path::PathBuf::from(&self.transfer_source_path);
-                            let target = std::path::PathBuf::from(&self.input_path);
-                            let output = if self.output_path.is_empty() {
-                                target.with_file_name(format!(
-                                    "{}_transferred.pdf",
-                                    target.file_stem().unwrap_or_default().to_string_lossy()
-                                ))
-                            } else {
-                                std::path::PathBuf::from(&self.output_path)
-                            };
-
-                            if let Err(e) = self.job_tx.send(Job::TransferTransactions {
-                                source_pdf: source,
-                                target_pdf: target,
-                                output_pdf: output,
-                            }) {
-                                tracing::error!("Runtime disconnected: {}", e);
-                            }
-                            self.in_flight += 1;
-                            self.status = "Starting transaction transfer...".into();
-                            self.toast(
-                                ToastKind::Info,
-                                "Transaction transfer started - this may take 2-3 minutes.",
+                        if self.in_flight > 0 {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(egui::RichText::new("Transfer in progress...").color(self.settings.theme.palette().accent));
+                            });
+                        } else {
+                            let btn = ui.add_enabled(
+                                can_start,
+                                egui::Button::new(
+                                    egui::RichText::new("▶ Begin Transfer").size(20.0).color(
+                                        if can_start {
+                                            self.settings.theme.palette().bg
+                                        } else {
+                                            self.settings.theme.palette().text
+                                        },
+                                    ),
+                                )
+                                .fill(if can_start {
+                                    self.settings.theme.palette().accent
+                                } else {
+                                    self.settings.theme.palette().panel
+                                })
+                                .min_size(egui::vec2(180.0, 56.0))
+                                .rounding(8.0),
                             );
-                            self.active_modal = ActiveModal::None;
+
+                            if btn.clicked() {
+                                let source = std::path::PathBuf::from(&self.transfer_source_path);
+                                let target = std::path::PathBuf::from(&self.input_path);
+                                let output = if self.output_path.is_empty() {
+                                    target.with_file_name(format!(
+                                        "{}_transferred.pdf",
+                                        target.file_stem().unwrap_or_default().to_string_lossy()
+                                    ))
+                                } else {
+                                    std::path::PathBuf::from(&self.output_path)
+                                };
+
+                                if let Err(e) = self.job_tx.send(Job::TransferTransactions {
+                                    source_pdf: source,
+                                    target_pdf: target,
+                                    output_pdf: output,
+                                }) {
+                                    tracing::error!("Runtime disconnected: {}", e);
+                                }
+                                self.in_flight += 1;
+                                self.status = "Starting transaction transfer...".into();
+                                self.toast(
+                                    ToastKind::Info,
+                                    "Transaction transfer started - this may take 2-3 minutes.",
+                                );
+                                // Do NOT close the modal automatically, let the spinner show.
+                            }
                         }
 
                         ui.add_space(10.0);
@@ -752,52 +759,59 @@ impl AppModals for MyApp {
                 let has_input = !self.input_path.is_empty();
 
                 ui.horizontal(|ui| {
-                    let btn = ui.add_enabled(
-                        has_input,
-                        egui::Button::new("▶ Apply Date Adjustment").fill(if has_input {
-                            self.settings.theme.palette().accent
-                        } else {
-                            self.settings.theme.palette().panel
-                        }),
-                    );
+                    if self.in_flight > 0 {
+                        ui.spinner();
+                        ui.label(egui::RichText::new("Date adjustment in progress...").color(self.settings.theme.palette().accent));
+                        if ui.button("Close").clicked() {
+                            self.active_modal = ActiveModal::None;
+                        }
+                    } else {
+                        let btn = ui.add_enabled(
+                            has_input,
+                            egui::Button::new("▶ Apply Date Adjustment").fill(if has_input {
+                                self.settings.theme.palette().accent
+                            } else {
+                                self.settings.theme.palette().panel
+                            }),
+                        );
 
-                    if btn.clicked() {
-                        let input = std::path::PathBuf::from(&self.input_path);
-                        let output = Self::safe_output_path(&input, "dates");
+                        if btn.clicked() {
+                            let input = std::path::PathBuf::from(&self.input_path);
+                            let output = Self::safe_output_path(&input, "dates");
 
-                        let mode = if self.date_adjust_mode_shift {
-                            let days: i64 = self.date_adjust_shift_days.parse().unwrap_or(0);
-                            crate::engine::date_adjust::DateAdjustMode::ShiftDays(days)
-                        } else {
-                            let from = chrono::NaiveDate::parse_from_str(
-                                self.date_adjust_from.trim(),
-                                "%d/%m/%Y",
-                            )
-                            .unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
-                            let to = chrono::NaiveDate::parse_from_str(
-                                self.date_adjust_to.trim(),
-                                "%d/%m/%Y",
-                            )
-                            .unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 2, 1).unwrap());
-                            crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
-                                from_start: from,
-                                to_start: to,
-                            }
-                        };
+                            let mode = if self.date_adjust_mode_shift {
+                                let days: i64 = self.date_adjust_shift_days.parse().unwrap_or(0);
+                                crate::engine::date_adjust::DateAdjustMode::ShiftDays(days)
+                            } else {
+                                let from = chrono::NaiveDate::parse_from_str(
+                                    self.date_adjust_from.trim(),
+                                    "%d/%m/%Y",
+                                )
+                                .unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
+                                let to = chrono::NaiveDate::parse_from_str(
+                                    self.date_adjust_to.trim(),
+                                    "%d/%m/%Y",
+                                )
+                                .unwrap_or(chrono::NaiveDate::from_ymd_opt(2026, 2, 1).unwrap());
+                                crate::engine::date_adjust::DateAdjustMode::RemapPeriod {
+                                    from_start: from,
+                                    to_start: to,
+                                }
+                            };
 
-                        let _ = self.job_tx.send(Job::AdjustDatePeriods {
-                            input,
-                            output,
-                            mode,
-                        });
-                        self.in_flight += 1;
-                        self.status = "Adjusting dates...".into();
-                        self.toast(ToastKind::Info, "Date adjustment started.");
-                        self.active_modal = ActiveModal::None;
-                    }
+                            let _ = self.job_tx.send(Job::AdjustDatePeriods {
+                                input,
+                                output,
+                                mode,
+                            });
+                            self.in_flight += 1;
+                            self.status = "Adjusting dates...".into();
+                            self.toast(ToastKind::Info, "Date adjustment started.");
+                        }
 
-                    if ui.button("Cancel").clicked() {
-                        self.active_modal = ActiveModal::None;
+                        if ui.button("Cancel").clicked() {
+                            self.active_modal = ActiveModal::None;
+                        }
                     }
                 });
 
@@ -1196,36 +1210,41 @@ impl AppModals for MyApp {
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    let can_run = n >= 2;
-                    let btn = ui.add_enabled(
-                        can_run,
-                        egui::Button::new("▶ Run All Tests").fill(if can_run {
-                            self.settings.theme.palette().accent
-                        } else {
-                            self.settings.theme.palette().panel
-                        }),
-                    );
-
-                    if btn.clicked() {
-                        let statements: Vec<std::path::PathBuf> = self
-                            .transfer_test_paths
-                            .iter()
-                            .map(std::path::PathBuf::from)
-                            .collect();
-                        let _ = self.job_tx.send(Job::RunTransferTests {
-                            statements,
-                            max_iterations: 3,
-                        });
-                        self.in_flight += 1;
-                        self.status = format!("Running {} transfer tests...", pairs);
-                        self.toast(
-                            ToastKind::Info,
-                            format!("Running {} transfer test pairs...", pairs),
+                    if self.in_flight > 0 {
+                        ui.spinner();
+                        ui.label(egui::RichText::new("Test runner is active...").color(self.settings.theme.palette().accent));
+                    } else {
+                        let can_run = n >= 2;
+                        let btn = ui.add_enabled(
+                            can_run,
+                            egui::Button::new("▶ Run All Tests").fill(if can_run {
+                                self.settings.theme.palette().accent
+                            } else {
+                                self.settings.theme.palette().panel
+                            }),
                         );
-                    }
 
-                    if ui.button("Close").clicked() {
-                        self.active_modal = ActiveModal::None;
+                        if btn.clicked() {
+                            let statements: Vec<std::path::PathBuf> = self
+                                .transfer_test_paths
+                                .iter()
+                                .map(std::path::PathBuf::from)
+                                .collect();
+                            let _ = self.job_tx.send(Job::RunTransferTests {
+                                statements,
+                                max_iterations: 3,
+                            });
+                            self.in_flight += 1;
+                            self.status = format!("Running {} transfer tests...", pairs);
+                            self.toast(
+                                ToastKind::Info,
+                                format!("Running {} transfer test pairs...", pairs),
+                            );
+                        }
+
+                        if ui.button("Close").clicked() {
+                            self.active_modal = ActiveModal::None;
+                        }
                     }
                 });
 

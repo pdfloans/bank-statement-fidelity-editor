@@ -362,6 +362,14 @@ impl LlamaParseClient {
                                 field_bboxes: Default::default(),
                                 provenance: crate::engine::model::Provenance::Computed,
                             });
+                        } else if date.is_empty() && debit.is_none() && credit.is_none() && balance.is_none() && !desc.is_empty() {
+                            // This is likely a continuation row (e.g. description spilling over a page boundary)
+                            if let Some(last_tx) = transactions.last_mut() {
+                                if !last_tx.raw_text.ends_with(' ') && !desc.starts_with(' ') {
+                                    last_tx.raw_text.push(' ');
+                                }
+                                last_tx.raw_text.push_str(&desc);
+                            }
                         }
                     }
                 }

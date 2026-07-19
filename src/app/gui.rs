@@ -370,6 +370,8 @@ pub struct MyApp {
     /// True once the buffers have been seeded from the environment.
     #[allow(dead_code)]
     api_keys_seeded: bool,
+    /// Latest real-time API health polling results.
+    pub api_health: Option<Vec<crate::app::api_verification::VerificationResult>>,
 
     /// Proposed auto-fix for the last encountered error
     pub(crate) pending_autofix: Option<crate::app::error::AppError>,
@@ -478,6 +480,7 @@ impl MyApp {
             workflow_cell_buffers: std::collections::HashMap::new(),
             api_availability: config.detect_availability(),
             config: config.clone(),
+            api_health: None,
             settings,
             // Seed API-key editor buffers from the current environment so the
             // Settings panel shows what's active. Values are masked in the UI.
@@ -972,19 +975,6 @@ impl MyApp {
             let fade =
                 ctx.animate_value_with_time(egui::Id::new("progress_overlay_fade"), 1.0, 0.3);
 
-            egui::Area::new(egui::Id::new("modal_overlay"))
-                .order(egui::Order::Foreground)
-                .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    let rect = ctx.screen_rect();
-                    ui.allocate_rect(rect, egui::Sense::click());
-                    ui.painter().rect_filled(
-                        rect,
-                        0.0,
-                        egui::Color32::from_black_alpha((180.0 * fade) as u8),
-                    );
-                });
-
             egui::Area::new(egui::Id::new("progress_dialog"))
                 .order(egui::Order::Foreground)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -1383,18 +1373,19 @@ impl MyApp {
             }
             JobResult::ApiKeysVerified(report) => {
                 use crate::app::api_verification::VerificationStatus;
-                for res in report.results {
+                for res in &report.results {
                     if res.status == VerificationStatus::Failed {
-                        let msg = res.error_message.unwrap_or_default();
+                        let msg = res.error_message.as_deref().unwrap_or_default();
                         if msg.contains("429") {
                             self.toast(ToastKind::Error, format!("{} quota exceeded (429). Temporarily disabled.", res.service));
                             self.api_availability.disable_service(&res.service);
                         } else if msg.contains("401") || msg.contains("403") {
-                            self.toast(ToastKind::Error, format!("{} API Key invalid. Temporarily disabled.", res.service));
+                            self.toast(ToastKind::Error, format!("{} auth failed. Check your API key.", res.service));
                             self.api_availability.disable_service(&res.service);
                         }
                     }
                 }
+                self.api_health = Some(report.results);
             }
             JobResult::BugReportSubmitted => {
                 self.toast(ToastKind::Success, "Bug report submitted successfully! Thank you.".to_string());
@@ -1546,11 +1537,18 @@ impl MyApp {
                 self.status = format!("Credentials reloaded: {summary}");
                 // Refresh API availability from the newly-reloaded config
                 // so the UI immediately reflects which backends are usable.
-                let fresh_avail = crate::app::config::AppConfig::from_env()
-                    .map(|c| c.detect_availability())
-                    .unwrap_or_default();
-                fresh_avail.log_summary();
-                self.api_availability = fresh_avail;
+                if let Ok(new_cfg) = crate::app::config::AppConfig::from_env() {
+                    let fresh_avail = new_cfg.detect_availability();
+                    fresh_avail.log_summary();
+                    self.api_availability = fresh_avail;
+                    self.config = std::sync::Arc::new(new_cfg);
+                } else {
+                    let fresh_avail = crate::app::config::AppConfig::from_env()
+                        .map(|c| c.detect_availability())
+                        .unwrap_or_default();
+                    fresh_avail.log_summary();
+                    self.api_availability = fresh_avail;
+                }
                 self.toast(
                     if document_ai_configured && gemini_configured {
                         ToastKind::Success
@@ -1619,7 +1617,16 @@ impl MyApp {
                 // Autofix interception for ALL errors
                 let err = crate::app::error::AppError::parse_msg(&message)
                     .unwrap_or_else(|| crate::app::error::AppError::Unknown(message.clone()));
-                self.pending_autofix = Some(err);
+
+                match &err {
+                    crate::app::error::AppError::ApiFailure(m) => {
+                        let suggestion = err.suggested_action().unwrap_or("");
+                        self.toast(ToastKind::Error, format!("API Error: {}\n{}", m, suggestion));
+                    }
+                    _ => {
+                        self.pending_autofix = Some(err);
+                    }
+                }
 
                 tracing::error!("[gui] runtime error in '{}': {}", job_label, message);
 
@@ -2351,11 +2358,20 @@ impl MyApp {
                         self.selected_block = None;
                     }
                     ui.add_space(5.0);
-                    if ui
-                        .add_sized(btn_size, egui::Button::new("Preview single edit"))
-                        .clicked()
-                    {
-                        self.toast(ToastKind::Info, "Previewing single edit visually...");
+                    ui.add_space(5.0);
+                    ui.separator();
+                    ui.heading("Live Output Preview");
+                    ui.add_space(10.0);
+                    if let Some(tex) = &self.after_texture {
+                        let max_size = ui.available_size() - egui::vec2(0.0, 20.0);
+                        let tex_size = tex.size_vec2();
+                        // Prevent scale from going unbounded, but fit it to the panel width
+                        let scale = (ui.available_width() / tex_size.x).min(max_size.y / tex_size.y).min(1.0);
+                        ui.add(egui::Image::new(tex).fit_to_exact_size(tex_size * scale));
+                    } else {
+                        ui.centered_and_justified(|ui| {
+                            ui.weak("Preview will appear after an edit is applied.");
+                        });
                     }
                     ui.add_space(5.0);
                     if ui
@@ -2709,6 +2725,25 @@ impl MyApp {
                         _ => egui::Color32::LIGHT_GREEN,
                     };
                     ui.colored_label(engine_color, format!("ENG: {}", engine_state));
+                    ui.separator();
+                    
+                    let mut all_healthy = true;
+                    if let Some(health) = &self.api_health {
+                        for res in health {
+                            if res.status == crate::app::api_verification::VerificationStatus::Failed {
+                                all_healthy = false;
+                            }
+                        }
+                    }
+                    if self.api_health.is_some() {
+                        if all_healthy {
+                            ui.colored_label(egui::Color32::LIGHT_GREEN, "API: HEALTHY");
+                        } else {
+                            ui.colored_label(egui::Color32::from_rgb(255, 80, 80), "API: DEGRADED");
+                        }
+                    } else {
+                        ui.colored_label(egui::Color32::GRAY, "API: UNKNOWN");
+                    }
                 });
             });
         });

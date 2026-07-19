@@ -852,6 +852,11 @@ impl Runtime {
         let fast_config_holder = config_holder.clone();
         let fast_watchdog_clone = watchdog_clone.clone();
 
+        let parse_cache = std::sync::Arc::new(tokio::sync::Mutex::new(
+            lru::LruCache::<String, crate::engine::model::BankStatement>::new(std::num::NonZeroUsize::new(20).unwrap())
+        ));
+        let fast_parse_cache = parse_cache.clone();
+
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
             let mut segment_manager: Option<SegmentManager> = None;
@@ -877,12 +882,14 @@ impl Runtime {
                     &mut segment_map,
                     &mut segment_manager,
                     fallback_router.clone(),
+                    parse_cache.clone(),
                     slow_job_tx.clone(),
                     config_holder.clone(),
                 ).await;
             }
         });
 
+        let parse_cache = fast_parse_cache;
         tokio_rt.spawn(async move {
             let mut segment_map: Option<SegmentMap> = None;
             let mut segment_manager: Option<SegmentManager> = None;
@@ -908,11 +915,31 @@ impl Runtime {
                     &mut segment_map,
                     &mut segment_manager,
                     fallback_router.clone(),
+                    parse_cache.clone(),
                     fast_job_tx.clone(),
                     fast_config_holder.clone(),
                 ).await;
             }
-        });;
+        });
+        
+        let sig_audit = audit_log.clone();
+        let sig_cancellations = cancellations.clone();
+        tokio_rt.spawn(async move {
+            if let Ok(()) = tokio::signal::ctrl_c().await {
+                tracing::info!("Received Ctrl-C signal! Initiating graceful shutdown...");
+                
+                if let Ok(mut lock) = sig_audit.lock() {
+                    let _ = lock.append_line("Graceful shutdown initiated via Ctrl-C");
+                }
+                
+                sig_cancellations.cancel_all();
+                
+                tracing::info!("Shutting down...");
+                
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                std::process::exit(0);
+            }
+        });
 
         (
             Self {
@@ -1162,6 +1189,7 @@ async fn process_job_inner(
     segment_map: &mut Option<SegmentMap>,
     segment_manager: &mut Option<SegmentManager>,
     fallback_router: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, tokio::sync::oneshot::Sender<String>>>>,
+    parse_cache: std::sync::Arc<tokio::sync::Mutex<lru::LruCache<String, crate::engine::model::BankStatement>>>,
     tokio_job_tx_clone: tokio::sync::mpsc::UnboundedSender<Job>,
     config_holder: std::sync::Arc<std::sync::Mutex<std::sync::Arc<crate::app::config::AppConfig>>>,
 ) {
@@ -3200,6 +3228,7 @@ async fn process_job_inner(
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
                         let semaphore = api_semaphore.clone();
+                        let cache_for_job = parse_cache.clone();
 
                         tokio::spawn(async move {
                             let _permit = match semaphore.acquire().await {
@@ -3209,6 +3238,21 @@ async fn process_job_inner(
                                     return;
                                 }
                             };
+
+                            let cache_key = match tokio::fs::read(&path).await {
+                                Ok(bytes) => crate::engine::workflow::sha256_hex_of(&bytes),
+                                Err(_) => path.to_string_lossy().to_string(),
+                            };
+
+                            {
+                                let mut cache = cache_for_job.lock().await;
+                                if let Some(cached_stmt) = cache.get(&cache_key) {
+                                    tracing::info!("[runtime] LRU cache HIT for ExtractTransactions: {}", cache_key);
+                                    let _ = res_tx.send(JobResult::TransactionsExtracted(cached_stmt.transactions.clone()));
+                                    return;
+                                }
+                            }
+
                             let _ = res_tx.send(JobResult::Progress { label: "Extracting transactions".to_string(), fraction: 0.1 });
 
                             let mut final_txs = None;
@@ -3280,6 +3324,13 @@ async fn process_job_inner(
                                 }
                             };
 
+                            let mut full_stmt = crate::engine::model::BankStatement::default();
+                            full_stmt.transactions = report.transactions.clone();
+                            {
+                                let mut cache = cache_for_job.lock().await;
+                                cache.put(cache_key, full_stmt);
+                            }
+
                             let _ = res_tx.send(JobResult::TransactionsExtracted(report.transactions));
                         });
                     }
@@ -3303,6 +3354,7 @@ async fn process_job_inner(
                         let eng = engine_for_tokio.clone();
                         let cfg = config_for_tokio.clone();
                         let semaphore = api_semaphore.clone();
+                        let cache_for_job = parse_cache.clone();
 
                         tokio::spawn(async move {
                             let _permit = match semaphore.acquire().await {
@@ -3312,6 +3364,12 @@ async fn process_job_inner(
                                     return;
                                 }
                             };
+                            
+                            let cache_key = match tokio::fs::read(&path).await {
+                                Ok(bytes) => crate::engine::workflow::sha256_hex_of(&bytes),
+                                Err(_) => path.to_string_lossy().to_string(),
+                            };
+
                             let _ = res_tx.send(JobResult::Progress { label: "Smart Balance Analysis".to_string(), fraction: 0.1 });
 
                             let doc_ai = crate::ai::document_ai::DocumentAiClient::from_app_config(&cfg).ok().map(Arc::new);
@@ -3357,18 +3415,32 @@ async fn process_job_inner(
 
                                 let eng_clone = eng.clone();
                                 let path_clone = path.clone();
-                                let stmt = match tokio::task::spawn_blocking(move || {
-                                    crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
-                                }).await {
-                                    Ok(Ok(s)) => s,
-                                    Ok(Err(e)) => {
-                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Offline balance analysis failed: {e}") });
-                                        return;
+                                let stmt = if let Some(cached_stmt) = {
+                                    let mut cache = cache_for_job.lock().await;
+                                    cache.get(&cache_key).cloned()
+                                } {
+                                    tracing::info!("[runtime] LRU cache HIT for BalanceStatement offline path: {}", cache_key);
+                                    cached_stmt
+                                } else {
+                                    let stmt_res = match tokio::task::spawn_blocking(move || {
+                                        crate::engine::offline_parser::parse_statement_offline(&path_clone, eng_clone)
+                                    }).await {
+                                        Ok(Ok(s)) => s,
+                                        Ok(Err(e)) => {
+                                            let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Offline balance analysis failed: {e}") });
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Offline balance panicked: {e}") });
+                                            return;
+                                        }
+                                    };
+                                    
+                                    {
+                                        let mut cache = cache_for_job.lock().await;
+                                        cache.put(cache_key.clone(), stmt_res.clone());
                                     }
-                                    Err(e) => {
-                                        let _ = res_tx.send(JobResult::Error { job_label: "balance_statement".into(), message: format!("Offline balance panicked: {e}") });
-                                        return;
-                                    }
+                                    stmt_res
                                 };
 
                                 let _ = res_tx.send(JobResult::Progress { label: "Computing balance chain locally...".to_string(), fraction: 0.6 });

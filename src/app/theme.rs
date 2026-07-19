@@ -24,16 +24,16 @@ impl Theme {
     pub fn palette(self) -> Palette {
         match self {
             Theme::ForensicDark => Palette {
-                bg: egui::Color32::from_rgb(14, 15, 18),        // Deep near-black workspace
-                panel: egui::Color32::from_rgb(22, 24, 29),     // Slightly elevated panels
-                surface: egui::Color32::from_rgb(30, 33, 40),   // Interactive surfaces
-                text: egui::Color32::from_rgb(235, 235, 240),   // Crisp off-white text
-                weak: egui::Color32::from_rgb(120, 125, 140),   // Muted technical text
-                accent: egui::Color32::from_rgb(94, 129, 255),  // Electric blue accent
+                bg: egui::Color32::from_rgb(10, 10, 12),        // Deep near-black workspace
+                panel: egui::Color32::from_rgb(16, 16, 18),     // Slightly elevated panels
+                surface: egui::Color32::from_rgb(22, 22, 24),   // Interactive surfaces
+                text: egui::Color32::from_rgb(240, 240, 245),   // Crisp off-white text
+                weak: egui::Color32::from_rgb(130, 135, 150),   // Muted technical text
+                accent: egui::Color32::from_rgb(0, 191, 255),   // Vibrant cyan/blue accent
                 success: egui::Color32::from_rgb(34, 197, 94),  // Clinical green
                 warn: egui::Color32::from_rgb(245, 158, 11),    // Alert amber
                 error: egui::Color32::from_rgb(239, 68, 68),    // Critical red
-                info: egui::Color32::from_rgb(56, 189, 248),    // Info cyan
+                info: egui::Color32::from_rgb(0, 191, 255),     // Info cyan aligned with accent
             },
             Theme::ForensicLight => Palette {
                 bg: egui::Color32::from_rgb(248, 250, 252),
@@ -109,10 +109,10 @@ impl Theme {
 
         // Global layout & typography spacing
         let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(16.0, 12.0); // More breathing room
-        style.spacing.button_padding = egui::vec2(18.0, 10.0);
+        style.spacing.item_spacing = egui::vec2(16.0, 16.0); // More breathing room
+        style.spacing.button_padding = egui::vec2(18.0, 12.0);
         style.spacing.window_margin = egui::Margin::same(24.0);
-        style.spacing.menu_margin = egui::Margin::same(8.0);
+        style.spacing.menu_margin = egui::Margin::same(12.0);
         style.spacing.icon_width = 16.0;
 
         // Modern typography sizing

@@ -118,6 +118,26 @@ impl AuditLog {
                 [],
             ).map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
             
+            // Automated Database Vacuuming: Prune records older than 30 days
+            let _ = conn.execute(
+                "DELETE FROM audit_log WHERE datetime(timestamp) < datetime('now', '-30 days')",
+                [],
+            );
+
+            // Prune snapshot files older than 30 days
+            if let Ok(entries) = std::fs::read_dir(&self.snapshots_dir) {
+                let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 3600);
+                for entry in entries.flatten() {
+                    if let Ok(meta) = entry.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            if modified < cutoff {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
+                        }
+                    }
+                }
+            }
+
             self.db = Some(conn);
         }
         Ok(())
