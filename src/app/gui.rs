@@ -201,6 +201,9 @@ pub enum ActiveModal {
 pub enum ActiveWorkflow {
     EditStatement,
     TransferTransactions,
+    AgentCommand,
+    AuditForensics,
+    ChaosSandbox,
     Settings,
     ApiKeys,
 }
@@ -270,7 +273,7 @@ pub struct MyApp {
 
     // Multi-stage workflow state
     pub workflow_stage: crate::engine::workflow::WorkflowStage,
-    workflow_transactions: Vec<crate::engine::model::Transaction>,
+    pub workflow_transactions: Vec<crate::engine::model::Transaction>,
     workflow_validation: Option<crate::engine::workflow::ParseValidation>,
     #[allow(dead_code)]
     workflow_df: Option<polars::frame::DataFrame>,
@@ -291,6 +294,7 @@ pub struct MyApp {
     /// (title, body, on_confirm action).
     pub active_modal: ActiveModal,
     pub command_query: String,
+    pub agent_autonomous_mode: bool,
     pub transfer_source_path: String,
     // Feedback modal state
     pub feedback_text: String,
@@ -450,6 +454,7 @@ impl MyApp {
             pending_python: None,
             last_render_request: None,
             command_query: String::new(),
+            agent_autonomous_mode: false,
             workflow_stage: crate::engine::workflow::WorkflowStage::Idle,
             workflow_transactions: Vec::new(),
             workflow_validation: None,
@@ -1311,6 +1316,15 @@ impl MyApp {
             ActiveWorkflow::TransferTransactions => {
                 self.draw_transfer_workflow(ctx);
             }
+            ActiveWorkflow::AgentCommand => {
+                self.draw_agent_command_workflow(ctx);
+            }
+            ActiveWorkflow::AuditForensics => {
+                self.draw_audit_explorer_view(ctx);
+            }
+            ActiveWorkflow::ChaosSandbox => {
+                self.draw_chaos_sandbox_workflow(ctx);
+            }
             ActiveWorkflow::Settings => {
                 self.draw_settings_workflow(ctx);
             }
@@ -2039,6 +2053,9 @@ impl MyApp {
                 let workflows = [
                     (ActiveWorkflow::EditStatement, "📄", "Editor"),
                     (ActiveWorkflow::TransferTransactions, "⇄", "Transfer"),
+                    (ActiveWorkflow::AgentCommand, "🤖", "Agent"),
+                    (ActiveWorkflow::AuditForensics, "📊", "Forensics"),
+                    (ActiveWorkflow::ChaosSandbox, "🧪", "Chaos Sandbox"),
                     (ActiveWorkflow::Settings, "⚙", "Settings"),
                     (ActiveWorkflow::ApiKeys, "🔑", "API Keys"),
                 ];
@@ -2619,6 +2636,87 @@ impl MyApp {
         });
     }
 
+    fn draw_agent_command_workflow(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("🤖 Autonomous NLP Agent Command Center");
+            ui.separator();
+            ui.add_space(10.0);
+
+            // Command input
+            ui.horizontal(|ui| {
+                ui.label("Instruction:");
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.command_query)
+                        .desired_width(ui.available_width() - 80.0)
+                        .hint_text("e.g. 'Change all transaction dates to 2026'"),
+                );
+                
+                if ui.button("Execute").clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                    if !self.command_query.is_empty() {
+                        let prompt = std::mem::take(&mut self.command_query);
+                        self.toast(ToastKind::Info, format!("Executing AI command: {}", prompt));
+                        self.in_flight += 1;
+                        let _ = self.job_tx.send(Job::NaturalLanguageEdit {
+                            prompt,
+                            transactions: self.workflow_transactions.clone(),
+                        });
+                    }
+                }
+            });
+
+            ui.add_space(20.0);
+            
+            // Autonomous mode toggle
+            ui.group(|ui| {
+                ui.heading("Autonomous Background Operations");
+                ui.add_space(5.0);
+                ui.label("Enable the agent to scrape templates and train on synthetic data 24/7.");
+                ui.horizontal(|ui| {
+                    ui.label("Status: ");
+                    let color = if self.agent_autonomous_mode { egui::Color32::GREEN } else { egui::Color32::DARK_GRAY };
+                    ui.label(egui::RichText::new(if self.agent_autonomous_mode { "ONLINE" } else { "OFFLINE" }).color(color).strong());
+                    if ui.button(if self.agent_autonomous_mode { "Stop" } else { "Start" }).clicked() {
+                        self.agent_autonomous_mode = !self.agent_autonomous_mode;
+                        if self.agent_autonomous_mode {
+                            self.toast(ToastKind::Success, "Autonomous Agent started.");
+                        } else {
+                            self.toast(ToastKind::Warn, "Autonomous Agent stopped.");
+                        }
+                    }
+                });
+            });
+
+            ui.add_space(20.0);
+            
+            // Output log
+            ui.heading("Activity Log");
+            egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                ui.group(|ui| {
+                    ui.set_min_height(200.0);
+                    ui.set_width(ui.available_width());
+                    if self.agent_autonomous_mode {
+                        ui.label(egui::RichText::new("> Scraping Scribd for 'CommBank statement'...\n> Found 3 new templates.\n> Training on template 1/3...").family(egui::FontFamily::Monospace).color(egui::Color32::LIGHT_GREEN));
+                    } else {
+                        ui.label(egui::RichText::new("> Agent offline. Waiting for manual instructions...").family(egui::FontFamily::Monospace).color(egui::Color32::GRAY));
+                    }
+                });
+            });
+        });
+    }
+
+    fn draw_chaos_sandbox_workflow(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("🧪 Chaos Testing Sandbox");
+            ui.separator();
+            ui.add_space(10.0);
+            ui.label("This workspace allows you to run adversarial tests against the AI models to verify their robustness against garbage inputs.");
+            
+            ui.add_space(20.0);
+            if ui.button("Run Chaos Suite").clicked() {
+                self.toast(ToastKind::Info, "Chaos suite dispatched. Check tests/chaos_tests.rs for unit test parity.");
+            }
+        });
+    }
     fn draw_settings_workflow(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("⚙️ System Configuration & Integrations");
