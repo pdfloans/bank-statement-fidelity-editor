@@ -324,8 +324,8 @@ impl Drop for AppConfig {
         if let Some(key) = &mut self.groq_api_key { key.zeroize(); }
         if let Some(key) = &mut self.openrouter_api_key { key.zeroize(); }
         if let Some(doc) = &mut self.document_ai {
-            if let Some(key) = &mut doc.api_key { key.zeroize(); }
-            if let Some(path) = &mut doc.service_account_path { path.zeroize(); }
+            doc.api_key.zeroize();
+            doc.service_account_path.zeroize();
         }
         if let Some(key) = &mut self.pymupdf_pro_key { key.zeroize(); }
         self.passphrase.zeroize();
@@ -983,11 +983,11 @@ mod tests {
             project_id: "proj".into(),
             location: "loc".into(),
             processor_id: "proc".into(),
-            service_account_path: Some("sa.json".into()),
-            adc_path: None,
-            api_key: None,
-            gcs_output_uri: None,
-            passphrase: None,
+            service_account_path: "sa.json".into(),
+            adc_path: "".into(),
+            api_key: "".into(),
+            gcs_output_uri: "".into(),
+            passphrase: "".into(),
         });
         cfg.llamaparse_api_key = Some("llama".into());
         cfg.pdfrest_api_key = Some("pdfrest".into());

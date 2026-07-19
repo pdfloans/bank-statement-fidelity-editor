@@ -1919,11 +1919,11 @@ mod tests {
             project_id: "p".into(),
             location: "us".into(),
             processor_id: "abc".into(),
-            service_account_path: None,
-            api_key: None,
-            adc_path: None,
-            gcs_output_uri: None,
-            passphrase: None,
+            service_account_path: "".into(),
+            api_key: "".into(),
+            adc_path: "".into(),
+            gcs_output_uri: "".into(),
+            passphrase: "".into(),
         });
 
         let res = DocumentAiClient::from_app_config(&cfg);
