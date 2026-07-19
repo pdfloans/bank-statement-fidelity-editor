@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::env_spec::is_well_formed_pro_key;
 use crate::error::{ConfigError, ConfigResult};
+use zeroize::Zeroize;
 
 /// Minimum passphrase length for security (16 characters)
 const MIN_PASSPHRASE_LENGTH: usize = 16;
@@ -313,6 +314,25 @@ pub struct AppConfig {
     pub interactive_fallbacks: bool,
     pub transfer_consensus_mode: bool,
     pub auto_match_dpi: bool,
+}
+
+impl Drop for AppConfig {
+    fn drop(&mut self) {
+        if let Some(key) = &mut self.gemini_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.pdfrest_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.lipi_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.groq_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.openrouter_api_key { key.zeroize(); }
+        if let Some(doc) = &mut self.document_ai {
+            if let Some(key) = &mut doc.api_key { key.zeroize(); }
+            if let Some(path) = &mut doc.service_account_path { path.zeroize(); }
+        }
+        if let Some(key) = &mut self.pymupdf_pro_key { key.zeroize(); }
+        self.passphrase.zeroize();
+        if let Some(key) = &mut self.llamaparse_api_key { key.zeroize(); }
+        
+        tracing::debug!("[config] AppConfig dropped, sensitive fields zeroized.");
+    }
 }
 
 impl Default for AppConfig {
@@ -794,10 +814,9 @@ mod tests {
 
     #[test]
     fn pro_editing_unavailable_when_key_absent() {
-        let cfg = AppConfig {
-            pymupdf_pro_key: None,
-            ..AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.pymupdf_pro_key = None;
+
         assert_eq!(cfg.pro_key_status(), ProKeyStatus::Unavailable);
         assert!(!cfg.pro_editing_available());
         assert!(cfg.pro_editing_status_reason().contains("unavailable"));
@@ -805,20 +824,18 @@ mod tests {
 
     #[test]
     fn pro_editing_available_with_well_formed_trial_key() {
-        let cfg = AppConfig {
-            pymupdf_pro_key: Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string()),
-            ..AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.pymupdf_pro_key = Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string());
+
         assert_eq!(cfg.pro_key_status(), ProKeyStatus::Available);
         assert!(cfg.pro_editing_available());
     }
 
     #[test]
     fn pro_editing_unavailable_with_malformed_key() {
-        let cfg = AppConfig {
-            pymupdf_pro_key: Some("not-a-valid-key".to_string()),
-            ..AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.pymupdf_pro_key = Some("not-a-valid-key".to_string());
+
         assert_eq!(cfg.pro_key_status(), ProKeyStatus::Unavailable);
         assert!(!cfg.pro_editing_available());
     }
@@ -828,11 +845,10 @@ mod tests {
         // A missing Pro key must never cause additional validation beyond the
         // existing dev-mode-gated PYMUPDF_PRO_KEY check; split/merge are not
         // gated by Pro-key state.
-        let cfg = AppConfig {
-            pymupdf_pro_key: None,
-            is_dev_mode: true,
-            ..AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.pymupdf_pro_key = None;
+        cfg.is_dev_mode = true;
+
         // In dev mode the missing key is not reported as an error.
         assert!(!cfg.validate().iter().any(|e| e.contains("PYMUPDF_PRO_KEY")));
         // And availability is independent of validate().
@@ -895,12 +911,11 @@ mod tests {
 
     #[test]
     fn test_has_ai_for_balancing() {
-        let mut cfg = super::AppConfig {
-            ai_provider: super::AiProviderMode::ManualOnly,
-            gemini_api_key: Some("test".into()),
-            groq_api_key: Some("test".into()),
-            ..super::AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.ai_provider = super::AiProviderMode::ManualOnly;
+        cfg.gemini_api_key = Some("test".into());
+        cfg.groq_api_key = Some("test".into());
+
         assert!(!cfg.has_ai_for_balancing());
 
         // Gemini API Key requires gemini_api_key
@@ -947,12 +962,11 @@ mod tests {
 
     #[test]
     fn validate_reports_missing_pro_key_and_passphrase_in_production_mode() {
-        let cfg = super::AppConfig {
-            pymupdf_pro_key: None,
-            passphrase: "short".into(),
-            is_dev_mode: false,
-            ..super::AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.pymupdf_pro_key = None;
+        cfg.passphrase = "short".into();
+        cfg.is_dev_mode = false;
+
 
         let errors = cfg.validate();
         assert!(errors.iter().any(|e| e.contains("PYMUPDF_PRO_KEY")));
@@ -961,27 +975,24 @@ mod tests {
 
     #[test]
     fn detect_availability_exposes_backend_state_and_helpful_reasons() {
-        let cfg = super::AppConfig {
-            gemini_api_key: Some("gemini".into()),
-            groq_api_key: None,
-            openrouter_api_key: None,
-            document_ai: Some(DocumentAiConfig {
-                project_id: "proj".into(),
-                location: "loc".into(),
-                processor_id: "proc".into(),
-                service_account_path: "sa.json".into(),
-                adc_path: "".into(),
-                api_key: "".into(),
-                gcs_output_uri: "".into(),
-                passphrase: "".into(),
-            }),
-            
-            llamaparse_api_key: Some("llama".into()),
-            pdfrest_api_key: Some("pdfrest".into()),
-            pymupdf_pro_key: Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string()),
-            
-            ..super::AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.gemini_api_key = Some("gemini".into());
+        cfg.groq_api_key = None;
+        cfg.openrouter_api_key = None;
+        cfg.document_ai = Some(DocumentAiConfig {
+            project_id: "proj".into(),
+            location: "loc".into(),
+            processor_id: "proc".into(),
+            service_account_path: Some("sa.json".into()),
+            adc_path: None,
+            api_key: None,
+            gcs_output_uri: None,
+            passphrase: None,
+        });
+        cfg.llamaparse_api_key = Some("llama".into());
+        cfg.pdfrest_api_key = Some("pdfrest".into());
+        cfg.pymupdf_pro_key = Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string());
+
 
         std::env::set_var("VISION_API_KEY", "test");
         let availability = cfg.detect_availability();

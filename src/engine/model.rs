@@ -177,7 +177,7 @@ mod tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-        }
+         category: None, }
     }
 
     #[test]
@@ -351,7 +351,7 @@ pub fn dataframe_to_transactions(df: &DataFrame) -> Result<Vec<Transaction>, Dat
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Computed,
-        });
+         category: None, });
     }
 
     Ok(txs)
@@ -375,7 +375,7 @@ mod dataframe_tests {
                 bbox: None,
                 field_bboxes: Default::default(),
                 provenance: Provenance::Manual,
-            },
+             category: None, },
             Transaction {
                 page: 1,
                 line_on_page: 2,
@@ -387,7 +387,7 @@ mod dataframe_tests {
                 bbox: None,
                 field_bboxes: Default::default(),
                 provenance: Provenance::Manual,
-            },
+             category: None, },
         ]
     }
 

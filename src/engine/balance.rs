@@ -278,7 +278,7 @@ mod tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-        }
+         category: None, }
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod polars_balance_tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-        }
+         category: None, }
     }
 
     #[test]

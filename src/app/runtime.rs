@@ -1165,11 +1165,9 @@ mod tests {
 
     #[test]
     fn runtime_fallback_branch_prefers_offline_parser_when_online_backends_are_unavailable() {
-        let cfg = crate::app::config::AppConfig {
-            document_ai: None,
+        let mut cfg = AppConfig::default();
+        cfg.document_ai = None;
 
-            ..crate::app::config::AppConfig::default()
-        };
 
         let availability = cfg.detect_availability();
         assert!(!availability.document_ai);
@@ -1689,7 +1687,7 @@ async fn process_job_inner(
                                         credit: src.credit,
                                         running_balance: rust_decimal::Decimal::ZERO,
                                         field_bboxes: crate::engine::model::FieldBboxes::default(),
-                                    });
+                                     category: None, });
                                 }
                                 if skipped_invalid > 0 {
                                     tracing::warn!("[TRANSFER] Skipped {} mappings with invalid source_index", skipped_invalid);
@@ -2088,7 +2086,7 @@ async fn process_job_inner(
                                         bbox: None,
                                         field_bboxes: crate::engine::model::FieldBboxes::default(),
                                         provenance: crate::engine::model::Provenance::Computed,
-                                    }
+                                     category: None, }
                                 }).collect();
 
                                 let vis_result = crate::engine::verification::verify_edit(
@@ -2754,7 +2752,7 @@ async fn process_job_inner(
                                             credit: src.credit,
                                             running_balance: rust_decimal::Decimal::ZERO,
                                             field_bboxes: Default::default(),
-                                        }
+                                         category: None, }
                                     }).collect();
                                     crate::engine::transfer::recompute_running_balances(opening, &mut mapped);
 
@@ -3229,7 +3227,6 @@ async fn process_job_inner(
                                 Err(e) => {
                                     let _ = res_tx.send(JobResult::Error { job_label: "redo".into(), message: format!("History lock poisoned: {e}") });
                                 }
-                            }
                             }
                         }).await;
                     }
@@ -4167,7 +4164,7 @@ async fn process_job_inner(
                                             bbox: r.bbox,
                                             field_bboxes: Default::default(),
                                             provenance: crate::engine::model::Provenance::Computed,
-                                        }
+                                         category: None, }
                                     }).collect();
 
                                     let python_tx_clone2 = python_tx_clone.clone();
@@ -4896,7 +4893,7 @@ async fn process_job_inner(
                                         closing_balance: expected_closing.unwrap_or(rust_decimal::Decimal::ZERO),
                                         account_number: None,
                                         total_pages: 1,
-                                    };
+                                     bank_name: None, };
                                     let typst_engine = crate::engine::typst_engine::TypstEngine::new();
                                     match typst_engine.reconstruct_pdf(&reconstructed_statement, &scratch).await {
                                         Ok(_) => apply_result = Ok(PythonJobResult::Json("{\"success\":true}".into())),
@@ -5201,7 +5198,7 @@ async fn process_job_inner(
                                         closing_balance: expected_closing.unwrap_or(rust_decimal::Decimal::ZERO),
                                         account_number: None,
                                         total_pages: 1,
-                                    };
+                                     bank_name: None, };
                                     let typst_engine = crate::engine::typst_engine::TypstEngine::new();
                                     match typst_engine.reconstruct_pdf(&reconstructed_statement, &output).await {
                                         Ok(_) => {

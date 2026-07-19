@@ -473,10 +473,9 @@ mod tests {
         fallback: Arc<dyn PdfEngine>,
         mode: PdfEngineMode,
     ) -> PdfEngineSelector {
-        let cfg = AppConfig {
-            engine_mode: mode,
-            ..AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.engine_mode = mode;
+
         PdfEngineSelector::new(
             primary,
             fallback,

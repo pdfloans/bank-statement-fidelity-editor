@@ -227,12 +227,11 @@ mod tests {
     #[cfg(feature = "otel")]
     #[test]
     fn init_with_unreachable_otlp_endpoint_does_not_panic() {
-        let cfg = AppConfig {
-            log_dir: PathBuf::from("logs_test"),
-            otel_endpoint: Some("http://127.0.0.1:1".into()),
-            otel_service_name: "test-service".into(),
-            ..AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.log_dir = PathBuf::from("logs_test");
+        cfg.otel_endpoint = Some("http://127.0.0.1:1".into());
+        cfg.otel_service_name = "test-service".into();
+
         // Should not panic
         let _guard = init(&cfg);
     }

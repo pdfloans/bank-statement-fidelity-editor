@@ -1100,7 +1100,7 @@ impl DocumentAiClient {
             opening_balance,
             closing_balance,
             account_number,
-        })
+         bank_name: None, })
     }
 
     // -----------------------------------------------------------------------
@@ -1525,7 +1525,7 @@ fn merge_chunk_results(chunked: Vec<BankStatement>) -> BankStatement {
         opening_balance: Decimal::ZERO,
         closing_balance: Decimal::ZERO,
         account_number: None,
-    };
+     bank_name: None, };
     for (i, stmt) in chunked.into_iter().enumerate() {
         merged.total_pages += stmt.total_pages;
         merged.transactions.extend(stmt.transactions);
@@ -1913,20 +1913,19 @@ mod tests {
 
     #[test]
     fn from_app_config_requires_credential() {
-        let cfg = AppConfig {
-            passphrase: "x".repeat(20),
-            document_ai: Some(DocumentAiConfig {
-                project_id: "p".into(),
-                location: "us".into(),
-                processor_id: "abc".into(),
-                service_account_path: String::new(),
-                api_key: String::new(),
-                adc_path: String::new(),
-                gcs_output_uri: String::new(),
-                passphrase: String::new(),
-            }),
-            ..AppConfig::default()
-        };
+        let mut cfg = AppConfig::default();
+        cfg.passphrase = "x".repeat(20);
+        cfg.document_ai = Some(DocumentAiConfig {
+            project_id: "p".into(),
+            location: "us".into(),
+            processor_id: "abc".into(),
+            service_account_path: None,
+            api_key: None,
+            adc_path: None,
+            gcs_output_uri: None,
+            passphrase: None,
+        });
+
         let res = DocumentAiClient::from_app_config(&cfg);
         assert!(matches!(res, Err(DocAiError::MissingConfig(_))));
     }
@@ -1938,7 +1937,7 @@ mod tests {
         tx_pages: &[usize],
     ) -> BankStatement {
         fake_chunk_with_account(page_count, opening, closing, tx_pages, None)
-    }
+     bank_name: None, }
 
     fn fake_chunk_with_account(
         page_count: usize,

@@ -78,7 +78,7 @@ pub struct MappedTransaction {
     pub running_balance: Decimal,
     /// Where each field should be placed on the target page.
     pub field_bboxes: FieldBboxes,
-}
+ category: None, }
 
 /// Gemini's plan for how to execute the transfer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,7 +287,7 @@ mod tests {
                 credit: None,
                 running_balance: Decimal::ZERO,
                 field_bboxes: FieldBboxes::default(),
-            },
+             category: None, },
             MappedTransaction {
                 target_page: 0,
                 target_line: 1,
@@ -297,7 +297,7 @@ mod tests {
                 credit: Some(dec!(200)),
                 running_balance: Decimal::ZERO,
                 field_bboxes: FieldBboxes::default(),
-            },
+             category: None, },
         ];
 
         recompute_running_balances(dec!(1000), &mut txns);

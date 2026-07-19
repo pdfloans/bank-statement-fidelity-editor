@@ -361,7 +361,7 @@ impl LlamaParseClient {
                                 bbox: None,
                                 field_bboxes: Default::default(),
                                 provenance: crate::engine::model::Provenance::Computed,
-                            });
+                             category: None, });
                         } else if date.is_empty() && debit.is_none() && credit.is_none() && balance.is_none() && !desc.is_empty() {
                             // This is likely a continuation row (e.g. description spilling over a page boundary)
                             if let Some(last_tx) = transactions.last_mut() {
@@ -398,6 +398,6 @@ impl LlamaParseClient {
             opening_balance: Decimal::ZERO,
             closing_balance: Decimal::ZERO,
             account_number: None,
-        })
+         bank_name: None, })
     }
 }

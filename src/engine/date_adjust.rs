@@ -166,7 +166,7 @@ mod tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-        }
+         category: None, }
     }
 
     #[test]
