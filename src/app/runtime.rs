@@ -228,6 +228,10 @@ pub enum Job {
         output: PathBuf,
         edits: Vec<crate::engine::workflow::UserEdit>,
     },
+    NaturalLanguageEdit {
+        prompt: String,
+        transactions: Vec<crate::engine::model::Transaction>,
+    },
     ApplyProposedChanges {
         input: PathBuf,
         output: PathBuf,
@@ -417,6 +421,7 @@ pub enum JobResult {
         path: PathBuf,
     },
     TransactionsExtracted(Vec<crate::engine::model::Transaction>),
+    NaturalLanguageEditReady(Vec<crate::engine::model::Transaction>),
     VerificationReport(crate::engine::verification::VerificationReport),
     /// Stage 8.5: per-font usage and coverage breakdown for the loaded PDF.
     /// Sent automatically after `Job::LoadDocument` and on demand from

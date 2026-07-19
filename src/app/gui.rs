@@ -236,6 +236,9 @@ pub struct MyApp {
     selected_block: Option<TextBlock>,
     last_click_pos: Option<egui::Pos2>,
     new_text: String,
+    
+    // Natural Language Editing
+    pub natural_language_prompt: String,
 
     // Textures
     current_page_texture: Option<egui::TextureHandle>,
@@ -426,6 +429,7 @@ impl MyApp {
             selected_block: None,
             last_click_pos: None,
             new_text: String::new(),
+            natural_language_prompt: String::new(),
             current_page_texture: None,
             before_texture: None,
             after_texture: None,
@@ -1559,10 +1563,24 @@ impl MyApp {
                 );
             }
             JobResult::TransactionsExtracted(txs) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
                 self.toast(
                     ToastKind::Success,
                     format!("Extracted {} transactions", txs.len()),
                 );
+                self.workflow_transactions = txs;
+                self.workflow_dirty = true;
+                self.last_runtime_activity = std::time::Instant::now();
+            }
+            JobResult::NaturalLanguageEditReady(txs) => {
+                self.in_flight = self.in_flight.saturating_sub(1);
+                self.toast(
+                    ToastKind::Success,
+                    format!("Applied AI edit to {} transactions", txs.len()),
+                );
+                self.workflow_transactions = txs;
+                self.workflow_dirty = true;
+                self.last_runtime_activity = std::time::Instant::now();
             }
             JobResult::FontCompleted(_) => {
                 self.toast(ToastKind::Success, "Font completion finished");
@@ -3482,6 +3500,27 @@ impl MyApp {
 
             // Stage 5 / Item #6 + #8: inline edit table with per-row revert.
             self.draw_workflow_edit_table(ui);
+
+            ui.separator();
+
+            // Natural Language Interface
+            ui.label(egui::RichText::new("✨ Natural Language Edit (Beta)").strong());
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.natural_language_prompt)
+                    .hint_text("e.g. Change all Starbucks to Dunkin")
+                    .desired_width(280.0));
+                let can_edit = !self.natural_language_prompt.is_empty() && !self.workflow_transactions.is_empty();
+                if ui.add_enabled(can_edit, egui::Button::new("Apply")).clicked() {
+                    if let Err(e) = self.job_tx.send(crate::app::runtime::Job::NaturalLanguageEdit {
+                        prompt: self.natural_language_prompt.clone(),
+                        transactions: self.workflow_transactions.clone(),
+                    }) {
+                        tracing::error!("Runtime disconnected: {}", e);
+                    }
+                    self.in_flight += 1;
+                    self.natural_language_prompt.clear();
+                }
+            });
 
             ui.separator();
 
