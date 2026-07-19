@@ -394,7 +394,7 @@ async fn verify_pdfrest(config: &AppConfig) -> VerificationResult {
     }
 }
 
-async fn verify_vision(config: &AppConfig) -> VerificationResult {
+async fn verify_vision(_config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     let key_val = std::env::var("VISION_API_KEY").unwrap_or_default();
     let key = if key_val.is_empty() { None } else { Some(key_val) };

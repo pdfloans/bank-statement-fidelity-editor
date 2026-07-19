@@ -21,7 +21,7 @@ impl<W: Write> ScrubbingWriter<W> {
         let re_email = RE_EMAIL.get_or_init(|| regex::Regex::new(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+").unwrap());
         let re_keys = RE_KEYS.get_or_init(|| regex::Regex::new(r#"(?i)(api[_-]?key|token|secret|password|bearer)[\s=:>]+['"]?[A-Za-z0-9\-_]{16,}['"]?"#).unwrap());
         let re_mac_path = RE_MAC_PATH.get_or_init(|| regex::Regex::new(r"/Users/[a-zA-Z0-9_.-]+").unwrap());
-        let re_win_path = RE_WIN_PATH.get_or_init(|| regex::Regex::new(r"C:\Users\[a-zA-Z0-9_.-]+").unwrap());
+        let re_win_path = RE_WIN_PATH.get_or_init(|| regex::Regex::new(r"C:\\Users\\[a-zA-Z0-9_.-]+").unwrap());
 
         let text = re_email.replace_all(text, "***@***.***");
         let text = re_keys.replace_all(&text, "${1}=***");

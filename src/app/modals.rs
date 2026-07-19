@@ -9,7 +9,7 @@ pub trait CommandPalette {
 
 impl CommandPalette for MyApp {
     fn draw_command_palette(&mut self, ctx: &egui::Context) {
-        let mut open = (self.active_modal == ActiveModal::CommandPalette);
+        let mut open = self.active_modal == ActiveModal::CommandPalette;
         let mut submit_nlp = false;
 
         egui::Window::new("Command Palette")
@@ -74,8 +74,10 @@ impl CommandPalette for MyApp {
             });
 
             self.active_modal = ActiveModal::None;
-        } else {
-            if open { self.active_modal = ActiveModal::CommandPalette; } else if self.active_modal == ActiveModal::CommandPalette { self.active_modal = ActiveModal::None; }
+        } else if open {
+            self.active_modal = ActiveModal::CommandPalette;
+        } else if self.active_modal == ActiveModal::CommandPalette {
+            self.active_modal = ActiveModal::None;
         }
     }
 }
@@ -100,7 +102,7 @@ pub(crate) trait AppModals {
 
 impl AppModals for MyApp {
     fn draw_settings_modal(&mut self, ctx: &egui::Context) {
-        let mut open = (self.active_modal == ActiveModal::Settings);
+        let mut open = self.active_modal == ActiveModal::Settings;
         egui::Window::new("⚙️ Settings & Tools")
                 .open(&mut open)
                 .default_size(egui::vec2(420.0, 600.0))
@@ -524,7 +526,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_transfer_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = (self.active_modal == ActiveModal::Transfer);
+        let mut open = self.active_modal == ActiveModal::Transfer;
         egui::Window::new("🔄 Transfer Transactions")
             .open(&mut open)
             .default_size(egui::vec2(1200.0, 750.0))
@@ -716,7 +718,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = (self.active_modal == ActiveModal::DateAdjust);
+        let mut open = self.active_modal == ActiveModal::DateAdjust;
         egui::Window::new("📅 Adjust Date Periods")
             .open(&mut open)
             .default_size(egui::vec2(420.0, 320.0))
@@ -1004,7 +1006,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_workflow_hitl_modal(&mut self, ctx: &egui::Context) {
-        let mut keep_open = (self.active_modal == ActiveModal::WorkflowHitl);
+        let mut keep_open = self.active_modal == ActiveModal::WorkflowHitl;
         let mut resolved = false;
 
         egui::Window::new("⚠️ Workflow Human-in-the-Loop Required")
@@ -1163,7 +1165,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_transfer_test_dialog(&mut self, ctx: &egui::Context) {
-        let mut open = (self.active_modal == ActiveModal::TransferTest);
+        let mut open = self.active_modal == ActiveModal::TransferTest;
         egui::Window::new("🧪 Transfer Test Harness")
             .open(&mut open)
             .default_size(egui::vec2(520.0, 420.0))
@@ -1613,7 +1615,7 @@ impl AppModals for MyApp {
     }
 
     fn draw_feedback_modal(&mut self, ctx: &egui::Context) {
-        let mut open = (self.active_modal == ActiveModal::Feedback);
+        let mut open = self.active_modal == ActiveModal::Feedback;
         let mut submit = false;
         
         egui::Window::new("🐛 Report a Bug / Feedback")
@@ -1657,8 +1659,10 @@ impl AppModals for MyApp {
                 include_logs: self.feedback_include_logs,
                 include_audit: self.feedback_include_audit,
             });
-        } else {
-            if open { self.active_modal = ActiveModal::Feedback; } else if self.active_modal == ActiveModal::Feedback { self.active_modal = ActiveModal::None; }
+        } else if open {
+            self.active_modal = ActiveModal::Feedback;
+        } else if self.active_modal == ActiveModal::Feedback {
+            self.active_modal = ActiveModal::None;
         }
     }
 

@@ -94,7 +94,7 @@ async fn test_chaos_fallback_selector_returns_encrypted_error() {
 
 #[tokio::test]
 async fn test_chaos_fallback_triggers_typst_reconstruct() {
-    let mut statement = BankStatement {
+    let statement = BankStatement {
         total_pages: 1,
         transactions: vec![],
         bank_name: None,

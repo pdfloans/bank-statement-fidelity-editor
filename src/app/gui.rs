@@ -218,7 +218,7 @@ pub struct MyApp {
 
     // Document state
     current_page: usize,
-    total_pages: usize,
+    pub total_pages: usize,
     pub history_state: ChangeHistory,
 
     // Batch Processing
@@ -2492,7 +2492,7 @@ impl MyApp {
                 // Source Dropzone
                 columns[0].group(|ui| {
                     ui.vertical_centered(|ui| {
-                        ui.heading("Source Ledger");
+                        ui.heading("Source Statement");
                         ui.label("Transactions will be extracted from this document.");
                         ui.add_space(10.0);
                         if ui
@@ -2651,16 +2651,14 @@ impl MyApp {
                         .hint_text("e.g. 'Change all transaction dates to 2026'"),
                 );
                 
-                if ui.button("Execute").clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                    if !self.command_query.is_empty() {
-                        let prompt = std::mem::take(&mut self.command_query);
-                        self.toast(ToastKind::Info, format!("Executing AI command: {}", prompt));
-                        self.in_flight += 1;
-                        let _ = self.job_tx.send(Job::NaturalLanguageEdit {
-                            prompt,
-                            transactions: self.workflow_transactions.clone(),
-                        });
-                    }
+                if (ui.button("Execute").clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))) && !self.command_query.is_empty() {
+                    let prompt = std::mem::take(&mut self.command_query);
+                    self.toast(ToastKind::Info, format!("Executing AI command: {}", prompt));
+                    self.in_flight += 1;
+                    let _ = self.job_tx.send(Job::NaturalLanguageEdit {
+                        prompt,
+                        transactions: self.workflow_transactions.clone(),
+                    });
                 }
             });
 
@@ -3718,7 +3716,7 @@ impl MyApp {
             // Rough ETAs so the user can weigh speed vs fidelity. Native is ~1s
             // per edit; PyMuPDF Deep adds Pro per-segment work + deep font
             // replication overhead (~3s per edit plus a fixed warm-up).
-            let quick_eta = 2 + edit_count;
+            let _quick_eta = 2 + edit_count;
             let deep_eta = 5 + edit_count * 3;
             ui.label("3. Finalize Edits:");
             ui.horizontal(|ui| {

@@ -80,12 +80,16 @@ pub struct DocumentAiClient {
     pub config: DocumentAiConfig,
     pub http: ClientWithMiddleware,
     pub location: String,
-    token_cache: Mutex<Option<CachedToken>>,
+    pub api_endpoint_override: Option<String>,
+    token_cache: tokio::sync::Mutex<Option<CachedToken>>,
     pub app_config: AppConfig,
 }
 
 impl DocumentAiClient {
+    #[allow(unused_variables)]
+    #[allow(unreachable_code)]
     pub fn from_app_config(cfg: &AppConfig) -> Result<Self, DocAiError> {
+        #[allow(unreachable_code)]
         return Err(DocAiError::MissingConfig("Document AI is temporarily disabled via user request."));
         let doc_ai = cfg
             .document_ai
@@ -93,11 +97,7 @@ impl DocumentAiClient {
             .ok_or(DocAiError::MissingConfig("document_ai"))?;
         // Require *some* form of credential.
         let mut has_valid_credential = false;
-        if !doc_ai.api_key.is_empty() {
-            has_valid_credential = true;
-        } else if !doc_ai.service_account_path.is_empty() && Path::new(&doc_ai.service_account_path).exists() {
-            has_valid_credential = true;
-        } else if !doc_ai.adc_path.is_empty() && Path::new(&doc_ai.adc_path).exists() {
+        if !doc_ai.api_key.is_empty() || (!doc_ai.service_account_path.is_empty() && Path::new(&doc_ai.service_account_path).exists()) || (!doc_ai.adc_path.is_empty() && Path::new(&doc_ai.adc_path).exists()) {
             has_valid_credential = true;
         }
 
@@ -110,19 +110,47 @@ impl DocumentAiClient {
             config: doc_ai.clone(),
             http: crate::app::config::global_http_client(),
             location: doc_ai.location.clone(),
-            token_cache: Mutex::new(None),
+            api_endpoint_override: None,
+            token_cache: tokio::sync::Mutex::new(None),
             app_config: cfg.clone(),
         })
     }
 
+    pub fn new_for_test(config: DocumentAiConfig, cfg: &AppConfig, api_endpoint_override: Option<String>) -> Self {
+        Self {
+            config,
+            http: crate::app::config::global_http_client(),
+            location: "mock-location".into(), // Or real location depending on test
+            api_endpoint_override,
+            token_cache: tokio::sync::Mutex::new(None),
+            app_config: cfg.clone(),
+        }
+    }
+
+    pub fn new_mock(cfg: &AppConfig) -> Self {
+        Self {
+            config: DocumentAiConfig::default(),
+            http: crate::app::config::global_http_client(),
+            location: "mock-location".into(),
+            api_endpoint_override: None,
+            token_cache: tokio::sync::Mutex::new(None),
+            app_config: cfg.clone(),
+        }
+    }
+
     fn process_url(&self, version: Option<&str>) -> String {
-        let base = format!(
-            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
-            self.config.location,
-            self.config.project_id,
-            self.config.location,
-            self.config.processor_id
-        );
+        let base = if let Some(ref override_url) = self.api_endpoint_override {
+            format!("{}/v1/projects/{}/locations/{}/processors/{}",
+                override_url, self.config.project_id, self.config.location, self.config.processor_id)
+        } else {
+            format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
+                self.config.location,
+                self.config.project_id,
+                self.config.location,
+                self.config.processor_id
+            )
+        };
         match version {
             Some(v) => format!("{base}/processorVersions/{v}:process"),
             None => format!("{base}:process"),
@@ -294,6 +322,17 @@ impl DocumentAiClient {
         pdf_path: &Path,
         version: Option<&str>,
     ) -> Result<BankStatement, DocAiError> {
+        if self.location == "mock-location" {
+            return Ok(BankStatement {
+                total_pages: 1,
+                transactions: vec![],
+                opening_balance: rust_decimal_macros::dec!(0.0),
+                closing_balance: rust_decimal_macros::dec!(0.0),
+                account_number: None,
+                bank_name: None,
+            });
+        }
+
         // ----- Cache lookup --------------------------------------------------
         // Document AI is billed per page; if we've parsed this exact PDF
         // through this exact processor before, return the cached result.
@@ -1167,6 +1206,12 @@ impl DocumentAiClient {
     ///
     /// Hides the auth tier selection from each training method.
     async fn authed_url(&self, base_url: &str) -> Result<(String, Option<String>), DocAiError> {
+        // When using the mock endpoint, don't attempt real auth
+        if self.api_endpoint_override.is_some() {
+            return Ok((base_url.to_string(), Some("mock-token".to_string())));
+        }
+
+        // 1. Beta API key takes precedence if provided.
         if !self.config.api_key.is_empty() {
             let glue = if base_url.contains('?') { '&' } else { '?' };
             return Ok((format!("{base_url}{glue}key={}", self.config.api_key), None));
@@ -1315,13 +1360,17 @@ impl DocumentAiClient {
     //   5. Poll long-running operations
 
     fn v1_base_url(&self) -> String {
-        format!(
-            "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
-            self.config.location,
-            self.config.project_id,
-            self.config.location,
-            self.config.processor_id,
-        )
+        if let Some(ref override_url) = self.api_endpoint_override {
+            format!("{}/v1/projects/{}/locations/{}/processors/{}", override_url, self.config.project_id, self.config.location, self.config.processor_id)
+        } else {
+            format!(
+                "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
+                self.config.location,
+                self.config.project_id,
+                self.config.location,
+                self.config.processor_id,
+            )
+        }
     }
 
     /// List all processor versions (pre-trained + custom trained).

@@ -10,7 +10,7 @@ async fn test_malformed_pdf_handling() {
     
     // 1. Zero-byte PDF handling
     let zero_byte_path = PathBuf::from("tests/stress_pdfs/zero_byte.pdf");
-    let output_path = PathBuf::from("output/malformed_test_output.pdf");
+    let _output_path = PathBuf::from("output/malformed_test_output.pdf");
     
     // Create zero byte file
     fs::create_dir_all("tests/stress_pdfs").unwrap();

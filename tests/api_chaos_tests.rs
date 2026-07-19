@@ -5,7 +5,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 #[tokio::test]
 async fn test_gemini_api_chaos_recovery() {
     let _ = dotenvy::dotenv();
-    let cfg = AppConfig::from_env().unwrap_or_default();
+    let _cfg = AppConfig::from_env().unwrap_or_default();
     
     // We would normally inject a custom base_url into GeminiClient,
     // but wiremock can just return HTTP 429 directly to a custom client instance.

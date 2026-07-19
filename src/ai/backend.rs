@@ -50,6 +50,15 @@ impl AiBackend {
         })
     }
 
+    pub fn new_mock() -> Self {
+        Self {
+            primary: AiProviderMode::GeminiApiKey,
+            gemini: None,
+            openrouter: None,
+            groq: None,
+        }
+    }
+
     pub async fn from_app_config_async(cfg: &AppConfig) -> Result<Self, AiBackendError> {
         let mut gemini = None;
         let mut openrouter = None;

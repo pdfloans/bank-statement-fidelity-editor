@@ -4,8 +4,8 @@
 use crate::engine::history::ChangeRecord;
 use crate::error::{AuditError, AuditResult};
 use chrono::Utc;
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection};
@@ -73,7 +73,7 @@ impl AuditLog {
         self.db.as_ref().unwrap().execute(
             "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
             params![timestamp, "write", json_line],
-        ).map_err(|e| AuditError::Write(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        ).map_err(|e| AuditError::Write(std::io::Error::other(e.to_string())))?;
 
         // Also dump an individual snapshot matching the old verification_report format
         let ts = record.timestamp.replace(':', ""); // safe for filenames
@@ -98,7 +98,7 @@ impl AuditLog {
         self.db.as_ref().unwrap().execute(
             "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
             params![timestamp, "append_line", line.trim()],
-        ).map_err(|e| AuditError::Write(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        ).map_err(|e| AuditError::Write(std::io::Error::other(e.to_string())))?;
         Ok(())
     }
 
@@ -106,7 +106,7 @@ impl AuditLog {
     fn ensure_open(&mut self) -> AuditResult<()> {
         if self.db.is_none() {
             let conn = Connection::open(&self.log_path)
-                .map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+                .map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::other(e.to_string())))?;
             
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS audit_log (
@@ -116,7 +116,7 @@ impl AuditLog {
                     details TEXT NOT NULL
                 )",
                 [],
-            ).map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            ).map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::other(e.to_string())))?;
             
             // Automated Database Vacuuming: Prune records older than 30 days
             let _ = conn.execute(
@@ -204,11 +204,9 @@ impl AuditLogParser {
                 
                 if let Ok(iter) = records_iter {
                     let mut records = Vec::new();
-                    for details_res in iter {
-                        if let Ok(details) = details_res {
-                            if let Ok(record) = serde_json::from_str::<ChangeRecord>(&details) {
-                                records.push(record);
-                            }
+                    for details in iter.flatten() {
+                        if let Ok(record) = serde_json::from_str::<ChangeRecord>(&details) {
+                            records.push(record);
                         }
                     }
                     if !records.is_empty() {

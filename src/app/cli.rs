@@ -349,6 +349,9 @@ fn wait_for_terminal_result(job_rx: &Receiver<JobResult>) -> Result<JobResult, (
             Ok(JobResult::HistoryUpdated { .. }) => {
                 tracing::debug!("[cli] ignoring non-terminal HistoryUpdated");
             }
+            Ok(JobResult::ApiKeysVerified(_)) => {
+                tracing::debug!("[cli] ignoring non-terminal ApiKeysVerified");
+            }
             Ok(JobResult::Error { job_label, message }) => {
                 return Err((job_label, message));
             }

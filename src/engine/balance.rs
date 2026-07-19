@@ -508,3 +508,50 @@ mod polars_balance_tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod proptest_balance_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use crate::engine::model::{Provenance, Transaction};
+    use rust_decimal_macros::dec;
+
+    fn any_decimal() -> impl Strategy<Value = Decimal> {
+        (0..100000i64, 0..99u32).prop_map(|(dollars, cents)| {
+            Decimal::new(dollars * 100 + cents as i64, 2)
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn doesnt_crash_on_random_transactions(
+            debits in prop::collection::vec(any_decimal(), 1..10),
+            credits in prop::collection::vec(any_decimal(), 1..10),
+        ) {
+            let mut txs = Vec::new();
+            let mut len = debits.len();
+            if credits.len() < len { len = credits.len(); }
+
+            for i in 0..len {
+                txs.push(Transaction {
+                    page: 1,
+                    line_on_page: 1,
+                    date: "2023-01-01".to_string(),
+                    raw_text: "".to_string(),
+                    debit: Some(debits[i]),
+                    credit: Some(credits[i]),
+                    running_balance: None,
+                    bbox: None,
+                    field_bboxes: Default::default(),
+                    provenance: Provenance::Manual,
+                    category: None,
+                });
+            }
+
+            let opening = dec!(100);
+            
+            // Just ensure it doesn't panic and returns a valid Result
+            let _ = recalculate_and_validate(txs, opening);
+        }
+    }
+}

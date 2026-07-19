@@ -489,7 +489,7 @@ pub async fn verify_edit_pages_with_padding(
             .map_err(|e| VerificationError::PdfiumRender(e.to_string()))?;
 
         let width_pts = original_page.width().value;
-        let height_pts = original_page.height().value;
+        let _height_pts = original_page.height().value;
         
         // Dynamically compute DPI if auto_match_dpi is true. Standard A4 is ~595x842 pts.
         // We want a render width of at least ~1500 pixels for good validation.
@@ -582,6 +582,8 @@ pub async fn verify_edit_pages_with_padding(
             if let Ok(vision_key) = std::env::var("VISION_API_KEY") {
                 if !vision_key.is_empty() {
                     // Call the new vision API module directly instead of node bridge
+                    // We must use block_in_place because original_doc and edited_doc are not Send,
+                    // so we cannot hold them across an .await boundary.
                     let passed = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
                             crate::ai::vision::verify_with_vision(

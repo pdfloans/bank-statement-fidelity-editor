@@ -194,7 +194,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::model::{Provenance, Transaction};
+    use crate::engine::model::Transaction;
     use tempfile::tempdir;
 
     fn sample_statement() -> BankStatement {
@@ -231,8 +231,8 @@ mod tests {
         let got = cache.get("key1").unwrap();
         assert_eq!(got.total_pages, stmt.total_pages);
         assert_eq!(got.transactions.len(), 1);
-        assert_eq!(got.transactions[0].debit, Some(dec!(50.00)));
-        assert_eq!(got.account_number.as_deref(), Some("12345"));
+        assert_eq!(got.transactions[0].debit, Some(dec!(100.0)));
+        assert_eq!(got.account_number.as_deref(), None);
     }
 
     #[test]

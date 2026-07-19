@@ -1,8 +1,6 @@
 use crate::ai::document_ai::BankStatement;
-use crate::engine::model::Transaction;
 use crate::engine::balance::recalculate_and_validate;
 use crate::ai::backend::AiBackend;
-use rust_decimal::Decimal;
 
 pub async fn verify_and_repair_extraction(
     backend: &AiBackend,
