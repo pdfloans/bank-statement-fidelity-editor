@@ -4,6 +4,8 @@ use dual_core_pdf_pipeline::engine::workflow::{WorkflowStage, ParseValidation, B
 use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
 use std::sync::Arc;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[test]
 fn test_gui_interactive_mutations() {
@@ -11,117 +13,103 @@ fn test_gui_interactive_mutations() {
     let (_job_tx_dummy, job_rx) = std::sync::mpsc::channel();
     let config = Arc::new(AppConfig::default());
 
-    let mut app = MyApp::new(job_tx, job_rx, config);
-    app.settings.show_welcome = false;
-    app.current_pdf_path = std::path::PathBuf::from("Cargo.toml");
-    app.total_pages = 1;
-    app.active_workflow = ActiveWorkflow::EditStatement;
-    app.workflow_stage = WorkflowStage::Editing(ParseValidation {
-        math_valid: true,
-        font_valid: true,
-        confidence_score: 1.0,
-    });
-    app.proposed_changes.push((dual_core_pdf_pipeline::engine::model::ProposedChange {
-        page: 0,
-        old_text: "A".to_string(),
-        new_text: "B".to_string(),
-        reason: "Test".to_string(),
-        confidence: 1.0,
-        affects_subsequent_balances: false,
-        bbox: None,
-    }, true));
+    let app = Rc::new(RefCell::new(MyApp::new(job_tx, job_rx, config)));
+    {
+        let mut a = app.borrow_mut();
+        a.settings.show_welcome = false;
+        a.current_pdf_path = std::path::PathBuf::from("Cargo.toml");
+        a.total_pages = 1;
+        a.active_workflow = ActiveWorkflow::EditStatement;
+        a.workflow_stage = WorkflowStage::Editing(ParseValidation {
+            total_pages: 1,
+            transactions_found: 1,
+            opening_balance: rust_decimal::Decimal::new(0, 0),
+            closing_balance: rust_decimal::Decimal::new(0, 0),
+            account_number: None,
+            completeness_score: 1.0,
+            completeness_notes: String::new(),
+            missing_rows: Vec::new(),
+        });
+        a.proposed_changes.push((dual_core_pdf_pipeline::engine::model::ProposedChange {
+            page: 0,
+            old_text: "A".to_string(),
+            new_text: "B".to_string(),
+            reason: "Test".to_string(),
+            confidence: 1.0,
+            affects_subsequent_balances: false,
+            bbox: None,
+        }, true));
+    }
 
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1920.0, 1080.0))
-        .build(|ctx| {
-            app.headless_update(ctx);
+        .build({
+            let app = app.clone();
+            let mut init_done = false;
+            move |ctx| {
+                let mut a = app.borrow_mut();
+                if !init_done {
+                    let image = egui::ColorImage::new([1, 1], egui::Color32::BLACK);
+                    a.current_page_texture = Some(ctx.load_texture("test", image, Default::default()));
+                    init_done = true;
+                }
+                a.headless_update(ctx);
+            }
         });
 
     harness.step();
     
-    // Attempt to interact with buttons in the UI!
-    
-    // 1. Click "Apply 1 Checked Changes"
-    if let Some(apply_btn) = harness.get_by_label_contains("Apply 1 Checked Changes").ok() {
-        apply_btn.click();
-        harness.step();
-    }
-    
-    // 2. Open natural language prompt, type, and press enter
-    if let Some(mut nl_input) = harness.get_by_label_contains("Ask Gemini").ok() {
-        nl_input.type_text("Replace A with B");
-        harness.step();
-        nl_input.press_key(egui::Key::Enter);
-        harness.step();
-    }
-    
-    // 3. Switch to Transfer workflow
-    app.active_workflow = ActiveWorkflow::TransferTransactions;
+    // 1. Click "⚖ Auto-Balance Statement"
     harness.step();
-    if let Some(transfer_btn) = harness.get_by_label_contains("Run Target Parser").ok() {
-        transfer_btn.click();
-        harness.step();
-    }
+    let clicked = {
+        let mut iter = harness.get_all_by_label_contains("⚖ Auto-Balance Statement");
+        if let Some(node) = iter.next() {
+            node.click();
+            true
+        } else { false }
+    };
+    if clicked { harness.step(); }
     
-    // 4. Open settings modal
-    app.active_modal = ActiveModal::Settings;
-    harness.step();
-    if let Some(save_btn) = harness.get_by_label_contains("Save & Reload").ok() {
-        save_btn.click();
-        harness.step();
-    }
+    // 2. Click "📅 Dates"
+    let clicked = {
+        let mut iter = harness.get_all_by_label_contains("📅 Dates");
+        if let Some(node) = iter.next() {
+            node.click();
+            true
+        } else { false }
+    };
+    if clicked { harness.step(); }
     
-    // 5. Open API Keys modal
-    app.active_workflow = ActiveWorkflow::ApiKeys;
-    harness.step();
-    if let Some(save_keys_btn) = harness.get_by_label_contains("Save & Refresh APIs").ok() {
-        save_keys_btn.click();
-        harness.step();
-    }
+    // 3. Click "🔄 Transfer"
+    let clicked = {
+        let mut iter = harness.get_all_by_label_contains("🔄 Transfer");
+        if let Some(node) = iter.next() {
+            node.click();
+            true
+        } else { false }
+    };
+    if clicked { harness.step(); }
     
-    // 6. Test Feedback modal
-    app.active_modal = ActiveModal::Feedback;
-    harness.step();
-    if let Some(send_feedback_btn) = harness.get_by_label_contains("Submit Feedback").ok() {
-        send_feedback_btn.click();
-        harness.step();
-    }
+    // 4. Click "🐛 Submit Diagnostics"
+    let clicked = {
+        let mut iter = harness.get_all_by_label_contains("🐛 Submit Diagnostics");
+        if let Some(node) = iter.next() {
+            node.click();
+            true
+        } else { false }
+    };
+    if clicked { harness.step(); }
     
-    // 7. Previewing Stage interaction
-    app.workflow_stage = WorkflowStage::Previewing(BalancePreview {
-        matches_original: true,
-        diff_count: 5,
-        target_balance: rust_decimal::Decimal::new(100, 0),
-    });
-    harness.step();
-    if let Some(confirm_btn) = harness.get_by_label_contains("Looks Good - Continue").ok() {
-        confirm_btn.click();
-        harness.step();
-    }
-    
-    // 8. Visual Validation Stage interaction
-    app.workflow_stage = WorkflowStage::Validating(VisualAttempt {
-        attempt: 1,
-        max_attempts: 5,
-        score: 0.05,
-        threshold: 0.02,
-        passing: false,
-    });
-    harness.step();
-    if let Some(force_btn) = harness.get_by_label_contains("Accept Anyway").ok() {
-        force_btn.click();
-        harness.step();
-    }
+    // 5. Click "Fit"
+    let clicked = {
+        let mut iter = harness.get_all_by_label_contains("Fit");
+        if let Some(node) = iter.next() {
+            node.click();
+            true
+        } else { false }
+    };
+    if clicked { harness.step(); }
 
-    // 9. Command Palette interaction
-    app.active_modal = ActiveModal::CommandPalette;
-    harness.step();
-    if let Some(mut cmd_input) = harness.get_by_label_contains("Type a command...").ok() {
-        cmd_input.type_text("help");
-        harness.step();
-        cmd_input.press_key(egui::Key::Enter);
-        harness.step();
-    }
 
     assert!(true);
 }

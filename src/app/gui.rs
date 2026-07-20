@@ -244,7 +244,7 @@ pub struct MyApp {
     pub natural_language_prompt: String,
 
     // Textures
-    current_page_texture: Option<egui::TextureHandle>,
+    pub current_page_texture: Option<egui::TextureHandle>,
     before_texture: Option<egui::TextureHandle>,
     after_texture: Option<egui::TextureHandle>,
     pub transfer_source_texture: Option<egui::TextureHandle>,
