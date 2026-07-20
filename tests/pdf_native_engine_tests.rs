@@ -190,3 +190,90 @@ fn test_native_engine_non_ascii_guard() {
     let err_str = result.unwrap_err().to_string();
     assert!(err_str.contains("ASCII"));
 }
+
+fn create_pdf_with_ops(path: &Path, ops: Vec<Operation>) {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+    });
+    let resources_id = doc.add_object(dictionary! {
+        "Font" => dictionary! {
+            "F1" => font_id,
+        },
+    });
+
+    let content_id = doc.add_object(Stream::new(dictionary! {}, Content { operations: ops }.encode().unwrap()));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+        "Resources" => resources_id,
+        "MediaBox" => vec![0.0.into(), 0.0.into(), 595.0.into(), 842.0.into()],
+    });
+
+    let pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![page_id.into()],
+        "Count" => 1,
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    doc.save(path).unwrap();
+}
+
+#[test]
+fn test_native_engine_text_operators() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("ops.pdf");
+
+    // We will test Tm, Td, TD, T* operators
+    let ops = vec![
+        Operation::new("BT", vec![]),
+        Operation::new("Tf", vec!["F1".into(), 12.0.into()]),
+        
+        // Tm sets matrix directly: 1 0 0 1 50 700 Tm
+        Operation::new("Tm", vec![1.0.into(), 0.0.into(), 0.0.into(), 1.0.into(), 50.0.into(), 700.0.into()]),
+        Operation::new("Tj", vec![Object::String("Line 1".into(), StringFormat::Literal)]),
+        
+        // Td moves offset: 0 -20 Td
+        Operation::new("Td", vec![0.0.into(), (-20.0).into()]),
+        Operation::new("Tj", vec![Object::String("Line 2".into(), StringFormat::Literal)]),
+        
+        // TD is like Td but also sets leading (we just treat it as Td in the engine)
+        Operation::new("TD", vec![0.0.into(), (-20.0).into()]),
+        Operation::new("Tj", vec![Object::String("Line 3".into(), StringFormat::Literal)]),
+        
+        // T* moves to next line using leading (approx font size in the engine)
+        Operation::new("T*", vec![]),
+        Operation::new("Tj", vec![Object::String("Line 4".into(), StringFormat::Literal)]),
+        
+        Operation::new("ET", vec![]),
+    ];
+
+    create_pdf_with_ops(&input, ops);
+
+    let engine = OxidizePdfEngine::new();
+    let blocks = engine.get_text_blocks(&input, 0).unwrap();
+    
+    assert_eq!(blocks.len(), 4);
+    assert_eq!(blocks[0].text, "Line 1");
+    // Verify Y coordinates go down (in PDF coordinate space, origin is bottom-left, so Y decreases)
+    // Actually, in our engine `extract_text_blocks_from_page` inverts Y so Y increases down the page
+    // Wait, let's just check relative positions.
+    let y1 = blocks[0].bbox[1];
+    let y2 = blocks[1].bbox[1];
+    let y3 = blocks[2].bbox[1];
+    let y4 = blocks[3].bbox[1];
+    
+    // As Y increases from bottom to top in PDF coordinate space, Y should decrease for each new line
+    assert!(y1 > y2);
+    assert!(y2 > y3);
+    assert!(y3 > y4);
+}

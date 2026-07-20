@@ -227,7 +227,7 @@ pub struct MyApp {
 
     // View
     current_view: AppView,
-    active_workflow: ActiveWorkflow,
+    pub active_workflow: ActiveWorkflow,
     sidebar_expanded: bool,
     zoom_factor: f32,
     pan_offset: egui::Vec2,

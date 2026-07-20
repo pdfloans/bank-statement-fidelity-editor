@@ -58,5 +58,60 @@ fn test_gui_headless_interactions() {
     // we just ensure `app.in_flight` behaves properly when mocked.
     app.in_flight = 1; // Simulate one job running
     
+    // Test 5: Switch through ActiveWorkflow stages
+    use dual_core_pdf_pipeline::app::gui::ActiveWorkflow;
+    let workflows = vec![
+        ActiveWorkflow::EditStatement,
+        ActiveWorkflow::TransferTransactions,
+        ActiveWorkflow::AgentCommand,
+        ActiveWorkflow::AuditForensics,
+        ActiveWorkflow::ChaosSandbox,
+        ActiveWorkflow::Settings,
+        ActiveWorkflow::ApiKeys,
+    ];
+    
+    for wf in workflows {
+        app.active_workflow = wf;
+        let _ = ctx.run(raw_input.clone(), |ctx| {
+            app.headless_update(ctx);
+        });
+    }
+
+    // Test 6: Trigger all active modals
+    use dual_core_pdf_pipeline::app::gui::ActiveModal;
+    let modals = vec![
+        ActiveModal::None,
+        ActiveModal::DiscardDraftConfirm,
+        ActiveModal::WorkflowHitl,
+        ActiveModal::Settings,
+        ActiveModal::CommandPalette,
+        ActiveModal::Transfer,
+        ActiveModal::Feedback,
+        ActiveModal::DateAdjust,
+        ActiveModal::TransferTest,
+    ];
+
+    for modal in modals {
+        app.active_modal = modal;
+        let _ = ctx.run(raw_input.clone(), |ctx| {
+            app.headless_update(ctx);
+        });
+    }
+
+    // Test 7: Switch through WorkflowStages
+    use dual_core_pdf_pipeline::engine::workflow::WorkflowStage;
+    let stages = vec![
+        WorkflowStage::Idle,
+        WorkflowStage::Parsing,
+        WorkflowStage::FinalChecking,
+    ];
+
+    for stage in stages {
+        app.workflow_stage = stage;
+        let _ = ctx.run(raw_input.clone(), |ctx| {
+            app.headless_update(ctx);
+        });
+    }
+
     assert!(true, "Headless GUI framework initialized and interacted successfully");
 }

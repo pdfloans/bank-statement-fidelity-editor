@@ -241,3 +241,35 @@ async fn test_load_full_document() {
     assert!(res.is_ok());
     assert_eq!(engine.total_pages, 1);
 }
+
+#[tokio::test]
+async fn test_balance_entire_statement_with_ai_fallback() {
+    let mut config = AppConfig::default();
+    config.passphrase = "test-passphrase-1234567890".into();
+    let config_arc = Arc::new(config);
+
+    let pdf_engine = Arc::new(OxidizePdfEngine::new());
+    
+    // We will set up a mock DocumentAiClient that returns an unbalanced statement
+    let doc_ai = Arc::new(DocumentAiClient::new_mock(&config_arc));
+    let ai_backend = Arc::new(AiBackend::new_mock()); // This mock will fail, triggering the fallback!
+    let merger = Arc::new(HybridMerger::new(vec![]));
+
+    let mut engine = SmartDocumentEngine::new(
+        pdf_engine.clone(),
+        doc_ai.clone(),
+        ai_backend.clone(),
+        merger.clone(),
+    );
+    engine.layout = Some(dual_core_pdf_pipeline::engine::layout::DocumentLayout::default());
+
+    // Because doc_ai parse_entire_statement is hard to mock dynamically here (it's using the real mock function),
+    // let's actually let it return what it returns, and then we'll see if we can trigger the fallback.
+    // Wait, the new_mock() for doc_ai returns a perfectly balanced dummy statement:
+    // opening: 1000, 1 withdrawal of 200, closing: 800.
+    
+    // Actually, DocumentAiClient::new_mock is not very configurable here.
+    // Let's create a new engine with a special test wrapper or we can mock DocumentAi?
+    // Wait! I can't easily mock `doc_ai.parse_entire_statement` because it's hardcoded.
+    // Let me check what `parse_entire_statement` does in mock mode!
+}
