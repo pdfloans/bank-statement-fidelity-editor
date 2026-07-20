@@ -64,34 +64,31 @@ fn test_gui_headless_interactions() {
     
     // Inject mock data to ensure all loops execute rendering logic
     app.workflow_transactions.push(dual_core_pdf_pipeline::engine::model::Transaction {
+        page: 1,
+        line_on_page: 1,
         date: "2024-01-01".to_string(),
-        description: "Test".to_string(),
-        amount: rust_decimal::Decimal::new(100, 0),
-        balance: Some(rust_decimal::Decimal::new(1000, 0)),
-        id: "1".to_string(),
-        page_num: 1,
-        bounding_box: None,
-        confidence: 1.0,
-        currency: "USD".to_string(),
+        raw_text: "Test".to_string(),
+        debit: None,
+        credit: Some(rust_decimal::Decimal::new(100, 0)),
+        running_balance: Some(rust_decimal::Decimal::new(1000, 0)),
+        bbox: None,
+        field_bboxes: Default::default(),
+        provenance: dual_core_pdf_pipeline::engine::model::Provenance::Manual,
         category: None,
-        is_reconciled: false,
-        extracted_via: "test".to_string(),
-        notes: None,
     });
     
     app.proposed_changes.push((
         dual_core_pdf_pipeline::engine::model::ProposedChange {
-            transaction_id: "1".to_string(),
-            field: "amount".to_string(),
-            old_value: "100".to_string(),
-            new_value: "200".to_string(),
+            page: 1,
+            old_text: "100".to_string(),
+            new_text: "200".to_string(),
             reason: "test".to_string(),
             confidence: 1.0,
+            affects_subsequent_balances: false,
+            bbox: None,
         },
         true,
     ));
-    
-    app.batch_files.push(std::path::PathBuf::from("test.pdf"));
     
     // Test 5: Switch through ActiveWorkflow stages
     use dual_core_pdf_pipeline::app::gui::ActiveWorkflow;
