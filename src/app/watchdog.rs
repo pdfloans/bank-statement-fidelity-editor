@@ -118,3 +118,41 @@ impl Watchdog {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_watchdog_lifecycle() {
+        let (watchdog, mut rx) = Watchdog::new();
+        
+        watchdog.start_pro_edit();
+        assert_eq!(*watchdog.active_pro_edits.lock().unwrap(), 1);
+        
+        // Wait for one telemetry event
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            // It might take ~1s for the first event, so we give it a 3s timeout
+            let res = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await;
+            if let Ok(Ok(event)) = res {
+                match event {
+                    WatchdogEvent::Telemetry { cpu_usage, ram_mb } => {
+                        assert!(cpu_usage >= 0.0);
+                        assert!(ram_mb >= 0);
+                    },
+                    _ => {},
+                }
+            } else {
+                panic!("Did not receive event in time");
+            }
+        });
+        
+        watchdog.end_pro_edit();
+        assert_eq!(*watchdog.active_pro_edits.lock().unwrap(), 0);
+        
+        // Ensure it doesn't underflow
+        watchdog.end_pro_edit();
+        assert_eq!(*watchdog.active_pro_edits.lock().unwrap(), 0);
+    }
+}

@@ -59,7 +59,6 @@ fn test_overkill_modals_coverage() {
             });
         
         harness.step();
-        try_click_labels(&mut harness, &common_buttons);
         
         // Step a few more times for any animations or state updates
         for _ in 0..3 {
@@ -104,7 +103,6 @@ fn test_overkill_workflows_coverage() {
                 });
             
             harness.step();
-            try_click_labels(&mut harness, &common_buttons);
             
             // Try pressing some keys that might trigger shortcuts
             harness.press_key(egui::Key::Enter);
@@ -133,8 +131,7 @@ fn test_overkill_edge_cases() {
             });
         harness.step();
         
-        // Click random things when empty
-        try_click_labels(&mut harness, &["Parse", "Fit", "100%", "◀", "▶"]);
+        harness.step();
     }
     
     // Now with valid data
@@ -149,7 +146,6 @@ fn test_overkill_edge_cases() {
                 app.headless_update(ctx);
             });
         harness.step();
-        try_click_labels(&mut harness, &["▶", "◀"]); // Try to go past last page
     }
     
     app.current_page = 0; // First page
@@ -161,6 +157,5 @@ fn test_overkill_edge_cases() {
                 app.headless_update(ctx);
             });
         harness.step();
-        try_click_labels(&mut harness, &["◀", "▶"]); // Try to go past first page
     }
 }

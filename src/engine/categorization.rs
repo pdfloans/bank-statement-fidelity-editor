@@ -44,3 +44,45 @@ pub fn categorize_transactions(transactions: &mut [Transaction]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal::Decimal;
+    use crate::engine::model::{Transaction, Provenance};
+
+    fn default_tx(desc: &str, delta_in: Decimal, delta_out: Decimal) -> Transaction {
+        Transaction {
+            page: 1,
+            line_on_page: 1,
+            date: "2023-01-01".to_string(),
+            raw_text: desc.to_string(),
+            debit: Some(delta_in),
+            credit: Some(delta_out),
+            running_balance: None,
+            bbox: None,
+            field_bboxes: Default::default(),
+            provenance: Provenance::Computed,
+            category: None,
+        }
+    }
+
+    #[test]
+    fn test_categorize_transactions() {
+        let mut txs = vec![
+            default_tx("Uber ride", Decimal::ZERO, Decimal::new(15, 0)),
+            default_tx("McDonalds", Decimal::ZERO, Decimal::new(10, 0)),
+            default_tx("Salary deposit", Decimal::new(1000, 0), Decimal::ZERO),
+            default_tx("Random store", Decimal::ZERO, Decimal::new(50, 0)),
+            default_tx("Refund", Decimal::new(20, 0), Decimal::ZERO),
+        ];
+
+        categorize_transactions(&mut txs);
+
+        assert_eq!(txs[0].category, Some("Transport".to_string()));
+        assert_eq!(txs[1].category, Some("Food & Dining".to_string()));
+        assert_eq!(txs[2].category, Some("Income".to_string()));
+        assert_eq!(txs[3].category, Some("Uncategorized".to_string()));
+        assert_eq!(txs[4].category, Some("Income".to_string()));
+    }
+}

@@ -58,3 +58,63 @@ pub async fn verify_and_repair_extraction(
     
     Ok(stmt)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+    use crate::engine::model::{Transaction, Provenance};
+
+    fn default_tx(debit: Option<rust_decimal::Decimal>, credit: Option<rust_decimal::Decimal>, running: Option<rust_decimal::Decimal>) -> Transaction {
+        Transaction {
+            page: 1,
+            line_on_page: 1,
+            date: "2023-01-01".to_string(),
+            raw_text: "test".to_string(),
+            debit,
+            credit,
+            running_balance: running,
+            bbox: None,
+            field_bboxes: Default::default(),
+            provenance: Provenance::Computed,
+            category: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_repair_not_needed() {
+        let backend = AiBackend::new_mock();
+        let stmt = BankStatement {
+            total_pages: 1,
+            transactions: vec![
+                default_tx(Some(dec!(100)), None, Some(dec!(200))),
+            ],
+            opening_balance: dec!(100),
+            closing_balance: dec!(200),
+            account_number: None,
+            bank_name: None,
+        };
+        let res = verify_and_repair_extraction(&backend, stmt, "raw_text").await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_repair_needed_due_to_math() {
+        let backend = AiBackend::new_mock();
+        let stmt = BankStatement {
+            total_pages: 1,
+            transactions: vec![
+                default_tx(Some(dec!(100)), None, Some(dec!(300))), // Math is wrong (100+100 = 200 != 300)
+            ],
+            opening_balance: dec!(100),
+            closing_balance: dec!(300),
+            account_number: None,
+            bank_name: None,
+        };
+        let res = verify_and_repair_extraction(&backend, stmt, "raw_text").await;
+        // Since it's a mock backend, it will fail to repair and return an Err
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("AI repair failed:"));
+    }
+}
+

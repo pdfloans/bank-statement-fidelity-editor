@@ -235,4 +235,23 @@ mod tests {
         // Should not panic
         let _guard = init(&cfg);
     }
+
+    #[test]
+    fn test_scrubbing_writer() {
+        let mut buf = Vec::new();
+        let mut writer = ScrubbingWriter { inner: &mut buf };
+        
+        let msg = "Hello user@example.com with API_KEY=1234567890abcdef123 and path /Users/test_user/file.txt and C:\\Users\\test_user\\file.txt";
+        writer.write_all(msg.as_bytes()).unwrap();
+        writer.flush().unwrap();
+        
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("***@***.***"));
+        assert!(output.contains("API_KEY=***"));
+        assert!(output.contains("~"));
+        assert!(output.contains("C:\\Users\\~"));
+        assert!(!output.contains("user@example.com"));
+        assert!(!output.contains("1234567890abcdef123"));
+        assert!(!output.contains("/Users/test_user/file.txt"));
+    }
 }

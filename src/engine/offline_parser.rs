@@ -513,4 +513,85 @@ mod tests {
         let acct = extract_account_number(&rows);
         assert_eq!(acct, Some("123456789".to_string()));
     }
+
+    #[test]
+    fn parse_statement_from_geom() {
+        use crate::extractors::geometry::GeometrySource;
+        let geoms = vec![
+            LineGeometry {
+                page: 0,
+                line_on_page: 0,
+                bbox: [0.0; 4],
+                text: "Opening Balance $100.00".to_string(),
+                confidence: 1.0,
+                source: GeometrySource::TextLayer,
+            },
+            LineGeometry {
+                page: 0,
+                line_on_page: 1,
+                bbox: [0.0; 4],
+                text: "15/01/2024 Deposit $50.00 $150.00".to_string(),
+                confidence: 1.0,
+                source: GeometrySource::TextLayer,
+            },
+        ];
+        
+        let stmt = parse_statement_from_geometry(&geoms, 1).unwrap();
+        assert_eq!(stmt.opening_balance, dec!(100.00));
+        assert_eq!(stmt.transactions.len(), 1);
+        assert_eq!(stmt.transactions[0].debit, Some(dec!(50.00)));
+        assert_eq!(stmt.transactions[0].running_balance, Some(dec!(150.00)));
+    }
+
+    #[test]
+    fn parse_rows_one_amount_and_three_amounts() {
+        let rows = vec![
+            RawRow {
+                page: 0, line_on_page: 0, bbox: [0.0; 4],
+                text: "15/01/2024 Deposit $50.00".into()
+            },
+            RawRow {
+                page: 0, line_on_page: 1, bbox: [0.0; 4],
+                text: "16/01/2024 Fee -$10.00".into()
+            },
+            RawRow {
+                page: 0, line_on_page: 2, bbox: [0.0; 4],
+                text: "17/01/2024 Deposit $100.00 $0.00 $140.00".into()
+            },
+            RawRow {
+                page: 0, line_on_page: 3, bbox: [0.0; 4],
+                text: "18/01/2024 Withdrawal $0.00 $20.00 $120.00".into()
+            },
+        ];
+        
+        let (txs, _opening, _closing) = parse_rows_into_transactions(&rows);
+        assert_eq!(txs.len(), 4);
+        assert_eq!(txs[0].debit, Some(dec!(50.00)));
+        assert_eq!(txs[0].credit, None);
+        assert_eq!(txs[0].running_balance, None);
+
+        assert_eq!(txs[1].debit, None);
+        assert_eq!(txs[1].credit, Some(dec!(10.00)));
+
+        assert_eq!(txs[2].debit, Some(dec!(100.00)));
+        assert_eq!(txs[2].credit, None);
+        assert_eq!(txs[2].running_balance, Some(dec!(140.00)));
+
+        assert_eq!(txs[3].debit, None);
+        assert_eq!(txs[3].credit, Some(dec!(20.00)));
+        assert_eq!(txs[3].running_balance, Some(dec!(120.00)));
+    }
+
+    #[test]
+    fn parse_rows_inference() {
+        let rows = vec![
+            RawRow {
+                page: 0, line_on_page: 0, bbox: [0.0; 4],
+                text: "15/01/2024 Deposit $50.00 $150.00".into()
+            }
+        ];
+        let (_txs, opening, closing) = parse_rows_into_transactions(&rows);
+        assert_eq!(opening, dec!(100.00));
+        assert_eq!(closing, dec!(150.00));
+    }
 }

@@ -25,3 +25,29 @@ pub fn resolve_exe_dir() -> PathBuf {
         .map(|p| p.parent().unwrap_or(Path::new(".")).to_path_buf())
         .unwrap_or_else(|_| PathBuf::from("."))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_asset_path_absolute() {
+        let path = Path::new("/absolute/path");
+        assert_eq!(resolve_asset_path(path), path.to_path_buf());
+    }
+
+    #[test]
+    fn test_resolve_asset_path_relative() {
+        let path = Path::new("relative/path");
+        let resolved = resolve_asset_path(path);
+        // It should either be absolute (if it resolved to CWD or Resources)
+        // or start with CWD (in our fallback case where env::current_dir fails, it might be relative, but let's just check it doesn't crash)
+        assert!(resolved.components().count() > 0);
+    }
+
+    #[test]
+    fn test_resolve_exe_dir() {
+        let dir = resolve_exe_dir();
+        assert!(dir.components().count() > 0);
+    }
+}

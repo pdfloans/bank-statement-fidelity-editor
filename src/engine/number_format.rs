@@ -375,4 +375,73 @@ mod tests {
         let fmt = detect_format("-50.00");
         assert_eq!(format_decimal(dec!(-50), &fmt), "-50.00");
     }
+
+    #[test]
+    fn test_trailing_currency() {
+        let fmt = detect_format("1,234.56 $");
+        assert_eq!(fmt.currency, "$");
+        assert_eq!(fmt.currency_position, CurrencyPosition::Trailing);
+        assert_eq!(format_decimal(dec!(1234.56), &fmt), "1,234.56 $");
+    }
+
+    #[test]
+    fn test_empty_and_invalid() {
+        let fmt = detect_format("");
+        assert_eq!(fmt, NumberFormat::default());
+
+        let fmt2 = detect_format("   ");
+        assert_eq!(fmt2, NumberFormat::default());
+
+        let fmt3 = detect_format("abc");
+        assert_eq!(fmt3, NumberFormat::default());
+    }
+
+    #[test]
+    fn test_detect_ambiguous_thousands() {
+        // "1.234" heuristic => thousands dot, decimal comma, 0 decimals
+        let fmt1 = detect_format("1.234");
+        assert_eq!(fmt1.thousand_sep, ".");
+        assert_eq!(fmt1.decimal_sep, ",");
+        assert_eq!(fmt1.decimals, 0);
+
+        // "1,234" heuristic => thousands comma, decimal dot, 0 decimals
+        let fmt2 = detect_format("1,234");
+        assert_eq!(fmt2.thousand_sep, ",");
+        assert_eq!(fmt2.decimal_sep, ".");
+        assert_eq!(fmt2.decimals, 0);
+
+        // "12.34" heuristic => no thousand sep, decimal dot, 2 decimals
+        let fmt3 = detect_format("12.34");
+        assert_eq!(fmt3.thousand_sep, "");
+        assert_eq!(fmt3.decimal_sep, ".");
+        assert_eq!(fmt3.decimals, 2);
+
+        // "12,34" heuristic => no thousand sep, decimal comma, 2 decimals
+        let fmt4 = detect_format("12,34");
+        assert_eq!(fmt4.thousand_sep, "");
+        assert_eq!(fmt4.decimal_sep, ",");
+        assert_eq!(fmt4.decimals, 2);
+    }
+
+    #[test]
+    fn test_format_from_neighbours() {
+        let mut n = detect_format_from_neighbours(&[]);
+        assert_eq!(n, NumberFormat::default());
+
+        n = detect_format_from_neighbours(&["  ", "abc"]); // All ignored
+        assert_eq!(n, NumberFormat::default());
+
+        // Majority rules
+        n = detect_format_from_neighbours(&["$1.23", "$4.56", "1,234"]);
+        assert_eq!(n.currency, "$");
+        assert_eq!(n.decimal_sep, ".");
+    }
+
+    #[test]
+    fn test_format_no_decimals() {
+        let fmt = detect_format("123");
+        assert_eq!(fmt.decimals, 0);
+        let out = format_decimal(dec!(123.456), &fmt);
+        assert_eq!(out, "123"); // rounded
+    }
 }

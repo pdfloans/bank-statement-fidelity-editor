@@ -261,4 +261,11 @@ mod tests {
     fn pymupdf_pro_key_var_is_catalogued() {
         assert!(lookup(PYMUPDF_PRO_KEY_VAR).is_some());
     }
+
+    #[test]
+    fn test_requirement_labels() {
+        assert_eq!(Requirement::Required.label(), "REQUIRED");
+        assert_eq!(Requirement::Optional.label(), "OPTIONAL");
+        assert_eq!(Requirement::Recommended.label(), "RECOMMENDED");
+    }
 }

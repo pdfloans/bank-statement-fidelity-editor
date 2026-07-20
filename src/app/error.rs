@@ -65,3 +65,49 @@ impl AppError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_msg() {
+        assert!(matches!(AppError::parse_msg("Invalid API key"), Some(AppError::ApiConfigMissing(_))));
+        assert!(matches!(AppError::parse_msg("HTTP 429 rate limit exceeded"), Some(AppError::ApiFailure(_))));
+        assert!(matches!(AppError::parse_msg("font missing from system"), Some(AppError::FontMissing(_))));
+        assert!(matches!(AppError::parse_msg("visual verify failed, drifted"), Some(AppError::VisualDrift(_))));
+        assert!(matches!(AppError::parse_msg("parse error, 0 transactions"), Some(AppError::ParseFailure(_))));
+        assert!(matches!(AppError::parse_msg("totally unrelated error"), None));
+    }
+
+    #[test]
+    fn test_suggested_action() {
+        let err1 = AppError::ApiConfigMissing("".into());
+        assert_eq!(err1.suggested_action(), Some("Open Settings to configure API Keys"));
+
+        let err2 = AppError::ApiFailure("".into());
+        assert_eq!(err2.suggested_action(), Some("Retry with a different AI Provider (e.g. Gemini, OpenRouter) or wait for quota reset"));
+
+        let err3 = AppError::FontMissing("".into());
+        assert_eq!(err3.suggested_action(), Some("Synthesize Font via Typst Reconstruction (Slower but 100% Fidelity)"));
+
+        let err4 = AppError::VisualDrift("".into());
+        assert_eq!(err4.suggested_action(), Some("Proceed anyway, or Retry with Typst Reconstruction"));
+
+        let err5 = AppError::ParseFailure("".into());
+        assert_eq!(err5.suggested_action(), Some("Retry with Offline OCR / LlamaParse fallback"));
+
+        let err6 = AppError::Unknown("".into());
+        assert_eq!(err6.suggested_action(), Some("Retry the last action or check logs"));
+        
+        let io_err = AppError::IoError(std::sync::Arc::new(std::io::Error::new(std::io::ErrorKind::Other, "io")));
+        assert_eq!(io_err.suggested_action(), None);
+    }
+    
+    #[test]
+    fn test_from_io_error() {
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let app_err: AppError = err.into();
+        assert!(matches!(app_err, AppError::IoError(_)));
+    }
+}

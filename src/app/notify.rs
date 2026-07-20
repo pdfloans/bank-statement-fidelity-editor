@@ -54,3 +54,22 @@ pub async fn send_webhook(url: &str, payload: WebhookPayload<'_>) {
         Err(e) => tracing::warn!("[webhook] post failed: {}", e),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_empty_url() {
+        let payload = WebhookPayload {
+            event: "test_event",
+            page: 1,
+            old_text: "old",
+            new_text: "new",
+            description: "test desc",
+        };
+        // Should return immediately without doing anything.
+        send_webhook("", payload.clone()).await;
+        send_webhook("   ", payload).await;
+    }
+}
