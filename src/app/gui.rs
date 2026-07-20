@@ -217,7 +217,7 @@ pub struct MyApp {
     pub export_path: String,
 
     // Document state
-    current_page: usize,
+    pub current_page: usize,
     pub total_pages: usize,
     pub history_state: ChangeHistory,
 
@@ -228,12 +228,12 @@ pub struct MyApp {
     // View
     current_view: AppView,
     pub active_workflow: ActiveWorkflow,
-    sidebar_expanded: bool,
-    zoom_factor: f32,
+    pub sidebar_expanded: bool,
+    pub zoom_factor: f32,
     pan_offset: egui::Vec2,
     show_curtain: bool,
     curtain_ratio: f32,
-    fit_to_view: bool,
+    pub fit_to_view: bool,
 
     // Selection
     selected_block: Option<TextBlock>,
@@ -249,7 +249,7 @@ pub struct MyApp {
     after_texture: Option<egui::TextureHandle>,
     pub transfer_source_texture: Option<egui::TextureHandle>,
     pub transfer_target_texture: Option<egui::TextureHandle>,
-    current_page_dpi: f32,
+    pub current_page_dpi: f32,
     current_page_size_pts: Option<(f32, f32)>,
 
     // App / job state
@@ -714,7 +714,7 @@ impl MyApp {
     /// looked up as `<base>_original.pdf` first, falling back to a bare
     /// `<base>.pdf` in the same set. Returns `(original, edited)` pairs.
     #[allow(dead_code)]
-    fn pair_originals_and_edited(files: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
+    pub fn pair_originals_and_edited(files: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
         use std::collections::HashMap;
         let by_stem: HashMap<String, PathBuf> = files
             .iter()
@@ -759,7 +759,7 @@ impl MyApp {
         }
     }
 
-    fn request_render(&mut self, tag: &str) {
+    pub fn request_render(&mut self, tag: &str) {
         // Only render if the page actually changed since the last request for
         // this tag. This drops bursts when the user clicks rapidly through
         // pages or zooms - preventing render queue blow-up.
@@ -829,7 +829,7 @@ impl MyApp {
     /// G2: Build a real `.tar.gz` artifact bundle containing the input PDF,
     /// edited output PDF, audit log, and change history JSON.
     #[allow(dead_code)]
-    fn build_artifact_bundle(
+    pub fn build_artifact_bundle(
         input_path: &str,
         output_path: &std::path::Path,
         bundle_path: &std::path::Path,
@@ -925,7 +925,7 @@ impl MyApp {
         }
     }
 
-    fn fit_zoom_to_view(&mut self, available: egui::Vec2, tex_size: egui::Vec2) {
+    pub fn fit_zoom_to_view(&mut self, available: egui::Vec2, tex_size: egui::Vec2) {
         if tex_size.x <= 0.0 || tex_size.y <= 0.0 {
             return;
         }
@@ -4846,7 +4846,7 @@ impl MyApp {
         }
     }
 
-    fn open_pdf(&mut self, path: PathBuf) {
+    pub fn open_pdf(&mut self, path: PathBuf) {
         if !path.exists() {
             self.toast(
                 ToastKind::Error,
@@ -4881,7 +4881,7 @@ impl MyApp {
 
     /// Path of the on-disk autosave for the current workflow. One file per
     /// session - overwritten as edits change. Stage 5 / Item #9.
-    fn workflow_draft_path() -> PathBuf {
+    pub fn workflow_draft_path() -> PathBuf {
         PathBuf::from("audit").join("workflow.json")
     }
 
