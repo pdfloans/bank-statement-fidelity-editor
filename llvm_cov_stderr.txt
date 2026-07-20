@@ -1,0 +1,48 @@
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling dual-core-pdf-pipeline v1.1.1 (/Volumes/Macintosh_HD/Users/user298993/Documents/GitHub/bank-statement-fidelity-editor)
+warning: unused import: `tokio::sync::Mutex`
+  --> src/ai/document_ai.rs:23:5
+   |
+23 | use tokio::sync::Mutex;
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `dual-core-pdf-pipeline` (lib test) generated 1 warning (1 duplicate)
+warning: `dual-core-pdf-pipeline` (lib) generated 1 warning (run `cargo fix --lib -p dual-core-pdf-pipeline` to apply 1 suggestion)
+warning: unused import: `std::path::PathBuf`
+ --> tests/ai_document_ai_tests.rs:5:5
+  |
+5 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `ChangeRecord`
+  --> tests/gui_button_core_tests.rs:12:62
+   |
+12 | use dual_core_pdf_pipeline::engine::history::{ChangeHistory, ChangeRecord};
+   |                                                              ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `app_config`
+  --> tests/ai_document_ai_tests.rs:32:9
+   |
+32 |     let app_config = AppConfig::default();
+   |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_app_config`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `doc_ai_response`
+  --> tests/ai_document_ai_tests.rs:92:9
+   |
+92 |     let doc_ai_response = serde_json::json!({
+   |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_doc_ai_response`
+
+warning: unused variable: `app_config`
+   --> tests/ai_document_ai_tests.rs:112:9
+    |
+112 |     let app_config = AppConfig::default();
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_app_config`
+

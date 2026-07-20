@@ -108,5 +108,4 @@ fn test_modals() {
     // Test Feedback Modal
     app.active_modal = ActiveModal::Feedback;
     pump(&mut app, "feedback_modal");
-
-
+}
