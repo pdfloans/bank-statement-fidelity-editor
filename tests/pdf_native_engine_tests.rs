@@ -142,3 +142,51 @@ fn test_native_engine_analyze_layout() {
     // has_consistent_headers will be false (or maybe true if there's no header).
     // Let's just check it doesn't crash.
 }
+
+#[test]
+fn test_native_engine_apply_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("apply_in.pdf");
+    let output = dir.path().join("apply_out.pdf");
+
+    create_multipage_pdf(&input, 1); // Page 1
+
+    let engine = OxidizePdfEngine::new();
+    
+    // First, find the text block to get its bounding box
+    let blocks = engine.get_text_blocks(&input, 0).unwrap();
+    assert_eq!(blocks.len(), 1);
+    let bbox = blocks[0].bbox;
+    let old_text = &blocks[0].text;
+    assert_eq!(old_text, "Page 1");
+
+    // Apply the change
+    let new_text = "Replaced 1";
+    engine.apply_change(&input, &output, 0, bbox, new_text, old_text, None).unwrap();
+
+    // Verify the change
+    let modified_blocks = engine.get_text_blocks(&output, 0).unwrap();
+    assert_eq!(modified_blocks.len(), 1);
+    assert_eq!(modified_blocks[0].text, new_text);
+}
+
+#[test]
+fn test_native_engine_non_ascii_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("ascii_in.pdf");
+    let output = dir.path().join("ascii_out.pdf");
+
+    create_multipage_pdf(&input, 1);
+
+    let engine = OxidizePdfEngine::new();
+    let blocks = engine.get_text_blocks(&input, 0).unwrap();
+    let bbox = blocks[0].bbox;
+
+    // Try applying a non-ASCII string (emoji)
+    let new_text = "Page 📈";
+    let result = engine.apply_change(&input, &output, 0, bbox, new_text, "Page 1", None);
+
+    assert!(result.is_err());
+    let err_str = result.unwrap_err().to_string();
+    assert!(err_str.contains("ASCII"));
+}

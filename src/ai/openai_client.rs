@@ -57,6 +57,15 @@ impl OpenAiClient {
         })
     }
 
+    pub fn with_base_url(api_key: String, base_url: String, model: String) -> Self {
+        Self {
+            api_key,
+            http: crate::app::config::global_http_client(),
+            base_url,
+            model,
+        }
+    }
+
     pub async fn from_app_config_async(cfg: &AppConfig) -> Result<Self, OpenAiError> {
         Self::from_app_config(cfg)
     }

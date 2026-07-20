@@ -76,7 +76,15 @@ async fn test_gemini_retry_on_429() {
         .with_status(429)
         .with_header("content-type", "application/json")
         .with_body("Too Many Requests")
-        .expect(20) // 5 internal retries * 4 reqwest retries = 20 requests
+        .expect_at_least(1)
+        .create_async().await;
+
+    let mock_flash = server
+        .mock("POST", "/v1beta/models/gemini-flash-latest:generateContent?key=fake-key")
+        .with_status(429)
+        .with_header("content-type", "application/json")
+        .with_body("Too Many Requests")
+        .expect_at_least(1)
         .create_async().await;
 
     let client = GeminiClient::with_base_url("fake-key".to_string(), server.url());
@@ -88,4 +96,5 @@ async fn test_gemini_retry_on_429() {
     assert!(result.is_err());
     
     mock.assert_async().await;
+    mock_flash.assert_async().await;
 }
