@@ -1,39 +1,42 @@
 use dual_core_pdf_pipeline::engine::workflow::*;
 use rust_decimal_macros::dec;
-use dual_core_pdf_pipeline::engine::model::Transaction;
 
 #[test]
 fn test_is_borderline() {
-    assert!(is_borderline(0.015, 0.02)); // Borderline because it's > 50% of threshold
-    assert!(!is_borderline(0.005, 0.02)); // Not borderline, it's very safe
-    assert!(is_borderline(0.021, 0.02)); // Slightly above threshold is borderline
-    assert!(!is_borderline(0.05, 0.02)); // Way above threshold is not borderline (it's an obvious fail)
+    // is_borderline = score >= threshold && score <= threshold * 2.5
+    assert!(!is_borderline(0.015, 0.02)); // 0.015 < 0.02 (not >= threshold)
+    assert!(is_borderline(0.025, 0.02));  // 0.025 >= 0.02 && <= 0.05
+    assert!(is_borderline(0.05, 0.02));   // 0.05 == 2.5 * 0.02
+    assert!(!is_borderline(0.06, 0.02));  // 0.06 > 0.05
 }
 
 #[test]
 fn test_mask_padding_for_attempt() {
-    assert_eq!(mask_padding_for_attempt(1), 1.0);
-    assert_eq!(mask_padding_for_attempt(2), 2.0);
-    assert_eq!(mask_padding_for_attempt(5), 5.0);
-    assert_eq!(mask_padding_for_attempt(10), 10.0); // max is 10.0
-    assert_eq!(mask_padding_for_attempt(15), 10.0);
+    assert_eq!(mask_padding_for_attempt(1), 2.0);
+    assert_eq!(mask_padding_for_attempt(2), 4.0);
+    assert_eq!(mask_padding_for_attempt(3), 8.0);
+    assert_eq!(mask_padding_for_attempt(5), 12.0);
+    assert_eq!(mask_padding_for_attempt(10), 12.0);
 }
 
 #[test]
 fn test_should_accept_near_perfect() {
-    assert!(should_accept_near_perfect(5, 0.025, 0.02)); // 5th attempt, just over threshold -> accept
-    assert!(!should_accept_near_perfect(1, 0.025, 0.02)); // 1st attempt, over threshold -> reject
-    assert!(!should_accept_near_perfect(5, 0.05, 0.02)); // 5th attempt, way over threshold -> reject
+    // should_accept_near_perfect = attempt >= 3 && diff_score < threshold * 0.5
+    assert!(should_accept_near_perfect(3, 0.005, 0.02)); // attempt >= 3, 0.005 < 0.01
+    assert!(!should_accept_near_perfect(1, 0.005, 0.02)); // attempt < 3
+    assert!(!should_accept_near_perfect(3, 0.015, 0.02)); // 0.015 > 0.01
 }
 
 #[test]
 fn test_edit_set_hash() {
     let mut edits = vec![
         UserEdit {
-            transaction_id: 1,
-            original_date: "2023-01-01".to_string(),
-            new_date: Some("2023-01-02".to_string()),
-            ..Default::default()
+            page: 0,
+            line_on_page: 0,
+            bbox: [0.0, 0.0, 10.0, 10.0],
+            old_text: "2023-01-01".to_string(),
+            new_text: "2023-01-02".to_string(),
+            field: EditField::Date,
         }
     ];
     let hash1 = edit_set_hash("abc", &edits);
@@ -43,7 +46,7 @@ fn test_edit_set_hash() {
     assert_eq!(hash1, hash2);
 
     // Different edit yields different hash
-    edits[0].transaction_id = 2;
+    edits[0].page = 1;
     let hash3 = edit_set_hash("abc", &edits);
     assert_ne!(hash1, hash3);
 }
@@ -52,63 +55,89 @@ fn test_edit_set_hash() {
 fn test_detect_edit_conflicts() {
     let edits = vec![
         UserEdit {
-            transaction_id: 1,
-            new_debit: Some(dec!(100.0)),
-            ..Default::default()
+            page: 0,
+            line_on_page: 0,
+            bbox: [0.0, 0.0, 10.0, 10.0],
+            old_text: "100.0".to_string(),
+            new_text: "150.0".to_string(),
+            field: EditField::Debit,
         },
         UserEdit {
-            transaction_id: 1,
-            new_credit: Some(dec!(50.0)),
-            ..Default::default()
+            page: 0,
+            line_on_page: 0,
+            bbox: [2.0, 2.0, 8.0, 8.0], // >50% overlap with edit 0
+            old_text: "100.0".to_string(),
+            new_text: "200.0".to_string(),
+            field: EditField::Credit,
         },
         UserEdit {
-            transaction_id: 2,
-            new_debit: Some(dec!(200.0)),
-            ..Default::default()
+            page: 1, // different page
+            line_on_page: 0,
+            bbox: [0.0, 0.0, 10.0, 10.0],
+            old_text: "200.0".to_string(),
+            new_text: "300.0".to_string(),
+            field: EditField::Debit,
         }
     ];
 
     let conflicts = detect_edit_conflicts(&edits);
     assert_eq!(conflicts.len(), 1);
-    // Edit 0 and Edit 1 conflict because they are on the same transaction ID
+    // Edit 0 and Edit 1 conflict
     assert_eq!(conflicts[0], (0, 1));
 }
 
 #[test]
 fn test_prune_redundant_edits() {
-    let txs = vec![
-        Transaction {
-            page: 1,
-            line_on_page: 1,
-            date: "2023-01-01".to_string(),
-            raw_text: "Test".to_string(),
-            debit: Some(dec!(100.0)),
-            credit: None,
-            running_balance: Some(dec!(500.0)),
-            bbox: None,
-            field_bboxes: Default::default(),
-            provenance: dual_core_pdf_pipeline::engine::model::Provenance::Ocr,
-            category: None,
-        }
-    ];
+    let preview = BalancePreview {
+        rows: vec![
+            PreviewRow {
+                page: 0,
+                line_on_page: 0,
+                date: "2023-01-01".to_string(),
+                description: "Test".to_string(),
+                debit: Some(dec!(100.0)),
+                credit: None,
+                old_running_balance: Some(dec!(500.0)),
+                new_running_balance: Some(dec!(600.0)),
+                will_change: true,
+            }
+        ],
+        final_imbalance: dec!(0.0),
+        balanced: true,
+        auto_correction_message: None,
+    };
 
     let edits = vec![
         UserEdit {
-            transaction_id: 0,
-            original_date: "2023-01-01".to_string(),
-            new_date: Some("2023-01-01".to_string()), // redundant
-            new_debit: Some(dec!(100.0)), // redundant
-            ..Default::default()
+            page: 0,
+            line_on_page: 0,
+            bbox: [0.0, 0.0, 10.0, 10.0],
+            old_text: "500.00".to_string(),
+            new_text: "600.00".to_string(), // redundant, matches new_running_balance
+            field: EditField::RunningBalance,
         },
         UserEdit {
-            transaction_id: 0,
-            original_date: "2023-01-01".to_string(),
-            new_credit: Some(dec!(50.0)), // not redundant
-            ..Default::default()
+            page: 0,
+            line_on_page: 0,
+            bbox: [0.0, 0.0, 10.0, 10.0],
+            old_text: "500.00".to_string(),
+            new_text: "650.00".to_string(), // not redundant
+            field: EditField::RunningBalance,
+        },
+        UserEdit {
+            page: 0,
+            line_on_page: 0,
+            bbox: [0.0, 0.0, 10.0, 10.0],
+            old_text: "100.00".to_string(),
+            new_text: "200.00".to_string(), // not RunningBalance field, always kept
+            field: EditField::Debit,
         }
     ];
 
-    let pruned = prune_redundant_edits(&edits, &txs);
-    assert_eq!(pruned.len(), 1);
-    assert!(pruned[0].new_credit.is_some());
+    let (kept, dropped) = prune_redundant_edits(&edits, &preview);
+    assert_eq!(kept.len(), 2);
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(kept[0].new_text, "650.00");
+    assert_eq!(kept[1].new_text, "200.00");
+    assert_eq!(dropped[0].new_text, "600.00");
 }
