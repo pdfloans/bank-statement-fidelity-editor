@@ -254,6 +254,14 @@ fn test_native_engine_text_operators() {
         Operation::new("T*", vec![]),
         Operation::new("Tj", vec![Object::String("Line 4".into(), StringFormat::Literal)]),
         
+        // TJ (Array of strings and numbers)
+        Operation::new("T*", vec![]),
+        Operation::new("TJ", vec![Object::Array(vec![
+            Object::String("L".into(), StringFormat::Literal),
+            Object::Integer(-50), // kerning
+            Object::String("ine 5".into(), StringFormat::Literal)
+        ])]),
+
         Operation::new("ET", vec![]),
     ];
 
@@ -276,6 +284,39 @@ fn test_native_engine_text_operators() {
     assert!(y1 > y2);
     assert!(y2 > y3);
     assert!(y3 > y4);
+    
+    // Line 5 is parsed as "Line 5" from TJ array
+    assert_eq!(blocks[4].text, "Line 5");
+    
+    // Now test apply_change and apply_many_edits on these weird operators!
+    let output1 = dir.path().join("ops_out1.pdf");
+    let output2 = dir.path().join("ops_out2.pdf");
+    
+    // 1. apply_change to Line 2 (Td)
+    engine.apply_change(&input, &output1, 0, blocks[1].bbox, "Replaced 2", "Line 2", None).unwrap();
+    let mod_blocks = engine.get_text_blocks(&output1, 0).unwrap();
+    assert_eq!(mod_blocks[1].text, "Replaced 2");
+
+    // 2. apply_many_edits to Line 3 (TD) and Line 5 (TJ)
+    let edits = serde_json::json!([
+        {
+            "page": 0,
+            "rect": blocks[2].bbox,
+            "old_text": "Line 3",
+            "new_text": "Replaced 3"
+        },
+        {
+            "page": 0,
+            "rect": blocks[4].bbox,
+            "old_text": "Line 5",
+            "new_text": "Replaced 5"
+        }
+    ]);
+    
+    engine.apply_many_edits(&input, &output2, &serde_json::to_string(&edits).unwrap(), None).unwrap();
+    let mod_blocks2 = engine.get_text_blocks(&output2, 0).unwrap();
+    assert_eq!(mod_blocks2[2].text, "Replaced 3");
+    assert_eq!(mod_blocks2[4].text, "Replaced 5");
 }
 
 #[test]
