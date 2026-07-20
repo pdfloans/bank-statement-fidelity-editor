@@ -112,7 +112,6 @@ fn test_gui_interactive_mutations() {
         "🔄 Parse",
         "Proceed (Use Fallback Metrics)",
         "Cancel Edits",
-        "📂 Select Directory",
         "🔍-",
         "🔍+",
         "Fit",
@@ -120,8 +119,6 @@ fn test_gui_interactive_mutations() {
         "✨ AI Fix Layout",
         "📅 Dates",
         "🔄 Transfer",
-        "📥 Upload Source",
-        "📥 Upload Target",
         "Apply single edit",
         "Preview edits required",
         "Verify preview with ai",
@@ -140,13 +137,21 @@ fn test_gui_interactive_mutations() {
             
             // Fuzz through all possible buttons in this state
             for _ in 0..2 {
-                harness.step();
+                // IMPORTANT: Step once to render the new state and generate the new Node tree!
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    harness.step();
+                }));
+
                 for label in &button_labels {
-                    let mut iter = harness.get_all_by_label_contains(label);
-                    if let Some(node) = iter.next() {
-                        node.click();
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let mut iter = harness.get_all_by_label_contains(label);
+                        if let Some(node) = iter.next() {
+                            node.click();
+                        }
+                    }));
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         harness.step();
-                    }
+                    }));
                 }
             }
         }

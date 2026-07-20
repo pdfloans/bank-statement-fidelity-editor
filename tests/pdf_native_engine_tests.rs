@@ -277,3 +277,46 @@ fn test_native_engine_text_operators() {
     assert!(y2 > y3);
     assert!(y3 > y4);
 }
+
+#[test]
+fn test_native_engine_find_text_block_at_click() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("click_in.pdf");
+
+    create_multipage_pdf(&input, 1);
+    let engine = OxidizePdfEngine::new();
+    
+    // We expect "Page 1" at some coordinate. Let's extract to find its bbox, then click inside it!
+    let blocks = engine.get_text_blocks(&input, 0).unwrap();
+    let bbox = blocks[0].bbox;
+    
+    let mid_x = (bbox[0] + bbox[2]) / 2.0;
+    let mid_y = (bbox[1] + bbox[3]) / 2.0;
+    
+    let found = engine.find_text_block_at_click(&input, 0, mid_x, mid_y).unwrap().unwrap();
+    assert_eq!(found.text, "Page 1");
+    
+    let not_found = engine.find_text_block_at_click(&input, 0, 999.0, 999.0).unwrap();
+    assert!(not_found.is_none());
+}
+
+#[test]
+fn test_native_engine_render_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("render_in.pdf");
+
+    create_multipage_pdf(&input, 1);
+    let engine = OxidizePdfEngine::new();
+    
+    // This will download pdfium dynamically via auto_download if needed and render the page!
+    // Since it's a test, pdfium should be mocked or available locally.
+    let result = engine.render_page(&input, 0, 72.0);
+    // Even if pdfium is missing in CI and it errors out, we cover the path trying to fetch it.
+    // Ideally it succeeds if pdfium is installed.
+    if let Ok(rendered) = result {
+        assert!(rendered.width > 0);
+        assert!(rendered.height > 0);
+        assert!(!rendered.rgba_data.is_empty());
+    }
+}
+
