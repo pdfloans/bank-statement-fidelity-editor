@@ -98,20 +98,56 @@ fn test_gui_interactive_mutations() {
         ActiveWorkflow::ApiKeys,
     ];
 
+    let button_labels = vec![
+        "🐛 Submit Diagnostics",
+        "Execute",
+        "Start",
+        "Stop",
+        "Run Chaos Suite",
+        "◀",
+        "▶",
+        "🏷 Auto-Categorize",
+        "Re-analyze",
+        "🔄 Re-analyze",
+        "🔄 Parse",
+        "Proceed (Use Fallback Metrics)",
+        "Cancel Edits",
+        "📂 Select Directory",
+        "🔍-",
+        "🔍+",
+        "Fit",
+        "100%",
+        "✨ AI Fix Layout",
+        "📅 Dates",
+        "🔄 Transfer",
+        "📥 Upload Source",
+        "📥 Upload Target",
+        "Apply single edit",
+        "Preview edits required",
+        "Verify preview with ai",
+        "Perform * edits",
+        "Apply",
+        "② Balance Out Preview",
+        "Extract All to JSON",
+        "Auto-Balance All",
+        "Verify All against Originals",
+    ];
+
     for wf in workflows {
         for stage in stages.iter().cloned() {
             app.borrow_mut().active_workflow = wf.clone();
             app.borrow_mut().workflow_stage = stage.clone();
-            harness.step();
             
-            // Just click around 100 times per state configuration to hit everything
-            for i in 0..20 {
-                // We don't have get_all_by_role without unstable kittest APIs, so we will manually trigger 
-                // egui::Event::PointerButton on a grid of coordinates!
-                let x = (i % 5) as f32 * 300.0 + 100.0;
-                let y = (i / 5) as f32 * 200.0 + 100.0;
-                // Wait, egui_kittest harness encapsulates ctx, so we can't easily inject RawInput.
-                // But we CAN use harness.step()!
+            // Fuzz through all possible buttons in this state
+            for _ in 0..2 {
+                harness.step();
+                for label in &button_labels {
+                    let mut iter = harness.get_all_by_label_contains(label);
+                    if let Some(node) = iter.next() {
+                        node.click();
+                        harness.step();
+                    }
+                }
             }
         }
     }
