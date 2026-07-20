@@ -1,5 +1,5 @@
 use dual_core_pdf_pipeline::app::config::AppConfig;
-use dual_core_pdf_pipeline::app::gui::{ActiveModal, ActiveWorkflow, MyApp};
+use dual_core_pdf_pipeline::app::gui::{ActiveModal, ActiveWorkflow, AppView, MyApp};
 use dual_core_pdf_pipeline::app::runtime::{Job, JobResult};
 use egui_kittest::kittest::Queryable;
 use std::sync::{mpsc, Arc};
@@ -8,12 +8,28 @@ fn make_app() -> (MyApp, mpsc::Receiver<Job>, mpsc::Sender<JobResult>) {
     let (job_tx, job_rx_out) = mpsc::channel::<Job>();
     let (job_tx_in, job_rx) = mpsc::channel::<JobResult>();
     let config = Arc::new(AppConfig::default());
-    let app = MyApp::new(job_tx, job_rx, config);
+    let mut app = MyApp::new(job_tx, job_rx, config);
+    
+    // Setup some dummy state to enable more UI elements
+    app.input_path = "dummy_input.pdf".to_string();
+    app.output_path = "dummy_output.pdf".to_string();
+    app.current_page = 0;
+    app.total_pages = 5;
+    
     (app, job_rx_out, job_tx_in)
 }
 
+fn try_click_labels(harness: &mut egui_kittest::Harness, labels: &[&str]) {
+    for &label in labels {
+        if let Some(btn) = harness.get_all_by_label_contains(label).next() {
+            btn.click();
+        }
+        harness.step();
+    }
+}
+
 #[test]
-fn test_all_modals_coverage() {
+fn test_overkill_modals_coverage() {
     let (mut app, _, _) = make_app();
     
     let modals = vec![
@@ -28,6 +44,12 @@ fn test_all_modals_coverage() {
         ActiveModal::TransferTest,
     ];
 
+    let common_buttons = [
+        "Cancel", "Confirm", "Save", "Submit", "Close", "Export", "Discard",
+        "Yes", "No", "Ok", "Start", "Stop", "Retry", "Delete", "Clear",
+        "Update", "Transfer", "Add", "Re-analyze", "Run", "Continue"
+    ];
+
     for modal in modals {
         app.active_modal = modal;
         let mut harness = egui_kittest::Harness::builder()
@@ -37,12 +59,17 @@ fn test_all_modals_coverage() {
             });
         
         harness.step();
-        harness.step();
+        try_click_labels(&mut harness, &common_buttons);
+        
+        // Step a few more times for any animations or state updates
+        for _ in 0..3 {
+            harness.step();
+        }
     }
 }
 
 #[test]
-fn test_all_workflows_coverage() {
+fn test_overkill_workflows_coverage() {
     let (mut app, _, _) = make_app();
     
     let workflows = vec![
@@ -55,50 +82,50 @@ fn test_all_workflows_coverage() {
         ActiveWorkflow::ApiKeys,
     ];
 
-    for workflow in workflows {
-        app.active_workflow = workflow;
-        let mut harness = egui_kittest::Harness::builder()
-            .with_size(egui::vec2(1920.0, 1080.0))
-            .build(|ctx| {
-                app.headless_update(ctx);
-            });
-        
-        harness.step();
-        harness.step();
+    let common_buttons = [
+        "Parse", "Fit", "100%", "🔍+", "🔍-", "Run Chaos Suite", 
+        "Submit Diagnostics", "Execute", "Start", "Stop", "▶", "◀", 
+        "🏷 Auto-Categorize", "🔄 Re-analyze", "🔄 Parse", 
+        "Proceed (Use Fallback Metrics)", "Cancel Edits", "📂 Select Directory",
+        "Save", "Clear", "Export", "Transfer", "Close", "Add", "Remove",
+        "Review", "Apply", "Confirm", "Revert", "Undo", "Redo"
+    ];
+
+    let views = [AppView::SingleDocument, AppView::BatchProcessing, AppView::AuditExplorer];
+
+    for view in views {
+        for workflow in &workflows {
+            app.active_workflow = workflow.clone();
+            // We can't set private fields easily here if they aren't pub,
+            // but we can assume we're in the right workflow
+            
+            let mut harness = egui_kittest::Harness::builder()
+                .with_size(egui::vec2(1920.0, 1080.0))
+                .build(|ctx| {
+                    app.headless_update(ctx);
+                });
+            
+            harness.step();
+            try_click_labels(&mut harness, &common_buttons);
+            
+            // Try pressing some keys that might trigger shortcuts
+            harness.press_key(egui::Key::Enter);
+            harness.step();
+            harness.press_key(egui::Key::Escape);
+            harness.step();
+        }
     }
 }
 
 #[test]
-fn test_ui_interactions() {
+fn test_overkill_edge_cases() {
     let (mut app, _, _) = make_app();
     
-    // Test EditStatement specific UI interactions
+    // Force specific edge cases
     app.active_workflow = ActiveWorkflow::EditStatement;
-    app.input_path = "dummy.pdf".to_string(); // To enable Parse button
-    let mut harness = egui_kittest::Harness::builder()
-        .with_size(egui::vec2(1920.0, 1080.0))
-        .build(|ctx| {
-            app.headless_update(ctx);
-        });
-    harness.step();
-
-    if let Some(btn) = harness.get_all_by_label_contains("Fit").next() { btn.click(); }
-    harness.step();
-    if let Some(btn) = harness.get_all_by_label_contains("100%").next() { btn.click(); }
-    harness.step();
-    if let Some(btn) = harness.get_all_by_label_contains("🔍+").next() { btn.click(); }
-    harness.step();
-    if let Some(btn) = harness.get_all_by_label_contains("🔍-").next() { btn.click(); }
-    harness.step();
-    
-    if let Some(btn) = harness.get_all_by_label_contains("Parse").next() { btn.click(); }
-    harness.step();
-}
-
-#[test]
-fn test_more_modal_interactions() {
-    let (mut app, _, _) = make_app();
-    app.active_modal = ActiveModal::Settings;
+    app.total_pages = 0; // Empty document
+    app.input_path = "".to_string(); // No file selected
+    app.output_path = "".to_string();
     
     let mut harness = egui_kittest::Harness::builder()
         .with_size(egui::vec2(1920.0, 1080.0))
@@ -107,24 +134,18 @@ fn test_more_modal_interactions() {
         });
     harness.step();
     
-    if let Some(btn) = harness.get_all_by_label_contains("Save").next() { btn.click(); }
-    harness.step();
-    if let Some(btn) = harness.get_all_by_label_contains("Cancel").next() { btn.click(); }
-    harness.step();
-}
-
-#[test]
-fn test_workflow_interactions() {
-    let (mut app, _, _) = make_app();
-    app.active_workflow = ActiveWorkflow::Settings;
+    // Click random things when empty
+    try_click_labels(&mut harness, &["Parse", "Fit", "100%", "◀", "▶"]);
     
-    let mut harness = egui_kittest::Harness::builder()
-        .with_size(egui::vec2(1920.0, 1080.0))
-        .build(|ctx| {
-            app.headless_update(ctx);
-        });
-    harness.step();
+    // Now with valid data
+    app.input_path = "valid.pdf".to_string();
+    app.total_pages = 10;
+    app.current_page = 9; // Last page
     
-    if let Some(btn) = harness.get_all_by_label_contains("Save").next() { btn.click(); }
     harness.step();
+    try_click_labels(&mut harness, &["▶", "◀"]); // Try to go past last page
+    
+    app.current_page = 0; // First page
+    harness.step();
+    try_click_labels(&mut harness, &["◀", "▶"]); // Try to go past first page
 }
