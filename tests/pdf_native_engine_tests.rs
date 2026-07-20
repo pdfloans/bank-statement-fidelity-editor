@@ -314,9 +314,9 @@ fn test_native_engine_render_page() {
     // Even if pdfium is missing in CI and it errors out, we cover the path trying to fetch it.
     // Ideally it succeeds if pdfium is installed.
     if let Ok(rendered) = result {
-        assert!(rendered.width > 0);
-        assert!(rendered.height > 0);
-        assert!(!rendered.rgba_data.is_empty());
+        assert!(rendered.width_pts > 0.0);
+        assert!(rendered.height_pts > 0.0);
+        assert!(!rendered.png_bytes.is_empty());
     }
 }
 
