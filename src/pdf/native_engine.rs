@@ -73,6 +73,7 @@ impl OxidizePdfEngine {
         let mut blocks: Vec<TextBlock> = Vec::new();
         let mut current_font = String::from("Unknown");
         let mut font_size: f32 = 12.0;
+        let mut text_leading: f32 = 0.0;
         // Text matrix tracking: [a, b, c, d, tx, ty]
         let mut tm = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
         // Text line matrix (set by Td/TD/T*)
@@ -107,7 +108,7 @@ impl OxidizePdfEngine {
                         tlm = tm;
                     }
                 }
-                "Td" | "TD" if in_text => {
+                "Td" if in_text => {
                     // Move text position: Td tx ty
                     if op.operands.len() >= 2 {
                         let tx = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
@@ -117,10 +118,25 @@ impl OxidizePdfEngine {
                         tm = tlm;
                     }
                 }
+                "TD" if in_text => {
+                    // Move text position and set leading: TD tx ty
+                    if op.operands.len() >= 2 {
+                        let tx = operand_to_f32(&op.operands[0]).unwrap_or(0.0);
+                        let ty = operand_to_f32(&op.operands[1]).unwrap_or(0.0);
+                        text_leading = -ty;
+                        tlm[4] += tx;
+                        tlm[5] += ty;
+                        tm = tlm;
+                    }
+                }
                 "T*" if in_text => {
                     // Move to start of next line (uses TL - leading)
-                    // Approximate as moving down by font_size
-                    tlm[5] -= font_size;
+                    let shift = if text_leading == 0.0 {
+                        font_size
+                    } else {
+                        text_leading
+                    };
+                    tlm[5] -= shift;
                     tm = tlm;
                 }
                 "Tj" if in_text => {
