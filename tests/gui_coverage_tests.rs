@@ -93,11 +93,9 @@ fn test_overkill_workflows_coverage() {
 
     let views = [AppView::SingleDocument, AppView::BatchProcessing, AppView::AuditExplorer];
 
-    for view in views {
+    for _view in views {
         for workflow in &workflows {
             app.active_workflow = workflow.clone();
-            // We can't set private fields easily here if they aren't pub,
-            // but we can assume we're in the right workflow
             
             let mut harness = egui_kittest::Harness::builder()
                 .with_size(egui::vec2(1920.0, 1080.0))
@@ -127,25 +125,42 @@ fn test_overkill_edge_cases() {
     app.input_path = "".to_string(); // No file selected
     app.output_path = "".to_string();
     
-    let mut harness = egui_kittest::Harness::builder()
-        .with_size(egui::vec2(1920.0, 1080.0))
-        .build(|ctx| {
-            app.headless_update(ctx);
-        });
-    harness.step();
-    
-    // Click random things when empty
-    try_click_labels(&mut harness, &["Parse", "Fit", "100%", "◀", "▶"]);
+    {
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1920.0, 1080.0))
+            .build(|ctx| {
+                app.headless_update(ctx);
+            });
+        harness.step();
+        
+        // Click random things when empty
+        try_click_labels(&mut harness, &["Parse", "Fit", "100%", "◀", "▶"]);
+    }
     
     // Now with valid data
     app.input_path = "valid.pdf".to_string();
     app.total_pages = 10;
     app.current_page = 9; // Last page
     
-    harness.step();
-    try_click_labels(&mut harness, &["▶", "◀"]); // Try to go past last page
+    {
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1920.0, 1080.0))
+            .build(|ctx| {
+                app.headless_update(ctx);
+            });
+        harness.step();
+        try_click_labels(&mut harness, &["▶", "◀"]); // Try to go past last page
+    }
     
     app.current_page = 0; // First page
-    harness.step();
-    try_click_labels(&mut harness, &["◀", "▶"]); // Try to go past first page
+    
+    {
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1920.0, 1080.0))
+            .build(|ctx| {
+                app.headless_update(ctx);
+            });
+        harness.step();
+        try_click_labels(&mut harness, &["◀", "▶"]); // Try to go past first page
+    }
 }
