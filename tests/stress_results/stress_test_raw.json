@@ -1,20 +1,12 @@
 {
   "Test 1: Extraction": [
     {
-      "tool": "LlamaParse",
-      "correctness": 100,
-      "fidelity": 96,
-      "avg": 98.0,
-      "details": "Found 30/30 txn lines in markdown",
-      "elapsed_ms": 6605
-    },
-    {
       "tool": "Offline Heuristic",
       "correctness": 88,
       "fidelity": 98,
       "avg": 93.0,
       "details": "Found 25/30 txns, closing=Y",
-      "elapsed_ms": 22
+      "elapsed_ms": 5
     },
     {
       "tool": "PyMuPDF Built-in",
@@ -22,15 +14,23 @@
       "fidelity": 95,
       "avg": 47.5,
       "details": "Found 0/30 txns, 0 decimal errors",
-      "elapsed_ms": 25
+      "elapsed_ms": 11
+    },
+    {
+      "tool": "LlamaParse",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
     },
     {
       "tool": "Document AI",
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
-      "details": "No auth available",
-      "elapsed_ms": 126
+      "details": "Not configured",
+      "elapsed_ms": 0
     },
     {
       "tool": "Mindee API",
@@ -38,7 +38,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error: HTTP 401",
-      "elapsed_ms": 580
+      "elapsed_ms": 574
     }
   ],
   "Test 2: Fidelity Edit": [
@@ -48,7 +48,7 @@
       "fidelity": 85,
       "avg": 87.5,
       "details": "Found 18 '7' glyphs, 18 successful edits, restored=Y",
-      "elapsed_ms": 128
+      "elapsed_ms": 135
     },
     {
       "tool": "Pdfium",
@@ -56,7 +56,7 @@
       "fidelity": 92,
       "avg": 76.0,
       "details": "Rendered 2480x3509px @ 300DPI, content=Y",
-      "elapsed_ms": 121
+      "elapsed_ms": 127
     },
     {
       "tool": "Typst Reconstruct",
@@ -64,7 +64,7 @@
       "fidelity": 65,
       "avg": 70.0,
       "details": "26/26 spans extractable, 1 fonts: {'Helvetica'}",
-      "elapsed_ms": 116
+      "elapsed_ms": 12
     }
   ],
   "Test 3: Math Balance": [
@@ -79,18 +79,26 @@
     {
       "tool": "OpenRouter AI",
       "correctness": 0,
-      "fidelity": 100,
-      "avg": 50.0,
-      "details": "Found=N, amount=$0, line=0",
-      "elapsed_ms": 3711
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
+    },
+    {
+      "tool": "Groq AI",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
     },
     {
       "tool": "Document AI",
       "correctness": 0,
       "fidelity": 0,
       "avg": 0,
-      "details": "CRASH: [Errno 2] No such file or directory: 'gcloud.cmd'",
-      "elapsed_ms": 6
+      "details": "Not configured",
+      "elapsed_ms": 0
     },
     {
       "tool": "Gemini AI",
@@ -98,15 +106,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400: {\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/googl",
-      "elapsed_ms": 43
-    },
-    {
-      "tool": "Groq AI",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "HTTP 400",
-      "elapsed_ms": 106
+      "elapsed_ms": 24
     }
   ],
   "Test 4: Visual QA": [
@@ -116,15 +116,7 @@
       "fidelity": 100,
       "avg": 100.0,
       "details": "SSIM\u22480.997970, max_tile=0.583347, diff_px=72852, region_detect=Y",
-      "elapsed_ms": 2589
-    },
-    {
-      "tool": "pdfRest Cloud",
-      "correctness": 75,
-      "fidelity": 98,
-      "avg": 86.5,
-      "details": "Adobe-tier render at 300DPI, manual diff required",
-      "elapsed_ms": 2780
+      "elapsed_ms": 2493
     },
     {
       "tool": "Applitools Eyes",
@@ -132,7 +124,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "Bridge script not found",
-      "elapsed_ms": 198
+      "elapsed_ms": 409
     },
     {
       "tool": "Gemini Vision",
@@ -140,17 +132,33 @@
       "fidelity": 0,
       "avg": 0,
       "details": "HTTP 400",
-      "elapsed_ms": 426
+      "elapsed_ms": 615
+    },
+    {
+      "tool": "pdfRest Cloud",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "HTTP 401: {\"error\":\"The provided key is not valid.\"}",
+      "elapsed_ms": 1278
     }
   ],
   "Test 5: Transfer Transactions": [
     {
       "tool": "Groq (Llama 3)",
-      "correctness": 100,
-      "fidelity": 100,
-      "avg": 100,
-      "details": "Transfer mapped perfectly",
-      "elapsed_ms": 1051
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
+    },
+    {
+      "tool": "OpenRouter",
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
     },
     {
       "tool": "Gemini 1.5 Flash",
@@ -158,15 +166,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error No response",
-      "elapsed_ms": 24
-    },
-    {
-      "tool": "OpenRouter",
-      "correctness": 0,
-      "fidelity": 0,
-      "avg": 0,
-      "details": "API Error No response",
-      "elapsed_ms": 734
+      "elapsed_ms": 22
     }
   ],
   "Test 6: E2E GUI Testing": [
@@ -176,17 +176,17 @@
       "fidelity": 100,
       "avg": 100,
       "details": "GUI launched and tree attached correctly",
-      "elapsed_ms": 18696
+      "elapsed_ms": 6458
     }
   ],
   "Test 7: PII Anonymization": [
     {
       "tool": "Groq PII",
-      "correctness": 100,
-      "fidelity": 100,
-      "avg": 100,
-      "details": "PII Masked Successfully",
-      "elapsed_ms": 906
+      "correctness": 0,
+      "fidelity": 0,
+      "avg": 0,
+      "details": "API key not configured",
+      "elapsed_ms": 0
     },
     {
       "tool": "Gemini 1.5 PII",
@@ -194,7 +194,7 @@
       "fidelity": 0,
       "avg": 0,
       "details": "API Error No response",
-      "elapsed_ms": 26
+      "elapsed_ms": 19
     }
   ],
   "Test 8: Forensic Evasion": [
@@ -204,7 +204,7 @@
       "fidelity": 100,
       "avg": 100,
       "details": "Producer: '', Creator: '', EOF markers: 1",
-      "elapsed_ms": 1
+      "elapsed_ms": 0
     },
     {
       "tool": "Typst Reconstruct",
