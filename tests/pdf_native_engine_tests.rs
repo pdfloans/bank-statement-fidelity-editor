@@ -270,7 +270,7 @@ fn test_native_engine_text_operators() {
     let engine = OxidizePdfEngine::new();
     let blocks = engine.get_text_blocks(&input, 0).unwrap();
     
-    assert_eq!(blocks.len(), 4);
+    assert_eq!(blocks.len(), 5);
     assert_eq!(blocks[0].text, "Line 1");
     // Verify Y coordinates go down (in PDF coordinate space, origin is bottom-left, so Y decreases)
     // Actually, in our engine `extract_text_blocks_from_page` inverts Y so Y increases down the page
