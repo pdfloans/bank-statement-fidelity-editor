@@ -290,6 +290,9 @@ pub struct AppConfig {
     pub lipi_api_key: Option<String>,
     pub groq_api_key: Option<String>,
     pub openrouter_api_key: Option<String>,
+    pub mindee_api_key: Option<String>,
+    pub applitools_api_key: Option<String>,
+    pub vision_api_key: Option<String>,
     pub openrouter_model: String,
     pub ai_provider: AiProviderMode,
     pub document_ai: Option<DocumentAiConfig>,
@@ -323,6 +326,9 @@ impl Drop for AppConfig {
         if let Some(key) = &mut self.lipi_api_key { key.zeroize(); }
         if let Some(key) = &mut self.groq_api_key { key.zeroize(); }
         if let Some(key) = &mut self.openrouter_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.mindee_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.applitools_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.vision_api_key { key.zeroize(); }
         if let Some(doc) = &mut self.document_ai {
             doc.api_key.zeroize();
             doc.service_account_path.zeroize();
@@ -343,6 +349,9 @@ impl Default for AppConfig {
             lipi_api_key: None,
             groq_api_key: None,
             openrouter_api_key: None,
+            mindee_api_key: None,
+            applitools_api_key: None,
+            vision_api_key: None,
             openrouter_model: "deepseek/deepseek-chat".to_string(),
             ai_provider: AiProviderMode::default(),
             document_ai: None,
@@ -387,6 +396,9 @@ impl AppConfig {
         let openrouter_model = clean_key(env::var("OPENROUTER_MODEL")).unwrap_or_else(|| "deepseek/deepseek-chat".to_string());
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
+        let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
+        let applitools_api_key = clean_key(env::var("APPLITOOLS_API_KEY"));
+        let vision_api_key = clean_key(env::var("VISION_API_KEY"));
 
         let llamaparse_api_key = clean_key(env::var("LLAMAPARSE_API_KEY"));
         let webhook_url = clean_key(env::var("WEBHOOK_URL"));
@@ -488,6 +500,9 @@ impl AppConfig {
             gemini_api_key,
             groq_api_key,
             openrouter_api_key,
+            mindee_api_key,
+            applitools_api_key,
+            vision_api_key,
             openrouter_model,
             ai_provider,
             pdfrest_api_key,

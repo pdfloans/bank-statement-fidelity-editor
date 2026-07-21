@@ -1327,25 +1327,29 @@ impl AppModals for MyApp {
                         });
                         ui.end_row();
 
+                        let is_docai = self.settings.document_parser == crate::app::config::DocumentParserMode::DocumentAi
+                            || self.settings.ai_provider == crate::app::config::AiProviderMode::GeminiVertex
+                            || self.edit_gemini_use_vertex;
+
                         ui.label("Doc AI project ID:");
-                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
+                        ui.add_enabled(is_docai, egui::TextEdit::singleline(&mut self.edit_docai_project_id).desired_width(220.0));
                         ui.end_row();
 
                         ui.label("Doc AI location:");
-                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
+                        ui.add_enabled(is_docai, egui::TextEdit::singleline(&mut self.edit_docai_location).desired_width(220.0))
                             .on_hover_text("e.g. 'us' or 'eu' - must match the processor region.");
                         ui.end_row();
 
                         ui.label("Doc AI processor ID:");
-                        ui.add(egui::TextEdit::singleline(&mut self.edit_docai_processor_id).desired_width(220.0))
+                        ui.add_enabled(is_docai, egui::TextEdit::singleline(&mut self.edit_docai_processor_id).desired_width(220.0))
                             .on_hover_text("The Bank Statement parser or Custom Extractor processor ID.");
                         ui.end_row();
 
                         ui.label("Service account JSON:");
                         ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
+                            ui.add_enabled(is_docai, egui::TextEdit::singleline(&mut self.edit_docai_service_account).desired_width(150.0))
                                 .on_hover_text("Path to the service-account key JSON (best-practice auth).");
-                            if ui.button("Browse...").clicked() {
+                            if ui.add_enabled(is_docai, egui::Button::new("Browse...")).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("JSON", &["json"])
                                     .pick_file()
@@ -1357,7 +1361,8 @@ impl AppModals for MyApp {
                         ui.end_row();
 
                         ui.label("Doc AI API key (opt):");
-                        ui.add(
+                        ui.add_enabled(
+                            is_docai,
                             egui::TextEdit::singleline(&mut self.edit_docai_api_key)
                                 .password(true)
                                 .desired_width(220.0),
