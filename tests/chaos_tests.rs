@@ -1,9 +1,9 @@
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
 use dual_core_pdf_pipeline::ai::backend::AiBackend;
 use dual_core_pdf_pipeline::ai::gemini_client::GeminiClient;
 use dual_core_pdf_pipeline::app::config::AiProviderMode;
 use rust_decimal_macros::dec;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn test_chaos_malformed_json_repair() {
@@ -37,9 +37,9 @@ async fn test_chaos_malformed_json_repair() {
         openrouter: None,
         groq: None,
     };
-    
-    use dual_core_pdf_pipeline::engine::model::{Transaction, Provenance};
-    
+
+    use dual_core_pdf_pipeline::engine::model::{Provenance, Transaction};
+
     let tx1 = Transaction {
         page: 1,
         line_on_page: 1,
@@ -54,14 +54,16 @@ async fn test_chaos_malformed_json_repair() {
         category: None,
     };
 
-    let result = backend.repair_extracted_transactions(
-        &[tx1.clone()],
-        dec!(100.0),
-        dec!(100.0),
-        "Original Text",
-        "Just fix it",
-    ).await;
-    
+    let result = backend
+        .repair_extracted_transactions(
+            &[tx1.clone()],
+            dec!(100.0),
+            dec!(100.0),
+            "Original Text",
+            "Just fix it",
+        )
+        .await;
+
     // Should gracefully return an Error, not panic!
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();

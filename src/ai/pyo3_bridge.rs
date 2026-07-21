@@ -512,12 +512,8 @@ mod tests {
         // Simulate a scenario where python holds the GIL for a bit,
         // ensuring the thread can execute without deadlocking the Rust side.
         let res: Result<(), String> = PyEngine::safe_python_with_gil(|py| {
-            py.run(
-                c"import time; time.sleep(0.1)",
-                None,
-                None,
-            )
-            .map_err(|e| e.to_string())?;
+            py.run(c"import time; time.sleep(0.1)", None, None)
+                .map_err(|e| e.to_string())?;
             Ok(())
         });
         assert!(res.is_ok(), "GIL sleep simulation should succeed");

@@ -39,7 +39,7 @@ fn test_font_analysis_from_json() {
 
     let analysis = FontAnalysis::from_json(json_payload).expect("Failed to parse JSON");
     assert_eq!(analysis.fonts.len(), 1);
-    
+
     let font = &analysis.fonts[0];
     assert_eq!(font.name, "ABCDEF+Helvetica");
     assert_eq!(font.usage_role, UsageRole::Mixed);
@@ -145,7 +145,10 @@ fn test_font_analysis_one_line_summary() {
         },
     };
 
-    assert_eq!(analysis_clean.one_line_summary(), "✅ 5 font(s) - every used character is already covered.");
+    assert_eq!(
+        analysis_clean.one_line_summary(),
+        "✅ 5 font(s) - every used character is already covered."
+    );
 }
 
 #[test]
@@ -162,11 +165,12 @@ fn test_font_cascade_report() {
         "workflow_attempt": 1
     }"#;
 
-    let report = FontCascadeReport::from_python_json(json_payload, "Helvetica".to_string(), 1).expect("Parse failed");
+    let report = FontCascadeReport::from_python_json(json_payload, "Helvetica".to_string(), 1)
+        .expect("Parse failed");
     assert!(report.success);
     assert_eq!(report.original_font, "Helvetica");
     assert_eq!(report.synthesised.len(), 2);
-    
+
     let summary = report.one_line_summary();
     assert!(summary.contains("composite (2)"));
     assert!(summary.contains("AI donor (1)"));
@@ -186,9 +190,13 @@ fn test_font_cascade_report_failure() {
         "workflow_attempt": 1
     }"#;
 
-    let report = FontCascadeReport::from_python_json(json_payload, "Helvetica".to_string(), 1).expect("Parse failed");
+    let report = FontCascadeReport::from_python_json(json_payload, "Helvetica".to_string(), 1)
+        .expect("Parse failed");
     assert!(!report.success);
-    
+
     let summary = report.one_line_summary();
-    assert_eq!(summary, "⛔ font cascade incomplete: 1 char(s) still missing");
+    assert_eq!(
+        summary,
+        "⛔ font cascade incomplete: 1 char(s) still missing"
+    );
 }

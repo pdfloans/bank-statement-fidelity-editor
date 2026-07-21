@@ -1,5 +1,5 @@
-use eframe::egui;
 use dual_core_pdf_pipeline::app::config::AppConfig;
+use eframe::egui;
 use std::sync::Arc;
 
 #[test]
@@ -14,11 +14,11 @@ fn test_gui_headless_interactions() {
     let mut app = dual_core_pdf_pipeline::app::gui::MyApp::new(job_tx, result_rx, _cfg.clone());
 
     let ctx = egui::Context::default();
-    
+
     // Simulate some GUI time passing
     let mut raw_input = egui::RawInput::default();
     raw_input.time = Some(0.0);
-    
+
     // Test 1: Drag and Drop file ingestion
     raw_input.dropped_files.push(egui::DroppedFile {
         path: Some(std::path::PathBuf::from("examples/sample.pdf")),
@@ -27,22 +27,22 @@ fn test_gui_headless_interactions() {
         bytes: None,
         mime: String::new(),
     });
-    
+
     // Run the UI state machine
     let _ = ctx.run(raw_input.clone(), |ctx| {
         app.headless_update(ctx);
     });
-    
+
     // Check that drag and drop was accepted and path changed
     assert_eq!(app.input_path, "examples/sample.pdf");
-    
+
     // Test 2: Modal Interactions
     // Let's pretend we opened the settings modal and changed something
     app.settings.default_dpi = 300.0;
     let _ = ctx.run(raw_input.clone(), |ctx| {
         app.headless_update(ctx);
     });
-    
+
     // Test 3: Aggressive window resizing
     raw_input.screen_rect = Some(egui::Rect::from_min_size(
         egui::pos2(0.0, 0.0),
@@ -61,22 +61,23 @@ fn test_gui_headless_interactions() {
     app.current_page_texture = Some(ctx.load_texture("test", image, Default::default()));
     app.current_pdf_path = std::path::PathBuf::from("examples/sample.pdf");
     app.total_pages = 1;
-    
+
     // Inject mock data to ensure all loops execute rendering logic
-    app.workflow_transactions.push(dual_core_pdf_pipeline::engine::model::Transaction {
-        page: 1,
-        line_on_page: 1,
-        date: "2024-01-01".to_string(),
-        raw_text: "Test".to_string(),
-        debit: None,
-        credit: Some(rust_decimal::Decimal::new(100, 0)),
-        running_balance: Some(rust_decimal::Decimal::new(1000, 0)),
-        bbox: None,
-        field_bboxes: Default::default(),
-        provenance: dual_core_pdf_pipeline::engine::model::Provenance::Manual,
-        category: None,
-    });
-    
+    app.workflow_transactions
+        .push(dual_core_pdf_pipeline::engine::model::Transaction {
+            page: 1,
+            line_on_page: 1,
+            date: "2024-01-01".to_string(),
+            raw_text: "Test".to_string(),
+            debit: None,
+            credit: Some(rust_decimal::Decimal::new(100, 0)),
+            running_balance: Some(rust_decimal::Decimal::new(1000, 0)),
+            bbox: None,
+            field_bboxes: Default::default(),
+            provenance: dual_core_pdf_pipeline::engine::model::Provenance::Manual,
+            category: None,
+        });
+
     app.proposed_changes.push((
         dual_core_pdf_pipeline::engine::model::ProposedChange {
             page: 1,
@@ -89,7 +90,7 @@ fn test_gui_headless_interactions() {
         },
         true,
     ));
-    
+
     // Test 5: Switch through ActiveWorkflow stages
     use dual_core_pdf_pipeline::app::gui::ActiveWorkflow;
     let workflows = vec![
@@ -101,7 +102,7 @@ fn test_gui_headless_interactions() {
         ActiveWorkflow::Settings,
         ActiveWorkflow::ApiKeys,
     ];
-    
+
     for wf in workflows {
         app.active_workflow = wf;
         let _ = ctx.run(raw_input.clone(), |ctx| {
@@ -132,8 +133,10 @@ fn test_gui_headless_interactions() {
 
     // Test 7: Switch through WorkflowStages
     use dual_core_pdf_pipeline::engine::workflow::WorkflowStage;
-    use dual_core_pdf_pipeline::engine::workflow::{ParseValidation, BalancePreview, VisualAttempt};
-    
+    use dual_core_pdf_pipeline::engine::workflow::{
+        BalancePreview, ParseValidation, VisualAttempt,
+    };
+
     let stages = vec![
         WorkflowStage::Idle,
         WorkflowStage::Parsing,
@@ -171,5 +174,8 @@ fn test_gui_headless_interactions() {
         });
     }
 
-    assert!(true, "Headless GUI framework initialized and interacted successfully");
+    assert!(
+        true,
+        "Headless GUI framework initialized and interacted successfully"
+    );
 }

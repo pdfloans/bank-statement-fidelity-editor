@@ -6,7 +6,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 async fn test_gemini_api_chaos_recovery() {
     let _ = dotenvy::dotenv();
     let _cfg = AppConfig::from_env().unwrap_or_default();
-    
+
     // We would normally inject a custom base_url into GeminiClient,
     // but wiremock can just return HTTP 429 directly to a custom client instance.
     let server = MockServer::start().await;
@@ -27,7 +27,7 @@ async fn test_gemini_api_chaos_recovery() {
     assert!(res.is_err(), "Expected an error due to 429 Rate Limit");
 
     // But the cascade! macro should handle it if wrapped in AiBackend!
-    // Since AiBackend is tested natively with cascade!, we verify that 
+    // Since AiBackend is tested natively with cascade!, we verify that
     // the system correctly downgrades.
 }
 
@@ -41,6 +41,6 @@ async fn test_document_ai_api_chaos_malformed_json() {
         .respond_with(ResponseTemplate::new(200).set_body_string("{ \"corrupt: \"json\" }"))
         .mount(&server)
         .await;
-    
+
     // Test logic goes here...
 }

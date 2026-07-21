@@ -183,9 +183,9 @@ impl AppModals for MyApp {
                                     .ok()
                                     .and_then(|s| serde_json::from_str(&s).ok())
                                     .unwrap_or_default();
-                                
+
                                 ui.label(format!("Total Matrix Checks: {}", stats.total_attempts));
-                                
+
                                 // Build a sorted leaderboard
                                 let mut leaderboard = vec![
                                     ("DocAI", stats.docai_wins),
@@ -195,7 +195,7 @@ impl AppModals for MyApp {
                                     ("Offline", stats.offline_wins),
                                 ];
                                 leaderboard.sort_by(|a, b| b.1.cmp(&a.1));
-                                
+
                                 egui::Grid::new("leaderboard_grid")
                                     .num_columns(3)
                                     .spacing([20.0, 4.0])
@@ -205,7 +205,7 @@ impl AppModals for MyApp {
                                         ui.strong("Parser");
                                         ui.strong("Consensus Wins");
                                         ui.end_row();
-                                        
+
                                         for (i, (name, wins)) in leaderboard.into_iter().enumerate() {
                                             ui.label(format!("#{}", i + 1));
                                             ui.label(name);
@@ -347,7 +347,11 @@ impl AppModals for MyApp {
                             }
                         });
                 });
-        if open { self.active_modal = ActiveModal::Settings; } else if self.active_modal == ActiveModal::Settings { self.active_modal = ActiveModal::None; }
+        if open {
+            self.active_modal = ActiveModal::Settings;
+        } else if self.active_modal == ActiveModal::Settings {
+            self.active_modal = ActiveModal::None;
+        }
     }
 
     fn draw_backend_preferences(&mut self, ui: &mut egui::Ui) {
@@ -404,7 +408,7 @@ impl AppModals for MyApp {
                         ui.label("Ledger Reconciliation:");
                         ui.label("1\u{fe0f}\u{20e3} Local Math Engine (100%)");
                         ui.end_row();
-                        
+
                         ui.label("AI Analysis:");
                         egui::ComboBox::from_id_salt("ai_provider_mode")
                             .selected_text(self.settings.ai_provider.label())
@@ -595,7 +599,10 @@ impl AppModals for MyApp {
                         if self.in_flight > 0 {
                             ui.horizontal(|ui| {
                                 ui.spinner();
-                                ui.label(egui::RichText::new("Transfer in progress...").color(self.settings.theme.palette().accent));
+                                ui.label(
+                                    egui::RichText::new("Transfer in progress...")
+                                        .color(self.settings.theme.palette().accent),
+                                );
                             });
                         } else {
                             let btn = ui.add_enabled(
@@ -716,7 +723,11 @@ impl AppModals for MyApp {
         if !open {
             self.active_modal = ActiveModal::None;
         }
-        if open { self.active_modal = ActiveModal::Transfer; } else if self.active_modal == ActiveModal::Transfer { self.active_modal = ActiveModal::None; }
+        if open {
+            self.active_modal = ActiveModal::Transfer;
+        } else if self.active_modal == ActiveModal::Transfer {
+            self.active_modal = ActiveModal::None;
+        }
     }
 
     fn draw_date_adjust_dialog(&mut self, ctx: &egui::Context) {
@@ -768,7 +779,10 @@ impl AppModals for MyApp {
                 ui.horizontal(|ui| {
                     if self.in_flight > 0 {
                         ui.spinner();
-                        ui.label(egui::RichText::new("Date adjustment in progress...").color(self.settings.theme.palette().accent));
+                        ui.label(
+                            egui::RichText::new("Date adjustment in progress...")
+                                .color(self.settings.theme.palette().accent),
+                        );
                         if ui.button("Close").clicked() {
                             self.active_modal = ActiveModal::None;
                         }
@@ -826,7 +840,11 @@ impl AppModals for MyApp {
                     ui.colored_label(self.settings.theme.palette().warn, "⚠ Load a PDF first");
                 }
             });
-        if open { self.active_modal = ActiveModal::DateAdjust; } else if self.active_modal == ActiveModal::DateAdjust { self.active_modal = ActiveModal::None; }
+        if open {
+            self.active_modal = ActiveModal::DateAdjust;
+        } else if self.active_modal == ActiveModal::DateAdjust {
+            self.active_modal = ActiveModal::None;
+        }
     }
 
     fn draw_ai_confirmation_dialog(&mut self, ctx: &egui::Context) {
@@ -973,17 +991,29 @@ impl AppModals for MyApp {
 
                     if let Some(action) = err.suggested_action() {
                         let btn_text = egui::RichText::new(action).strong().size(14.0);
-                        if ui.add_sized([ui.available_width(), 36.0], egui::Button::new(btn_text)).clicked() {
+                        if ui
+                            .add_sized([ui.available_width(), 36.0], egui::Button::new(btn_text))
+                            .clicked()
+                        {
                             resolved_choice = Some("action".to_string());
                         }
                     }
 
-                    if ui.add_sized([ui.available_width(), 36.0], egui::Button::new("Cancel")).clicked() {
+                    if ui
+                        .add_sized([ui.available_width(), 36.0], egui::Button::new("Cancel"))
+                        .clicked()
+                    {
                         resolved_choice = Some("cancel".to_string());
                     }
-                    
+
                     ui.add_space(5.0);
-                    if ui.add_sized([ui.available_width(), 36.0], egui::Button::new("🐛 Submit Bug Report")).clicked() {
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 36.0],
+                            egui::Button::new("🐛 Submit Bug Report"),
+                        )
+                        .clicked()
+                    {
                         resolved_choice = Some("report".to_string());
                     }
                 });
@@ -1001,7 +1031,8 @@ impl AppModals for MyApp {
                     }
                 } else if resolved_choice.as_deref() == Some("report") {
                     self.active_modal = ActiveModal::Feedback;
-                    self.feedback_text = format!("Operation Failed: {}\n\nSteps to reproduce: \n", err);
+                    self.feedback_text =
+                        format!("Operation Failed: {}\n\nSteps to reproduce: \n", err);
                 }
             }
         }
@@ -1054,12 +1085,12 @@ impl AppModals for MyApp {
                                     // Trigger backend job to generate alternatives
                                     let path = self.current_pdf_path.clone();
                                     let edits = self.workflow_edits.clone();
-                                    
+
                                     // Pick first page of edits or default to page 0
                                     let page = edits.first().map(|e| e.page).unwrap_or(0);
                                     // For demo, just pass the edits and a simple bbox of the first edit
                                     let bbox = edits.first().map(|e| e.bbox).unwrap_or([0.0, 0.0, 100.0, 100.0]);
-                                    
+
                                     let _ = self.job_tx.send(Job::GenerateVisualAlternatives {
                                         input: path,
                                         out_dir: std::path::PathBuf::from("output"), // or a temp dir
@@ -1075,7 +1106,7 @@ impl AppModals for MyApp {
                     crate::engine::workflow::WorkflowStage::VisualComparisonActive { images } => {
                         ui.heading("Select Best Alternative");
                         ui.label("The primary renderer produced a borderline anomaly. Select the cleanest output below:");
-                        
+
                         egui::ScrollArea::both().show(ui, |ui| {
                             egui::Grid::new("visual_comparison_grid")
                                 .num_columns(2)
@@ -1084,38 +1115,38 @@ impl AppModals for MyApp {
                                     for (i, (label, img_bytes)) in images.iter().enumerate() {
                                         ui.vertical(|ui| {
                                             ui.label(egui::RichText::new(label).strong());
-                                            
+
                                             // Render image bytes via egui_extras
                                             if let Ok(img) = image::load_from_memory(img_bytes) {
                                                 let size = [img.width() as usize, img.height() as usize];
                                                 let pixels = img.into_rgba8();
                                                 let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
-                                                
+
                                                 let tex = ctx.load_texture(
                                                     format!("alt_{i}"),
                                                     color_image,
                                                     egui::TextureOptions::default(),
                                                 );
-                                                
+
                                                 ui.image(&tex);
                                             } else {
                                                 ui.label("(Failed to load image)");
                                             }
-                                            
+
                                             if ui.button(format!("Use {}", label)).clicked() {
                                                 // Normally here we would send a job to swap the active engine
                                                 // For now, we resolve the modal
                                                 resolved = true;
                                             }
                                         });
-                                        
+
                                         if i % 2 == 1 {
                                             ui.end_row();
                                         }
                                     }
                                 });
                         });
-                        
+
                         ui.add_space(8.0);
                         if ui.button("Cancel & Discard").clicked() {
                             let _ = self.job_tx.send(Job::Cancel { id: 0 });
@@ -1219,7 +1250,10 @@ impl AppModals for MyApp {
                 ui.horizontal(|ui| {
                     if self.in_flight > 0 {
                         ui.spinner();
-                        ui.label(egui::RichText::new("Test runner is active...").color(self.settings.theme.palette().accent));
+                        ui.label(
+                            egui::RichText::new("Test runner is active...")
+                                .color(self.settings.theme.palette().accent),
+                        );
                     } else {
                         let can_run = n >= 2;
                         let btn = ui.add_enabled(
@@ -1299,7 +1333,11 @@ impl AppModals for MyApp {
                         });
                 }
             });
-        if open { self.active_modal = ActiveModal::TransferTest; } else if self.active_modal == ActiveModal::TransferTest { self.active_modal = ActiveModal::None; }
+        if open {
+            self.active_modal = ActiveModal::TransferTest;
+        } else if self.active_modal == ActiveModal::TransferTest {
+            self.active_modal = ActiveModal::None;
+        }
     }
 
     fn draw_api_keys_editor(&mut self, ui: &mut egui::Ui) {
@@ -1594,7 +1632,7 @@ impl AppModals for MyApp {
                     {
                         // Eagerly save any unsaved edits to the environment first, then run validation
                         self.save_credentials();
-                        
+
                         let _ = self.job_tx.send(Job::ValidateCredentials);
                     }
                 });
@@ -1646,7 +1684,7 @@ impl AppModals for MyApp {
     fn draw_feedback_modal(&mut self, ctx: &egui::Context) {
         let mut open = self.active_modal == ActiveModal::Feedback;
         let mut submit = false;
-        
+
         egui::Window::new("🐛 Report a Bug / Feedback")
             .open(&mut open)
             .collapsible(false)
@@ -1659,13 +1697,19 @@ impl AppModals for MyApp {
                     egui::TextEdit::multiline(&mut self.feedback_text)
                         .hint_text("Please provide steps to reproduce...")
                         .desired_rows(6)
-                        .desired_width(f32::INFINITY)
+                        .desired_width(f32::INFINITY),
                 );
-                
+
                 ui.add_space(10.0);
-                ui.checkbox(&mut self.feedback_include_logs, "Attach recent application logs (app.log, error_report.log)");
-                ui.checkbox(&mut self.feedback_include_audit, "Attach recent audit trail");
-                
+                ui.checkbox(
+                    &mut self.feedback_include_logs,
+                    "Attach recent application logs (app.log, error_report.log)",
+                );
+                ui.checkbox(
+                    &mut self.feedback_include_audit,
+                    "Attach recent audit trail",
+                );
+
                 ui.add_space(15.0);
                 ui.horizontal(|ui| {
                     if ui.button("Cancel").clicked() {
@@ -1682,7 +1726,10 @@ impl AppModals for MyApp {
         if submit {
             self.active_modal = ActiveModal::None;
             let description = std::mem::take(&mut self.feedback_text);
-            self.toast(ToastKind::Info, "Gathering logs and submitting report...".to_string());
+            self.toast(
+                ToastKind::Info,
+                "Gathering logs and submitting report...".to_string(),
+            );
             let _ = self.job_tx.send(Job::SubmitBugReport {
                 description,
                 include_logs: self.feedback_include_logs,
@@ -1740,10 +1787,7 @@ impl AppModals for MyApp {
                         self.active_modal = ActiveModal::None;
                     }
                     if ui
-                        .add(
-                            egui::Button::new("Discard")
-                                .fill(self.settings.theme.palette().warn),
-                        )
+                        .add(egui::Button::new("Discard").fill(self.settings.theme.palette().warn))
                         .clicked()
                     {
                         confirm = true;
@@ -1779,9 +1823,12 @@ impl AppModals for MyApp {
                     .show(ctx, |ui| {
                         let p = self.settings.theme.palette();
                         ui.colored_label(p.warn, "No activity detected from the backend process.");
-                        ui.label(format!("Automatically falling back in {} seconds...", remaining));
+                        ui.label(format!(
+                            "Automatically falling back in {} seconds...",
+                            remaining
+                        ));
                         ui.add_space(10.0);
-                        
+
                         ui.horizontal(|ui| {
                             if ui.button("Wait Longer").clicked() {
                                 close_modal = true; // resets the timer
@@ -1802,20 +1849,32 @@ impl AppModals for MyApp {
 
         if force_fallback {
             self.in_flight = 0; // reset state to unlock UI
-            self.toast(crate::app::gui::ToastKind::Warn, "Watchdog triggered. Forcing fallback...".to_string());
+            self.toast(
+                crate::app::gui::ToastKind::Warn,
+                "Watchdog triggered. Forcing fallback...".to_string(),
+            );
             match &self.workflow_stage {
                 crate::engine::workflow::WorkflowStage::Parsing => {
-                    self.toast(crate::app::gui::ToastKind::Info, "Falling back to Offline Parser...".to_string());
-                    if let Err(e) = self.job_tx.send(crate::app::runtime::Job::ExtractTransactions {
-                        path: std::path::PathBuf::from(&self.input_path),
-                        // Note: To force offline parser, we could adjust config or add a flag, but this is a good start.
-                    }) {
+                    self.toast(
+                        crate::app::gui::ToastKind::Info,
+                        "Falling back to Offline Parser...".to_string(),
+                    );
+                    if let Err(e) =
+                        self.job_tx
+                            .send(crate::app::runtime::Job::ExtractTransactions {
+                                path: std::path::PathBuf::from(&self.input_path),
+                                // Note: To force offline parser, we could adjust config or add a flag, but this is a good start.
+                            })
+                    {
                         tracing::error!("Failed to dispatch ExtractTransactions fallback: {}", e);
                     }
                     self.in_flight += 1;
                 }
                 crate::engine::workflow::WorkflowStage::Rendering { .. } => {
-                    self.toast(crate::app::gui::ToastKind::Info, "Falling back to Native rendering...".to_string());
+                    self.toast(
+                        crate::app::gui::ToastKind::Info,
+                        "Falling back to Native rendering...".to_string(),
+                    );
                     self.dispatch_confirm_and_render(false, false);
                 }
                 _ => {

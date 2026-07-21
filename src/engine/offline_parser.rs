@@ -99,7 +99,8 @@ pub fn parse_statement_offline(
         opening_balance,
         closing_balance,
         account_number: extract_account_number(&all_rows),
-     bank_name: None, })
+        bank_name: None,
+    })
 }
 
 /// Parse a bank statement from pre-extracted `LineGeometry` entries.
@@ -125,7 +126,8 @@ pub fn parse_statement_from_geometry(
         opening_balance,
         closing_balance,
         account_number: extract_account_number(&rows),
-     bank_name: None, })
+        bank_name: None,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +314,8 @@ fn parse_rows_into_transactions(rows: &[RawRow]) -> (Vec<Transaction>, Decimal, 
             bbox: Some(row.bbox),
             field_bboxes: FieldBboxes::default(),
             provenance: Provenance::Computed,
-         category: None, });
+            category: None,
+        });
     }
 
     // If we didn't find explicit opening/closing, try to infer from transactions
@@ -535,7 +538,7 @@ mod tests {
                 source: GeometrySource::TextLayer,
             },
         ];
-        
+
         let stmt = parse_statement_from_geometry(&geoms, 1).unwrap();
         assert_eq!(stmt.opening_balance, dec!(100.00));
         assert_eq!(stmt.transactions.len(), 1);
@@ -547,23 +550,31 @@ mod tests {
     fn parse_rows_one_amount_and_three_amounts() {
         let rows = vec![
             RawRow {
-                page: 0, line_on_page: 0, bbox: [0.0; 4],
-                text: "15/01/2024 Deposit $50.00".into()
+                page: 0,
+                line_on_page: 0,
+                bbox: [0.0; 4],
+                text: "15/01/2024 Deposit $50.00".into(),
             },
             RawRow {
-                page: 0, line_on_page: 1, bbox: [0.0; 4],
-                text: "16/01/2024 Fee -$10.00".into()
+                page: 0,
+                line_on_page: 1,
+                bbox: [0.0; 4],
+                text: "16/01/2024 Fee -$10.00".into(),
             },
             RawRow {
-                page: 0, line_on_page: 2, bbox: [0.0; 4],
-                text: "17/01/2024 Deposit $100.00 $0.00 $140.00".into()
+                page: 0,
+                line_on_page: 2,
+                bbox: [0.0; 4],
+                text: "17/01/2024 Deposit $100.00 $0.00 $140.00".into(),
             },
             RawRow {
-                page: 0, line_on_page: 3, bbox: [0.0; 4],
-                text: "18/01/2024 Withdrawal $0.00 $20.00 $120.00".into()
+                page: 0,
+                line_on_page: 3,
+                bbox: [0.0; 4],
+                text: "18/01/2024 Withdrawal $0.00 $20.00 $120.00".into(),
             },
         ];
-        
+
         let (txs, _opening, _closing) = parse_rows_into_transactions(&rows);
         assert_eq!(txs.len(), 4);
         assert_eq!(txs[0].debit, Some(dec!(50.00)));
@@ -584,12 +595,12 @@ mod tests {
 
     #[test]
     fn parse_rows_inference() {
-        let rows = vec![
-            RawRow {
-                page: 0, line_on_page: 0, bbox: [0.0; 4],
-                text: "15/01/2024 Deposit $50.00 $150.00".into()
-            }
-        ];
+        let rows = vec![RawRow {
+            page: 0,
+            line_on_page: 0,
+            bbox: [0.0; 4],
+            text: "15/01/2024 Deposit $50.00 $150.00".into(),
+        }];
         let (_txs, opening, closing) = parse_rows_into_transactions(&rows);
         assert_eq!(opening, dec!(100.00));
         assert_eq!(closing, dec!(150.00));

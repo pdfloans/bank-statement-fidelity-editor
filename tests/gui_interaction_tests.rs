@@ -1,6 +1,5 @@
 use dual_core_pdf_pipeline::app::config::AppConfig;
 use dual_core_pdf_pipeline::app::gui::{ActiveModal, ActiveWorkflow, MyApp};
-use dual_core_pdf_pipeline::engine::workflow::{WorkflowStage, ParseValidation, BalancePreview, VisualAttempt};
 use dual_core_pdf_pipeline::app::runtime::{Job, JobResult};
 use std::sync::{mpsc, Arc};
 
@@ -25,17 +24,17 @@ fn pump(app: &mut MyApp, _test_name: &str) {
 fn test_draw_settings_and_font_analysis() {
     let (mut app, _, _) = make_app();
     app.active_workflow = ActiveWorkflow::Settings;
-    
+
     // Simulate some font analysis data
     app.status = "Testing".to_string();
-    
+
     let mut harness = egui_kittest::Harness::builder()
         .with_size(egui::vec2(1920.0, 1080.0))
         .build(|ctx| {
             app.headless_update(ctx);
         });
     harness.step();
-    
+
     // Click "Re-analyze" in font analysis when None
     // if let Some(btn) = harness.try_get_by_label("Re-analyze") {
     //     btn.click();
@@ -88,7 +87,7 @@ fn test_draw_chaos_sandbox() {
 #[test]
 fn test_modals() {
     let (mut app, _, _) = make_app();
-    
+
     // Test Discard Draft Modal
     app.active_modal = ActiveModal::DiscardDraftConfirm;
     pump(&mut app, "discard_draft_modal");

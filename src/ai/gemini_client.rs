@@ -701,7 +701,7 @@ impl GeminiClient {
         });
 
         let scrubbed = scrub_pii(transactions);
-        
+
         let prompt = format!(
             "You are an expert financial data repair AI. The OCR extraction failed the math verification test.\n\
              Opening Balance: ${}\n\
@@ -728,7 +728,10 @@ impl GeminiClient {
         let response = self.post_generate_pro(&body).await?;
 
         if !response.status().is_success() {
-            return Err(GeminiError::Api(response.status(), response.text().await.unwrap_or_default()));
+            return Err(GeminiError::Api(
+                response.status(),
+                response.text().await.unwrap_or_default(),
+            ));
         }
 
         let json_resp: serde_json::Value = response.json().await?;
@@ -1113,8 +1116,12 @@ impl GeminiClient {
             }
         });
 
-        let user_prompt = format!("Instruction: {}\n\nTransactions: {}", prompt, serde_json::to_string_pretty(transactions).unwrap_or_default());
-        
+        let user_prompt = format!(
+            "Instruction: {}\n\nTransactions: {}",
+            prompt,
+            serde_json::to_string_pretty(transactions).unwrap_or_default()
+        );
+
         let body = serde_json::json!({
             "system_instruction": {
                 "parts": [{ "text": system_prompt }]
@@ -1130,10 +1137,14 @@ impl GeminiClient {
         });
 
         let response = self.post_generate_pro(&body).await?;
-        let json_resp: serde_json::Value = response.json().await.map_err(|e| GeminiError::Api(reqwest::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        
-        let text = json_resp["candidates"][0]["content"]["parts"][0]["text"].as_str().unwrap_or("[]");
-        
+        let json_resp: serde_json::Value = response.json().await.map_err(|e| {
+            GeminiError::Api(reqwest::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+
+        let text = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or("[]");
+
         // Parse the resulting array back to transactions, preserving bounding boxes and provenances if possible.
         #[derive(Deserialize)]
         struct EditedTx {
@@ -1146,19 +1157,36 @@ impl GeminiClient {
             running_balance: Option<f64>,
         }
 
-        let edited: Vec<EditedTx> = serde_json::from_str(text).map_err(|e| GeminiError::Format(e.to_string()))?;
-        
+        let edited: Vec<EditedTx> =
+            serde_json::from_str(text).map_err(|e| GeminiError::Format(e.to_string()))?;
+
         let mut result = transactions.to_vec();
         for edit in edited {
-            if let Some(tx) = result.iter_mut().find(|t| t.page == edit.page && t.line_on_page == edit.line_on_page) {
+            if let Some(tx) = result
+                .iter_mut()
+                .find(|t| t.page == edit.page && t.line_on_page == edit.line_on_page)
+            {
                 tx.date = edit.date;
                 tx.raw_text = edit.raw_text;
-                if let Some(d) = edit.debit { tx.debit = Some(rust_decimal::Decimal::from_f64_retain(d).unwrap_or_default()); } else { tx.debit = None; }
-                if let Some(c) = edit.credit { tx.credit = Some(rust_decimal::Decimal::from_f64_retain(c).unwrap_or_default()); } else { tx.credit = None; }
-                if let Some(b) = edit.running_balance { tx.running_balance = Some(rust_decimal::Decimal::from_f64_retain(b).unwrap_or_default()); } else { tx.running_balance = None; }
+                if let Some(d) = edit.debit {
+                    tx.debit = Some(rust_decimal::Decimal::from_f64_retain(d).unwrap_or_default());
+                } else {
+                    tx.debit = None;
+                }
+                if let Some(c) = edit.credit {
+                    tx.credit = Some(rust_decimal::Decimal::from_f64_retain(c).unwrap_or_default());
+                } else {
+                    tx.credit = None;
+                }
+                if let Some(b) = edit.running_balance {
+                    tx.running_balance =
+                        Some(rust_decimal::Decimal::from_f64_retain(b).unwrap_or_default());
+                } else {
+                    tx.running_balance = None;
+                }
             }
         }
-        
+
         Ok(result)
     }
 }

@@ -205,10 +205,15 @@ impl OpenAiClient {
         let scrubbed = crate::ai::gemini_client::scrub_pii(transactions);
         let user = format!(
             "Opening: {}\nClosing: {}\nError: {}\nCurrent: {}\nRaw OCR: {}",
-            opening_balance, closing_balance, error_message, serde_json::to_string(&scrubbed).unwrap_or_default(), raw_ocr_text
+            opening_balance,
+            closing_balance,
+            error_message,
+            serde_json::to_string(&scrubbed).unwrap_or_default(),
+            raw_ocr_text
         );
         let out = self.post_json(sys, &user).await?;
-        let repaired: Vec<Transaction> = serde_json::from_str(&out).map_err(|e| OpenAiError::Format(e.to_string()))?;
+        let repaired: Vec<Transaction> =
+            serde_json::from_str(&out).map_err(|e| OpenAiError::Format(e.to_string()))?;
         Ok(repaired)
     }
 }

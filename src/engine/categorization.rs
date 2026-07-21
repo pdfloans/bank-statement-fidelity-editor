@@ -25,7 +25,7 @@ pub fn categorize_transactions(transactions: &mut [Transaction]) {
     for tx in transactions.iter_mut() {
         let desc = tx.raw_text.to_lowercase();
         let mut matched = false;
-        
+
         for (keyword, category) in &keyword_map {
             if desc.contains(keyword) {
                 tx.category = Some(category.to_string());
@@ -33,7 +33,7 @@ pub fn categorize_transactions(transactions: &mut [Transaction]) {
                 break;
             }
         }
-        
+
         if !matched {
             // Check if it's an income based on debit amount (money in)
             if tx.delta_in() > rust_decimal::Decimal::ZERO {
@@ -48,8 +48,8 @@ pub fn categorize_transactions(transactions: &mut [Transaction]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::model::{Provenance, Transaction};
     use rust_decimal::Decimal;
-    use crate::engine::model::{Transaction, Provenance};
 
     fn default_tx(desc: &str, delta_in: Decimal, delta_out: Decimal) -> Transaction {
         Transaction {

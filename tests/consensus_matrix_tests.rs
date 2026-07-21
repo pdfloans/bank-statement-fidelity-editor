@@ -1,5 +1,5 @@
-use dual_core_pdf_pipeline::engine::model::{FieldBboxes, Transaction};
 use dual_core_pdf_pipeline::ai::document_ai::BankStatement;
+use dual_core_pdf_pipeline::engine::model::{FieldBboxes, Transaction};
 use rust_decimal_macros::dec;
 
 #[test]
@@ -62,12 +62,11 @@ fn test_ai_matrix_consensus() {
         bank_name: None,
     };
 
-    let consensus =
-        dual_core_pdf_pipeline::engine::consensus::merge_consensus_statements(vec![
-            stmt_gemini,
-            stmt_llamaparse,
-            stmt_offline,
-        ]);
+    let consensus = dual_core_pdf_pipeline::engine::consensus::merge_consensus_statements(vec![
+        stmt_gemini,
+        stmt_llamaparse,
+        stmt_offline,
+    ]);
 
     // The consensus should identify both transactions via majority vote (2 vs 1)
     assert_eq!(consensus.transactions.len(), 2);

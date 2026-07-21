@@ -284,7 +284,7 @@ fn test_all_au_statements() {
             );
 
             let _ratio = output_bytes.len() as f64 / input_bytes.len() as f64;
-            // Note: PyMuPDF can significantly bloat PDF sizes by uncompressing 
+            // Note: PyMuPDF can significantly bloat PDF sizes by uncompressing
             // streams or embedding full fonts, so we do not enforce strict ratio checks.
 
             passed += 1;

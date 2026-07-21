@@ -222,7 +222,13 @@ pub fn convert_date(date_str: &str, from_format: &str, to_format: &str) -> Strin
         _ => return date_str.to_string(),
     };
 
-    let sep = if to_format.contains('/') { "/" } else if to_format.contains('-') { "-" } else { "." };
+    let sep = if to_format.contains('/') {
+        "/"
+    } else if to_format.contains('-') {
+        "-"
+    } else {
+        "."
+    };
 
     match to_format {
         "DD/MM/YYYY" | "DD-MM-YYYY" | "DD.MM.YYYY" => format!("{day}{sep}{month}{sep}{year}"),

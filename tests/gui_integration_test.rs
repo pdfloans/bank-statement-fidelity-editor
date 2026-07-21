@@ -15,17 +15,20 @@ fn test_bank_statement_modifier_ui() {
     app.settings.show_welcome = false;
     app.current_pdf_path = std::path::PathBuf::from("Cargo.toml"); // Must exist on disk
     app.total_pages = 1; // Bypass empty canvas rendering to show the full sidebar
-    
+
     // Force the floating action dock to render
-    app.proposed_changes.push((dual_core_pdf_pipeline::engine::model::ProposedChange {
-        page: 0,
-        old_text: "A".to_string(),
-        new_text: "B".to_string(),
-        reason: "Test".to_string(),
-        confidence: 1.0,
-        affects_subsequent_balances: false,
-        bbox: None,
-    }, true));
+    app.proposed_changes.push((
+        dual_core_pdf_pipeline::engine::model::ProposedChange {
+            page: 0,
+            old_text: "A".to_string(),
+            new_text: "B".to_string(),
+            reason: "Test".to_string(),
+            confidence: 1.0,
+            affects_subsequent_balances: false,
+            bbox: None,
+        },
+        true,
+    ));
 
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1920.0, 1080.0))
@@ -45,12 +48,12 @@ fn test_bank_statement_modifier_ui() {
     // Close the Transfer modal
     harness.get_by_label_contains("Close window").click();
     harness.step();
-    
+
     // Dump UI state to see why it fails
     println!("{:#?}", harness.node());
 
     // We are already back in EditStatement workflow, so the Editing Toolbox should be visible.
-    
+
     // Verify the "Editing Toolbox" appears
     let _toolbox = harness.get_by_label_contains("Statement Forensics & Editing");
 

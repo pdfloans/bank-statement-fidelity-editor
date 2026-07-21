@@ -85,9 +85,7 @@ pub enum WorkflowStage {
         is_borderline: bool,
     },
     /// The user requested to see visual alternatives for a borderline failure.
-    VisualComparisonActive {
-        images: Vec<(String, Vec<u8>)>,
-    },
+    VisualComparisonActive { images: Vec<(String, Vec<u8>)> },
     /// Global imbalance correction proposed by AI. Requires human-in-the-loop decision.
     ImbalanceCorrectionWarning {
         imbalance: rust_decimal::Decimal,
@@ -741,7 +739,8 @@ mod tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-         category: None, }
+            category: None,
+        }
     }
 
     #[test]
@@ -1166,14 +1165,14 @@ mod tests {
     fn test_borderline_calculation() {
         // Base case: exactly threshold
         assert!(crate::engine::workflow::is_borderline(0.01, 0.01));
-        
+
         // Base case: well within threshold
         assert!(!crate::engine::workflow::is_borderline(0.005, 0.01));
-        
+
         // Borderline cases (up to 2.5x threshold)
         assert!(crate::engine::workflow::is_borderline(0.02, 0.01));
         assert!(crate::engine::workflow::is_borderline(0.025, 0.01));
-        
+
         // Not borderline (exceeds 2.5x threshold)
         assert!(!crate::engine::workflow::is_borderline(0.026, 0.01));
     }

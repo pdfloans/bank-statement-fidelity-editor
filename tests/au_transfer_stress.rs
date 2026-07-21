@@ -142,9 +142,9 @@ fn test_all_au_transfer_pairs() {
                 let audit = AuditLog::open(tmp.path()).unwrap();
                 let (_runtime, job_tx, job_rx) = Runtime::start(audit, cfg);
 
-                let output = tmp
-                    .path()
-                    .join(format!("{}__to__{}.pdf", stem(&source), stem(&target)));
+                let output =
+                    tmp.path()
+                        .join(format!("{}__to__{}.pdf", stem(&source), stem(&target)));
 
                 // Send the transfer job
                 job_tx
@@ -184,28 +184,40 @@ fn test_all_au_transfer_pairs() {
                     Some(JobResult::TransferFailed { stage, message }) => {
                         eprintln!(
                             "  ❌ FAILED ({} → {}) at stage '{}' in {:.1}s: {}",
-                            stem(&source), stem(&target),
-                            stage, duration.as_secs_f64(), message
+                            stem(&source),
+                            stem(&target),
+                            stage,
+                            duration.as_secs_f64(),
+                            message
                         );
                         PairOutcome::Failed { stage, message }
                     }
                     Some(JobResult::Error { message, .. }) => {
-                        eprintln!("  ❌ ERROR ({} → {}) in {:.1}s: {}", stem(&source), stem(&target), duration.as_secs_f64(), message);
+                        eprintln!(
+                            "  ❌ ERROR ({} → {}) in {:.1}s: {}",
+                            stem(&source),
+                            stem(&target),
+                            duration.as_secs_f64(),
+                            message
+                        );
                         PairOutcome::Failed {
                             stage: "Runtime".into(),
                             message,
                         }
                     }
                     None => {
-                        eprintln!("  ⏱ TIMEOUT ({} → {}) after {:.1}s", stem(&source), stem(&target), duration.as_secs_f64());
+                        eprintln!(
+                            "  ⏱ TIMEOUT ({} → {}) after {:.1}s",
+                            stem(&source),
+                            stem(&target),
+                            duration.as_secs_f64()
+                        );
                         PairOutcome::Timeout
                     }
-                    _ => {
-                        PairOutcome::Failed {
-                            stage: "Unknown".into(),
-                            message: "Unexpected JobResult variant".into(),
-                        }
-                    }
+                    _ => PairOutcome::Failed {
+                        stage: "Unknown".into(),
+                        message: "Unexpected JobResult variant".into(),
+                    },
                 };
 
                 PairResult {

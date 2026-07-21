@@ -10,14 +10,18 @@ fn main() {
     // If running in a Mac app bundle, resolve relative to Resources
     if let Ok(exe_path) = std::env::current_exe() {
         if exe_path.to_string_lossy().contains("Contents/MacOS") {
-            if let Some(resources_dir) = exe_path.parent().and_then(|p| p.parent()).map(|p| p.join("Resources")) {
+            if let Some(resources_dir) = exe_path
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("Resources"))
+            {
                 let _ = dotenvy::from_path(resources_dir.join(".env"));
                 // Set working directory to Resources so other relative paths work for now
                 let _ = std::env::set_current_dir(&resources_dir);
             }
         }
     }
-    
+
     // Fallback for terminal/dev usage
     dotenvy::dotenv().ok();
 
@@ -59,7 +63,7 @@ fn main() {
     let mut data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     data_dir.push("BankStatementFidelityEditor");
     let audit_dir = data_dir.join("audit");
-    
+
     // Open Audit Log
     let audit_log = match app::audit::AuditLog::open(audit_dir.to_str().unwrap_or("audit")) {
         Ok(log) => log,

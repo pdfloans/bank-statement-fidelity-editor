@@ -1,10 +1,10 @@
+use dual_core_pdf_pipeline::app::config::AppConfig;
 use dual_core_pdf_pipeline::engine::verification::{verify_edit_pages, MathInputs};
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, Stream, StringFormat};
 use rust_decimal_macros::dec;
 use std::path::Path;
 use std::sync::Arc;
-use dual_core_pdf_pipeline::app::config::AppConfig;
 
 /// Helper to generate a simple PDF with specific text elements at exact coordinates.
 fn create_simple_pdf(path: &Path, strings: &[(&str, f32, f32)]) {
@@ -88,11 +88,13 @@ async fn test_verify_edit_pages_identical() {
         &orig,
         &edited,
         dir.path(), // output_dir
-        &[], // no intended edits
+        &[],        // no intended edits
         math,
-        None, // only_pages
-        false // auto_match_dpi
-    ).await.expect("Verification failed");
+        None,  // only_pages
+        false, // auto_match_dpi
+    )
+    .await
+    .expect("Verification failed");
 
     assert!(report.math_valid);
     assert!(report.only_intended_changes);
@@ -117,7 +119,7 @@ async fn test_verify_edit_pages_different() {
         expected_final_balance: None,
     };
 
-    // Provide a bounding box that does NOT cover the edit, 
+    // Provide a bounding box that does NOT cover the edit,
     // so it will be caught by the visual diff!
     let wrong_bbox = [0.0, 0.0, 10.0, 10.0];
 
@@ -125,11 +127,13 @@ async fn test_verify_edit_pages_different() {
         &orig,
         &edited,
         dir.path(),
-        &[(0, wrong_bbox)], 
+        &[(0, wrong_bbox)],
         math,
         None,
-        false
-    ).await.expect("Verification failed");
+        false,
+    )
+    .await
+    .expect("Verification failed");
 
     // The visual difference is outside the intended bounding box.
     // So only_intended_changes should be FALSE.

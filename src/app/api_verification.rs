@@ -111,8 +111,6 @@ pub async fn verify_all_api_keys(config: &AppConfig, json_output: bool) -> Verif
     // 3. Verify Gemini (recommended, with fallback chain)
     results.push(verify_gemini(config).await);
 
-    
-
     // 5. Verify LlamaParse (alternative LLM parser)
     results.push(verify_llamaparse(config).await);
 
@@ -328,7 +326,6 @@ async fn verify_gemini(config: &AppConfig) -> VerificationResult {
     }
 }
 
-
 async fn verify_llamaparse(config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     let key = config.llamaparse_api_key.as_ref();
@@ -397,7 +394,11 @@ async fn verify_pdfrest(config: &AppConfig) -> VerificationResult {
 async fn verify_vision(_config: &AppConfig) -> VerificationResult {
     let start = Instant::now();
     let key_val = std::env::var("VISION_API_KEY").unwrap_or_default();
-    let key = if key_val.is_empty() { None } else { Some(key_val) };
+    let key = if key_val.is_empty() {
+        None
+    } else {
+        Some(key_val)
+    };
     let key = key.as_ref();
 
     if key.is_none() || key.is_some_and(|k| k.is_empty()) {
@@ -407,8 +408,7 @@ async fn verify_vision(_config: &AppConfig) -> VerificationResult {
             latency_ms: start.elapsed().as_millis() as u64,
             error_message: Some("VISION_API_KEY not configured".to_string()),
             guidance: Some(
-                "Set VISION_API_KEY to enable visual AI testing verification layer."
-                    .to_string(),
+                "Set VISION_API_KEY to enable visual AI testing verification layer.".to_string(),
             ),
             method_used: None,
         };

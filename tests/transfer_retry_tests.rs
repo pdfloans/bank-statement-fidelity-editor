@@ -1,8 +1,8 @@
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
 use dual_core_pdf_pipeline::ai::backend::AiBackend;
 use dual_core_pdf_pipeline::ai::gemini_client::GeminiClient;
 use dual_core_pdf_pipeline::app::config::AiProviderMode;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn test_transfer_test_loop_retry() {
@@ -35,10 +35,10 @@ async fn test_transfer_test_loop_retry() {
         openrouter: None,
         groq: None,
     };
-    
-    use dual_core_pdf_pipeline::engine::model::{Transaction, Provenance};
+
+    use dual_core_pdf_pipeline::engine::model::{Provenance, Transaction};
     use rust_decimal_macros::dec;
-    
+
     let tx1 = Transaction {
         page: 1,
         line_on_page: 1,
@@ -52,13 +52,15 @@ async fn test_transfer_test_loop_retry() {
         provenance: Provenance::Computed,
         category: None,
     };
-    
-    let result = backend.plan_transaction_transfer(
-        &[tx1.clone()],
-        &[tx1.clone()],
-        Some("Format output as a single list of strings"),
-    ).await;
-    
+
+    let result = backend
+        .plan_transaction_transfer(
+            &[tx1.clone()],
+            &[tx1.clone()],
+            Some("Format output as a single list of strings"),
+        )
+        .await;
+
     if let Err(e) = &result {
         println!("Error: {}", e);
     }

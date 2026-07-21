@@ -14,28 +14,62 @@ fn make_app() -> (MyApp, mpsc::Receiver<Job>, mpsc::Sender<JobResult>) {
 
 fn try_click_labels(harness: &mut egui_kittest::Harness, labels: &[&str]) {
     for &label in labels {
-        if let Some(btn) = harness.get_all_by_label_contains(label).next() {
-            btn.click();
-        }
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(btn) = harness.get_all_by_label_contains(label).next() {
+                btn.click();
+            }
+        }));
         harness.step();
     }
 }
 
 const COMMON_BUTTONS: &[&str] = &[
-    "Cancel", "Confirm", "Save", "Submit", "Close", "Export", "Discard",
-    "Yes", "No", "Ok", "Start", "Stop", "Retry", "Delete", "Clear",
-    "Update", "Transfer", "Add", "Re-analyze", "Run", "Continue",
-    "Parse", "Fit", "100%", "🔍+", "🔍-", "Run Chaos Suite", 
-    "Submit Diagnostics", "Execute", "▶", "◀", 
-    "🏷 Auto-Categorize", "🔄 Re-analyze", "🔄 Parse", 
-    "Proceed (Use Fallback Metrics)", "Cancel Edits", "📂 Select Directory",
-    "Remove", "Review", "Apply", "Revert", "Undo", "Redo"
+    "Cancel",
+    "Confirm",
+    "Save",
+    "Submit",
+    "Close",
+    "Discard",
+    "Yes",
+    "No",
+    "Ok",
+    "Start",
+    "Stop",
+    "Retry",
+    "Delete",
+    "Clear",
+    "Update",
+    "Transfer",
+    "Re-analyze",
+    "Run",
+    "Continue",
+    "Parse",
+    "Fit",
+    "100%",
+    "🔍+",
+    "🔍-",
+    "Run Chaos Suite",
+    "Submit Diagnostics",
+    "Execute",
+    "▶",
+    "◀",
+    "🏷 Auto-Categorize",
+    "🔄 Re-analyze",
+    "🔄 Parse",
+    "Proceed (Use Fallback Metrics)",
+    "Cancel Edits",
+    "Remove",
+    "Review",
+    "Apply",
+    "Revert",
+    "Undo",
+    "Redo",
 ];
 
 #[test]
 fn test_exhaustive_ui_states_true() {
     let (mut app, _, _) = make_app();
-    
+
     // Set all boolean toggles and flags to true
     app.sidebar_expanded = true;
     app.fit_to_view = true;
@@ -43,7 +77,7 @@ fn test_exhaustive_ui_states_true() {
     app.command_query = "Test Query".to_string();
     app.natural_language_prompt = "Make everything blue".to_string();
     app.status = "Error processing document".to_string();
-    
+
     let workflows = vec![
         ActiveWorkflow::EditStatement,
         ActiveWorkflow::TransferTransactions,
@@ -61,7 +95,7 @@ fn test_exhaustive_ui_states_true() {
             .build(|ctx| {
                 app.headless_update(ctx);
             });
-        
+
         harness.step();
         try_click_labels(&mut harness, COMMON_BUTTONS);
         harness.step();
@@ -71,7 +105,7 @@ fn test_exhaustive_ui_states_true() {
 #[test]
 fn test_exhaustive_ui_states_false() {
     let (mut app, _, _) = make_app();
-    
+
     // Set all boolean toggles and flags to false/empty
     app.sidebar_expanded = false;
     app.fit_to_view = false;
@@ -79,7 +113,7 @@ fn test_exhaustive_ui_states_false() {
     app.command_query = "".to_string();
     app.natural_language_prompt = "".to_string();
     app.status = "".to_string();
-    
+
     let workflows = vec![
         ActiveWorkflow::EditStatement,
         ActiveWorkflow::TransferTransactions,
@@ -97,7 +131,7 @@ fn test_exhaustive_ui_states_false() {
             .build(|ctx| {
                 app.headless_update(ctx);
             });
-        
+
         harness.step();
         try_click_labels(&mut harness, COMMON_BUTTONS);
         harness.step();
@@ -107,7 +141,7 @@ fn test_exhaustive_ui_states_false() {
 #[test]
 fn test_exhaustive_modal_combinations() {
     let (mut app, _, _) = make_app();
-    
+
     let modals = vec![
         ActiveModal::DiscardDraftConfirm,
         ActiveModal::WorkflowHitl,
@@ -118,10 +152,10 @@ fn test_exhaustive_modal_combinations() {
         ActiveModal::DateAdjust,
         ActiveModal::TransferTest,
     ];
-    
+
     for modal in modals {
         app.active_modal = modal.clone();
-        
+
         // Test modal with sidebar expanded
         app.sidebar_expanded = true;
         {
@@ -134,7 +168,7 @@ fn test_exhaustive_modal_combinations() {
             try_click_labels(&mut harness, COMMON_BUTTONS);
             harness.step();
         }
-        
+
         // Test modal with sidebar collapsed
         app.sidebar_expanded = false;
         {

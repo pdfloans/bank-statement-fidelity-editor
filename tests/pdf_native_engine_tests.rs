@@ -1,4 +1,4 @@
-use dual_core_pdf_pipeline::pdf::engine::{EngineError, PdfEngine};
+use dual_core_pdf_pipeline::pdf::engine::PdfEngine;
 use dual_core_pdf_pipeline::pdf::native_engine::OxidizePdfEngine;
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, Stream, StringFormat};
@@ -79,21 +79,21 @@ fn test_native_engine_clone_pages() {
     create_multipage_pdf(&input, 3); // Pages 1, 2, 3 (indices 0, 1, 2)
 
     let engine = OxidizePdfEngine::new();
-    
+
     // Clone page index 1 (Page 2). This appends it to the end.
     engine.clone_pages(&input, &output, vec![1]).unwrap();
 
     let doc = Document::load(&output).unwrap();
     let pages = doc.get_pages();
-    
+
     assert_eq!(pages.len(), 4);
-    
+
     // We expect the texts: "Page 1", "Page 2", "Page 3", "Page 2"
     let out_blocks_0 = engine.get_text_blocks(&output, 0).unwrap();
     let out_blocks_1 = engine.get_text_blocks(&output, 1).unwrap();
     let out_blocks_2 = engine.get_text_blocks(&output, 2).unwrap();
     let out_blocks_3 = engine.get_text_blocks(&output, 3).unwrap();
-    
+
     assert_eq!(out_blocks_0[0].text, "Page 1");
     assert_eq!(out_blocks_1[0].text, "Page 2");
     assert_eq!(out_blocks_2[0].text, "Page 3");
@@ -109,20 +109,20 @@ fn test_native_engine_remove_pages() {
     create_multipage_pdf(&input, 4); // Pages 1, 2, 3, 4
 
     let engine = OxidizePdfEngine::new();
-    
+
     // Remove pages 1 and 2 (indices 1, 2)
     engine.remove_pages(&input, &output, vec![1, 2]).unwrap();
 
     let doc = Document::load(&output).unwrap();
     let pages = doc.get_pages();
-    
+
     assert_eq!(pages.len(), 2);
-    
+
     // Check that we have 2 pages
     // We expect the texts: "Page 1", "Page 4"
     let out_blocks_0 = engine.get_text_blocks(&output, 0).unwrap();
     let out_blocks_1 = engine.get_text_blocks(&output, 1).unwrap();
-    
+
     assert_eq!(out_blocks_0[0].text, "Page 1");
     assert_eq!(out_blocks_1[0].text, "Page 4");
 }
@@ -135,7 +135,7 @@ fn test_native_engine_analyze_layout() {
     create_multipage_pdf(&input, 2);
 
     let engine = OxidizePdfEngine::new();
-    
+
     let layout = engine.analyze_layout(&input).unwrap();
     assert_eq!(layout.total_pages, 2);
     // Since there are no repeated headers across pages in this simple test PDF,
@@ -152,7 +152,7 @@ fn test_native_engine_apply_change() {
     create_multipage_pdf(&input, 1); // Page 1
 
     let engine = OxidizePdfEngine::new();
-    
+
     // First, find the text block to get its bounding box
     let blocks = engine.get_text_blocks(&input, 0).unwrap();
     assert_eq!(blocks.len(), 1);
@@ -162,7 +162,9 @@ fn test_native_engine_apply_change() {
 
     // Apply the change
     let new_text = "Replaced 1";
-    engine.apply_change(&input, &output, 0, bbox, new_text, old_text, None).unwrap();
+    engine
+        .apply_change(&input, &output, 0, bbox, new_text, old_text, None)
+        .unwrap();
 
     // Verify the change
     let modified_blocks = engine.get_text_blocks(&output, 0).unwrap();
@@ -205,7 +207,10 @@ fn create_pdf_with_ops(path: &Path, ops: Vec<Operation>) {
         },
     });
 
-    let content_id = doc.add_object(Stream::new(dictionary! {}, Content { operations: ops }.encode().unwrap()));
+    let content_id = doc.add_object(Stream::new(
+        dictionary! {},
+        Content { operations: ops }.encode().unwrap(),
+    ));
     let page_id = doc.add_object(dictionary! {
         "Type" => "Page",
         "Parent" => pages_id,
@@ -237,31 +242,50 @@ fn test_native_engine_text_operators() {
     let ops = vec![
         Operation::new("BT", vec![]),
         Operation::new("Tf", vec!["F1".into(), 12.0.into()]),
-        
         // Tm sets matrix directly: 1 0 0 1 50 700 Tm
-        Operation::new("Tm", vec![1.0.into(), 0.0.into(), 0.0.into(), 1.0.into(), 50.0.into(), 700.0.into()]),
-        Operation::new("Tj", vec![Object::String("Line 1".into(), StringFormat::Literal)]),
-        
+        Operation::new(
+            "Tm",
+            vec![
+                1.0.into(),
+                0.0.into(),
+                0.0.into(),
+                1.0.into(),
+                50.0.into(),
+                700.0.into(),
+            ],
+        ),
+        Operation::new(
+            "Tj",
+            vec![Object::String("Line 1".into(), StringFormat::Literal)],
+        ),
         // Td moves offset: 0 -20 Td
         Operation::new("Td", vec![0.0.into(), (-20.0).into()]),
-        Operation::new("Tj", vec![Object::String("Line 2".into(), StringFormat::Literal)]),
-        
+        Operation::new(
+            "Tj",
+            vec![Object::String("Line 2".into(), StringFormat::Literal)],
+        ),
         // TD is like Td but also sets leading (we just treat it as Td in the engine)
         Operation::new("TD", vec![0.0.into(), (-20.0).into()]),
-        Operation::new("Tj", vec![Object::String("Line 3".into(), StringFormat::Literal)]),
-        
+        Operation::new(
+            "Tj",
+            vec![Object::String("Line 3".into(), StringFormat::Literal)],
+        ),
         // T* moves to next line using leading (approx font size in the engine)
         Operation::new("T*", vec![]),
-        Operation::new("Tj", vec![Object::String("Line 4".into(), StringFormat::Literal)]),
-        
+        Operation::new(
+            "Tj",
+            vec![Object::String("Line 4".into(), StringFormat::Literal)],
+        ),
         // TJ (Array of strings and numbers)
         Operation::new("T*", vec![]),
-        Operation::new("TJ", vec![Object::Array(vec![
-            Object::String("L".into(), StringFormat::Literal),
-            Object::Integer(-50), // kerning
-            Object::String("ine 5".into(), StringFormat::Literal)
-        ])]),
-
+        Operation::new(
+            "TJ",
+            vec![Object::Array(vec![
+                Object::String("L".into(), StringFormat::Literal),
+                Object::Integer(-50), // kerning
+                Object::String("ine 5".into(), StringFormat::Literal),
+            ])],
+        ),
         Operation::new("ET", vec![]),
     ];
 
@@ -269,7 +293,7 @@ fn test_native_engine_text_operators() {
 
     let engine = OxidizePdfEngine::new();
     let blocks = engine.get_text_blocks(&input, 0).unwrap();
-    
+
     assert_eq!(blocks.len(), 5);
     assert_eq!(blocks[0].text, "Line 1");
     // Verify Y coordinates go down (in PDF coordinate space, origin is bottom-left, so Y decreases)
@@ -279,21 +303,31 @@ fn test_native_engine_text_operators() {
     let y2 = blocks[1].bbox[1];
     let y3 = blocks[2].bbox[1];
     let y4 = blocks[3].bbox[1];
-    
+
     // As Y increases from bottom to top in PDF coordinate space, Y should decrease for each new line
     assert!(y1 > y2);
     assert!(y2 > y3);
     assert!(y3 > y4);
-    
+
     // Line 5 is parsed as "Line 5" from TJ array
     assert_eq!(blocks[4].text, "Line 5");
-    
+
     // Now test apply_change and apply_many_edits on these weird operators!
     let output1 = dir.path().join("ops_out1.pdf");
     let output2 = dir.path().join("ops_out2.pdf");
-    
+
     // 1. apply_change to Line 2 (Td)
-    engine.apply_change(&input, &output1, 0, blocks[1].bbox, "Replaced 2", "Line 2", None).unwrap();
+    engine
+        .apply_change(
+            &input,
+            &output1,
+            0,
+            blocks[1].bbox,
+            "Replaced 2",
+            "Line 2",
+            None,
+        )
+        .unwrap();
     let mod_blocks = engine.get_text_blocks(&output1, 0).unwrap();
     assert_eq!(mod_blocks[1].text, "Replaced 2");
 
@@ -312,8 +346,15 @@ fn test_native_engine_text_operators() {
             "new_text": "Replaced 5"
         }
     ]);
-    
-    engine.apply_many_edits(&input, &output2, &serde_json::to_string(&edits).unwrap(), None).unwrap();
+
+    engine
+        .apply_many_edits(
+            &input,
+            &output2,
+            &serde_json::to_string(&edits).unwrap(),
+            None,
+        )
+        .unwrap();
     let mod_blocks2 = engine.get_text_blocks(&output2, 0).unwrap();
     assert_eq!(mod_blocks2[2].text, "Replaced 3");
     assert_eq!(mod_blocks2[4].text, "Replaced 5");
@@ -326,18 +367,23 @@ fn test_native_engine_find_text_block_at_click() {
 
     create_multipage_pdf(&input, 1);
     let engine = OxidizePdfEngine::new();
-    
+
     // We expect "Page 1" at some coordinate. Let's extract to find its bbox, then click inside it!
     let blocks = engine.get_text_blocks(&input, 0).unwrap();
     let bbox = blocks[0].bbox;
-    
+
     let mid_x = (bbox[0] + bbox[2]) / 2.0;
     let mid_y = (bbox[1] + bbox[3]) / 2.0;
-    
-    let found = engine.find_text_block_at_click(&input, 0, mid_x, mid_y).unwrap().unwrap();
+
+    let found = engine
+        .find_text_block_at_click(&input, 0, mid_x, mid_y)
+        .unwrap()
+        .unwrap();
     assert_eq!(found.text, "Page 1");
-    
-    let not_found = engine.find_text_block_at_click(&input, 0, 999.0, 999.0).unwrap();
+
+    let not_found = engine
+        .find_text_block_at_click(&input, 0, 999.0, 999.0)
+        .unwrap();
     assert!(not_found.is_none());
 }
 
@@ -348,7 +394,7 @@ fn test_native_engine_render_page() {
 
     create_multipage_pdf(&input, 1);
     let engine = OxidizePdfEngine::new();
-    
+
     // This will download pdfium dynamically via auto_download if needed and render the page!
     // Since it's a test, pdfium should be mocked or available locally.
     let result = engine.render_page(&input, 0, 72.0);
@@ -360,4 +406,3 @@ fn test_native_engine_render_page() {
         assert!(!rendered.png_bytes.is_empty());
     }
 }
-

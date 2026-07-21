@@ -56,7 +56,7 @@ pub struct Transaction {
     #[serde(default, skip_serializing_if = "FieldBboxes::is_empty")]
     pub field_bboxes: FieldBboxes,
     pub provenance: Provenance,
-    
+
     /// Auto-categorization label (e.g. "Food", "Travel").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
@@ -110,10 +110,8 @@ impl Transaction {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Provenance {
-    DocumentAI {
-        confidence: f32,
-    },
-    
+    DocumentAI { confidence: f32 },
+
     Manual,
     Computed,
 }
@@ -135,7 +133,7 @@ pub struct ParserStats {
     pub gemini_wins: usize,
     pub docai_wins: usize,
     pub llamaparse_wins: usize,
-    
+
     pub offline_wins: usize,
 }
 
@@ -177,7 +175,8 @@ mod tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-         category: None, }
+            category: None,
+        }
     }
 
     #[test]
@@ -351,7 +350,8 @@ pub fn dataframe_to_transactions(df: &DataFrame) -> Result<Vec<Transaction>, Dat
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Computed,
-         category: None, });
+            category: None,
+        });
     }
 
     Ok(txs)
@@ -375,7 +375,8 @@ mod dataframe_tests {
                 bbox: None,
                 field_bboxes: Default::default(),
                 provenance: Provenance::Manual,
-             category: None, },
+                category: None,
+            },
             Transaction {
                 page: 1,
                 line_on_page: 2,
@@ -387,7 +388,8 @@ mod dataframe_tests {
                 bbox: None,
                 field_bboxes: Default::default(),
                 provenance: Provenance::Manual,
-             category: None, },
+                category: None,
+            },
         ]
     }
 

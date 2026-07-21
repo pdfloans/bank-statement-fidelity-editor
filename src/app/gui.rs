@@ -24,7 +24,7 @@ use egui_plot::PlotPoints;
 // Theme palette (Catppuccin-inspired) + helpers
 // ---------------------------------------------------------------------------
 
-pub use crate::app::theme::{Theme, Palette};
+pub use crate::app::theme::{Palette, Theme};
 
 // ---------------------------------------------------------------------------
 // Persistent settings
@@ -239,7 +239,7 @@ pub struct MyApp {
     selected_block: Option<TextBlock>,
     last_click_pos: Option<egui::Pos2>,
     new_text: String,
-    
+
     // Natural Language Editing
     pub natural_language_prompt: String,
 
@@ -515,7 +515,8 @@ impl MyApp {
             edit_vision_api_key: std::env::var("VISION_API_KEY").unwrap_or_default(),
             edit_groq_api_key: std::env::var("GROQ_API_KEY").unwrap_or_default(),
             edit_openrouter_api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
-            edit_openrouter_model: std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string()),
+            edit_openrouter_model: std::env::var("OPENROUTER_MODEL")
+                .unwrap_or_else(|_| "deepseek/deepseek-chat".to_string()),
             edit_lipi_api_key: std::env::var("LIPI_API_KEY").unwrap_or_default(),
             edit_mindee_api_key: std::env::var("MINDEE_API_KEY").unwrap_or_default(),
             edit_applitools_api_key: std::env::var("APPLITOOLS_API_KEY").unwrap_or_default(),
@@ -546,11 +547,7 @@ impl MyApp {
         // the GUI toggle on startup.
         std::env::set_var(
             "USE_VISION_AI",
-            if app.settings.use_vision_ai {
-                "1"
-            } else {
-                "0"
-            },
+            if app.settings.use_vision_ai { "1" } else { "0" },
         );
 
         // Seed AI_PROVIDER from persisted settings so the runtime AppConfig
@@ -617,7 +614,6 @@ impl MyApp {
                 "PYMUPDF_PRO_KEY",
                 self.edit_pymupdf_pro_key.trim().to_string(),
             ),
-
             (
                 "LLAMAPARSE_API_KEY",
                 self.edit_llamaparse_api_key.trim().to_string(),
@@ -1230,12 +1226,14 @@ impl MyApp {
                 }
             }
         }
-        
+
         // ---- 1.1 Watchdog Stuck Detection ----------------------------------
         if self.in_flight > 0 {
             if self.last_runtime_activity.elapsed() > std::time::Duration::from_secs(30) {
                 if self.stuck_detection.is_none() {
-                    tracing::warn!("Watchdog: No activity from runtime for 30s. Triggering stuck detection.");
+                    tracing::warn!(
+                        "Watchdog: No activity from runtime for 30s. Triggering stuck detection."
+                    );
                     self.stuck_detection = Some(std::time::Instant::now());
                 }
             } else {
@@ -1390,7 +1388,8 @@ impl MyApp {
                     crate::app::watchdog::WatchdogEvent::FallbackTriggered => {
                         // The modal in modals.rs will handle the actual fallback triggering
                         // because it monitors stuck_detection. We can just leave it or force it.
-                        self.stuck_detection = Some(std::time::Instant::now() - std::time::Duration::from_secs(30)); 
+                        self.stuck_detection =
+                            Some(std::time::Instant::now() - std::time::Duration::from_secs(30));
                     }
                     crate::app::watchdog::WatchdogEvent::Recovered => {
                         self.stuck_detection = None;
@@ -1407,10 +1406,19 @@ impl MyApp {
                     if res.status == VerificationStatus::Failed {
                         let msg = res.error_message.as_deref().unwrap_or_default();
                         if msg.contains("429") {
-                            self.toast(ToastKind::Error, format!("{} quota exceeded (429). Temporarily disabled.", res.service));
+                            self.toast(
+                                ToastKind::Error,
+                                format!(
+                                    "{} quota exceeded (429). Temporarily disabled.",
+                                    res.service
+                                ),
+                            );
                             self.api_availability.disable_service(&res.service);
                         } else if msg.contains("401") || msg.contains("403") {
-                            self.toast(ToastKind::Error, format!("{} auth failed. Check your API key.", res.service));
+                            self.toast(
+                                ToastKind::Error,
+                                format!("{} auth failed. Check your API key.", res.service),
+                            );
                             self.api_availability.disable_service(&res.service);
                         }
                     }
@@ -1418,7 +1426,10 @@ impl MyApp {
                 self.api_health = Some(report.results);
             }
             JobResult::BugReportSubmitted => {
-                self.toast(ToastKind::Success, "Bug report submitted successfully! Thank you.".to_string());
+                self.toast(
+                    ToastKind::Success,
+                    "Bug report submitted successfully! Thank you.".to_string(),
+                );
             }
             JobResult::DocumentLoaded { total_pages, .. } => {
                 self.total_pages = total_pages;
@@ -1674,7 +1685,10 @@ impl MyApp {
                 match &err {
                     crate::app::error::AppError::ApiFailure(m) => {
                         let suggestion = err.suggested_action().unwrap_or("");
-                        self.toast(ToastKind::Error, format!("API Error: {}\n{}", m, suggestion));
+                        self.toast(
+                            ToastKind::Error,
+                            format!("API Error: {}\n{}", m, suggestion),
+                        );
                     }
                     _ => {
                         self.pending_autofix = Some(err);
@@ -1744,7 +1758,8 @@ impl MyApp {
                 }
             }
             JobResult::VisualAlternativesReady(images) => {
-                let stage = crate::engine::workflow::WorkflowStage::VisualComparisonActive { images };
+                let stage =
+                    crate::engine::workflow::WorkflowStage::VisualComparisonActive { images };
                 self.status = format!("Workflow: {}", stage.label());
                 self.workflow_stage = stage;
                 self.active_modal = ActiveModal::WorkflowHitl;
@@ -2422,7 +2437,9 @@ impl MyApp {
                         let max_size = ui.available_size() - egui::vec2(0.0, 20.0);
                         let tex_size = tex.size_vec2();
                         // Prevent scale from going unbounded, but fit it to the panel width
-                        let scale = (ui.available_width() / tex_size.x).min(max_size.y / tex_size.y).min(1.0);
+                        let scale = (ui.available_width() / tex_size.x)
+                            .min(max_size.y / tex_size.y)
+                            .min(1.0);
                         ui.add(egui::Image::new(tex).fit_to_exact_size(tex_size * scale));
                     } else {
                         ui.centered_and_justified(|ui| {
@@ -2577,7 +2594,10 @@ impl MyApp {
                     && self.input_path != "examples/sample.pdf";
 
                 let btn_id = ui.id().with("exec_transfer_btn");
-                let hovered = ui.ctx().data(|d| d.get_temp::<bool>(btn_id)).unwrap_or(false);
+                let hovered = ui
+                    .ctx()
+                    .data(|d| d.get_temp::<bool>(btn_id))
+                    .unwrap_or(false);
                 let anim = ui.ctx().animate_bool_with_time(btn_id, hovered, 0.15);
                 let expand_w = anim * 15.0;
                 let expand_h = anim * 6.0;
@@ -2589,15 +2609,15 @@ impl MyApp {
                 };
 
                 let btn = egui::Button::new(
-                    egui::RichText::new("⚡ Execute Complete Transfer")
-                        .size(16.0 + (anim * 1.5))
+                    egui::RichText::new("⚡ Execute Complete Transfer").size(16.0 + (anim * 1.5)),
                 )
                 .min_size(egui::vec2(400.0 + expand_w, 60.0 + expand_h))
                 .fill(bg_color);
 
                 let response = ui.add_enabled(can_transfer, btn);
                 if response.hovered() != hovered {
-                    ui.ctx().data_mut(|d| d.insert_temp(btn_id, response.hovered()));
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(btn_id, response.hovered()));
                     ui.ctx().request_repaint();
                 }
 
@@ -2662,7 +2682,7 @@ impl MyApp {
                         .desired_width(ui.available_width() - 80.0)
                         .hint_text("e.g. 'Change all transaction dates to 2026'"),
                 );
-                
+
                 if (ui.button("Execute").clicked() || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))) && !self.command_query.is_empty() {
                     let prompt = std::mem::take(&mut self.command_query);
                     self.toast(ToastKind::Info, format!("Executing AI command: {}", prompt));
@@ -2675,7 +2695,7 @@ impl MyApp {
             });
 
             ui.add_space(20.0);
-            
+
             // Autonomous mode toggle
             ui.group(|ui| {
                 ui.heading("Autonomous Background Operations");
@@ -2697,7 +2717,7 @@ impl MyApp {
             });
 
             ui.add_space(20.0);
-            
+
             // Output log
             ui.heading("Activity Log");
             egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
@@ -2720,7 +2740,7 @@ impl MyApp {
             ui.separator();
             ui.add_space(10.0);
             ui.label("This workspace allows you to run adversarial tests against the AI models to verify their robustness against garbage inputs.");
-            
+
             ui.add_space(20.0);
             if ui.button("Run Chaos Suite").clicked() {
                 self.toast(ToastKind::Info, "Chaos suite dispatched. Check tests/chaos_tests.rs for unit test parity.");
@@ -2741,8 +2761,16 @@ impl MyApp {
                         egui::ComboBox::from_id_salt("theme_selector")
                             .selected_text(format!("{:?}", self.settings.theme))
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.settings.theme, Theme::ForensicDark, "Forensic Terminal (Dark)");
-                                ui.selectable_value(&mut self.settings.theme, Theme::ForensicLight, "Laboratory (Light)");
+                                ui.selectable_value(
+                                    &mut self.settings.theme,
+                                    Theme::ForensicDark,
+                                    "Forensic Terminal (Dark)",
+                                );
+                                ui.selectable_value(
+                                    &mut self.settings.theme,
+                                    Theme::ForensicLight,
+                                    "Laboratory (Light)",
+                                );
                             });
                     });
 
@@ -2836,7 +2864,7 @@ impl MyApp {
 
                     ui.small(format!("RAM: {} MB", self.telemetry_ram_mb));
                     ui.separator();
-                    
+
                     let cpu_color = if self.telemetry_cpu > 80.0 {
                         egui::Color32::from_rgb(255, 80, 80)
                     } else if self.telemetry_cpu > 40.0 {
@@ -2846,7 +2874,7 @@ impl MyApp {
                     };
                     ui.colored_label(cpu_color, format!("CPU: {:.1}%", self.telemetry_cpu));
                     ui.separator();
-                    
+
                     let engine_state = if self.stuck_detection.is_some() {
                         "STALLED"
                     } else if self.in_flight > 0 {
@@ -2861,11 +2889,13 @@ impl MyApp {
                     };
                     ui.colored_label(engine_color, format!("ENG: {}", engine_state));
                     ui.separator();
-                    
+
                     let mut all_healthy = true;
                     if let Some(health) = &self.api_health {
                         for res in health {
-                            if res.status == crate::app::api_verification::VerificationStatus::Failed {
+                            if res.status
+                                == crate::app::api_verification::VerificationStatus::Failed
+                            {
                                 all_healthy = false;
                             }
                         }
@@ -2995,9 +3025,12 @@ impl MyApp {
             ));
             ui.add_space(8.0);
             if ui.button("🏷 Auto-Categorize").clicked() {
-                if let Err(e) = self.job_tx.send(crate::app::runtime::Job::CategorizeTransactions {
-                    transactions: self.workflow_transactions.clone(),
-                }) {
+                if let Err(e) = self
+                    .job_tx
+                    .send(crate::app::runtime::Job::CategorizeTransactions {
+                        transactions: self.workflow_transactions.clone(),
+                    })
+                {
                     tracing::error!("Runtime disconnected: {}", e);
                 }
             }
@@ -3359,12 +3392,15 @@ impl MyApp {
         } else {
             self.workflow_edits.clone()
         };
-        
-        if let Err(e) = self.job_tx.send(crate::app::runtime::Job::InstantBackgroundApply {
-            input: std::path::PathBuf::from(&self.input_path),
-            output: std::path::PathBuf::from(&self.output_path),
-            edits: edits_to_apply,
-        }) {
+
+        if let Err(e) = self
+            .job_tx
+            .send(crate::app::runtime::Job::InstantBackgroundApply {
+                input: std::path::PathBuf::from(&self.input_path),
+                output: std::path::PathBuf::from(&self.output_path),
+                edits: edits_to_apply,
+            })
+        {
             tracing::error!("Failed to dispatch instant background apply: {}", e);
         }
     }
@@ -3735,15 +3771,15 @@ impl MyApp {
                 let pro_btn_id = ui.id().with("pro_edit_btn");
                 let hovered_pro = ui.ctx().data(|d| d.get_temp::<bool>(pro_btn_id)).unwrap_or(false);
                 let anim_pro = ui.ctx().animate_bool_with_time(pro_btn_id, hovered_pro, 0.15);
-                
+
                 let pro_btn = egui::Button::new(
                     egui::RichText::new(format!("🎯 Perform Pro Edit • ~{deep_eta}s"))
                         .size(14.0 + anim_pro)
                 ).fill(egui::Color32::from_rgb((20.0 * anim_pro) as u8, 80 + (anim_pro * 40.0) as u8, (40.0 * anim_pro) as u8));
-                
+
                 let resp_pro = ui.add_enabled(confirm_enabled, pro_btn)
                     .on_hover_text("High-fidelity PyMuPDF Pro apply with deep font replication.");
-                    
+
                 if resp_pro.hovered() != hovered_pro {
                     ui.ctx().data_mut(|d| d.insert_temp(pro_btn_id, resp_pro.hovered()));
                     ui.ctx().request_repaint();
@@ -3752,19 +3788,19 @@ impl MyApp {
                 if resp_pro.clicked() {
                     self.dispatch_confirm_and_render(true, false);
                 }
-                
+
                 let ai_btn_id = ui.id().with("verify_ai_btn");
                 let hovered_ai = ui.ctx().data(|d| d.get_temp::<bool>(ai_btn_id)).unwrap_or(false);
                 let anim_ai = ui.ctx().animate_bool_with_time(ai_btn_id, hovered_ai, 0.15);
-                
+
                 let ai_btn = egui::Button::new(
                     egui::RichText::new("🤖 Verify with AI")
                         .size(14.0 + anim_ai)
                 ).fill(egui::Color32::from_rgb((80.0 * anim_ai) as u8, (30.0 * anim_ai) as u8, 120 + (anim_ai * 40.0) as u8));
-                
+
                 let resp_ai = ui.add_enabled(confirm_enabled, ai_btn)
                     .on_hover_text("Cross-check the edits and layout with Gemini Vision before finalizing.");
-                    
+
                 if resp_ai.hovered() != hovered_ai {
                     ui.ctx().data_mut(|d| d.insert_temp(ai_btn_id, resp_ai.hovered()));
                     ui.ctx().request_repaint();
@@ -4599,9 +4635,11 @@ impl MyApp {
 
                 // Subtitle
                 ui.label(
-                    egui::RichText::new("High-Fidelity Ledger Processing & AI-Driven Reconciliation")
-                        .size(14.0)
-                        .color(p.weak),
+                    egui::RichText::new(
+                        "High-Fidelity Ledger Processing & AI-Driven Reconciliation",
+                    )
+                    .size(14.0)
+                    .color(p.weak),
                 );
 
                 ui.add_space(40.0);

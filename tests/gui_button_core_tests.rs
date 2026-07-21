@@ -9,13 +9,13 @@ use dual_core_pdf_pipeline::app::gui::{
     ActiveModal, ActiveWorkflow, AppSettings, MyApp, ToastKind,
 };
 use dual_core_pdf_pipeline::app::runtime::{Job, JobResult};
-use dual_core_pdf_pipeline::engine::history::{ChangeHistory, ChangeRecord};
-use dual_core_pdf_pipeline::engine::model::{ProposedChange, Transaction, Provenance};
+use dual_core_pdf_pipeline::engine::history::ChangeHistory;
+use dual_core_pdf_pipeline::engine::model::{ProposedChange, Provenance, Transaction};
 use dual_core_pdf_pipeline::engine::verification::VerificationReport;
 use dual_core_pdf_pipeline::engine::workflow::WorkflowStage;
+use lopdf::dictionary;
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
-use lopdf::dictionary;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,10 +117,7 @@ fn test_open_pdf_valid_file() {
     let mut doc = lopdf::Document::with_version("1.5");
     let pages_id = doc.new_object_id();
     let page_id = doc.new_object_id();
-    let content_id = doc.add_object(lopdf::Stream::new(
-        lopdf::Dictionary::new(),
-        Vec::new(),
-    ));
+    let content_id = doc.add_object(lopdf::Stream::new(lopdf::Dictionary::new(), Vec::new()));
     let font_id = doc.add_object(lopdf::dictionary! {
         "Type" => "Font",
         "Subtype" => "Type1",
@@ -144,7 +141,8 @@ fn test_open_pdf_valid_file() {
         "Kids" => vec![page_id.into()],
         "Count" => 1,
     };
-    doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages));
+    doc.objects
+        .insert(pages_id, lopdf::Object::Dictionary(pages));
     let catalog_id = doc.add_object(lopdf::dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,
@@ -296,7 +294,10 @@ fn test_export_to_excel_combined() {
     // With empty history, export should still succeed (empty spreadsheet)
     app.export_to_excel();
     let path = std::path::Path::new("output/export.xlsx");
-    assert!(path.exists(), "Excel file should be created even with empty history");
+    assert!(
+        path.exists(),
+        "Excel file should be created even with empty history"
+    );
     // Cleanup
     let _ = std::fs::remove_file(path);
 
@@ -376,10 +377,7 @@ fn test_pair_originals_and_edited() {
 
 #[test]
 fn test_pair_originals_no_matches() {
-    let files = vec![
-        PathBuf::from("foo.pdf"),
-        PathBuf::from("bar.pdf"),
-    ];
+    let files = vec![PathBuf::from("foo.pdf"), PathBuf::from("bar.pdf")];
     let pairs = MyApp::pair_originals_and_edited(&files);
     assert_eq!(pairs.len(), 0);
 }
@@ -542,10 +540,7 @@ fn test_update_recent_files() {
     let mut doc = lopdf::Document::with_version("1.5");
     let pages_id = doc.new_object_id();
     let page_id = doc.new_object_id();
-    let content_id = doc.add_object(lopdf::Stream::new(
-        lopdf::Dictionary::new(),
-        Vec::new(),
-    ));
+    let content_id = doc.add_object(lopdf::Stream::new(lopdf::Dictionary::new(), Vec::new()));
     let page = lopdf::dictionary! {
         "Type" => "Page",
         "Parent" => pages_id,
@@ -558,7 +553,8 @@ fn test_update_recent_files() {
         "Kids" => vec![page_id.into()],
         "Count" => 1,
     };
-    doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages));
+    doc.objects
+        .insert(pages_id, lopdf::Object::Dictionary(pages));
     let catalog_id = doc.add_object(lopdf::dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,
@@ -664,9 +660,9 @@ fn test_save_credentials_sets_env_and_dispatches_reload() {
     // Set some test API key buffers (don't use real keys!)
     app.edit_gemini_api_key = "test_gemini_key_1234".to_string();
     app.edit_pdfrest_api_key = "test_pdfrest_key_5678".to_string();
-    
+
     app.save_credentials();
-    
+
     // Should have dispatched ReloadConfig to the runtime
     // (There may be a boot-time ReloadConfig too, so we drain to find it)
     let mut found_reload = false;
@@ -675,11 +671,14 @@ fn test_save_credentials_sets_env_and_dispatches_reload() {
             found_reload = true;
         }
     }
-    assert!(found_reload, "save_credentials should dispatch Job::ReloadConfig");
-    
+    assert!(
+        found_reload,
+        "save_credentials should dispatch Job::ReloadConfig"
+    );
+
     // in_flight should have been incremented
     assert!(app.in_flight >= 1);
-    
+
     // Clean up env vars we just set
     std::env::remove_var("GEMINI_API_KEY");
     std::env::remove_var("PDFREST_API_KEY");
@@ -694,17 +693,14 @@ fn test_request_render_deduplication() {
     let (mut app, job_rx, _) = make_app();
     // Drain any boot-time jobs
     while job_rx.try_recv().is_ok() {}
-    
+
     let dir = tempfile::tempdir().unwrap();
     let pdf_path = dir.path().join("render_test.pdf");
     // Create a minimal PDF
     let mut doc = lopdf::Document::with_version("1.5");
     let pages_id = doc.new_object_id();
     let page_id = doc.new_object_id();
-    let content_id = doc.add_object(lopdf::Stream::new(
-        lopdf::Dictionary::new(),
-        Vec::new(),
-    ));
+    let content_id = doc.add_object(lopdf::Stream::new(lopdf::Dictionary::new(), Vec::new()));
     let page = lopdf::dictionary! {
         "Type" => "Page",
         "Parent" => pages_id,
@@ -717,18 +713,19 @@ fn test_request_render_deduplication() {
         "Kids" => vec![page_id.into()],
         "Count" => 1,
     };
-    doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages));
+    doc.objects
+        .insert(pages_id, lopdf::Object::Dictionary(pages));
     let catalog_id = doc.add_object(lopdf::dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,
     });
     doc.trailer.set("Root", catalog_id);
     doc.save(&pdf_path).unwrap();
-    
+
     app.current_pdf_path = pdf_path;
     app.current_page = 0;
     app.current_page_dpi = 300.0;
-    
+
     app.request_render("current");
     let render_count_1 = {
         let mut count = 0;
@@ -740,7 +737,7 @@ fn test_request_render_deduplication() {
         count
     };
     assert_eq!(render_count_1, 1, "First render request should dispatch");
-    
+
     // Same request again — should be deduplicated
     app.request_render("current");
     let render_count_2 = {
@@ -752,7 +749,10 @@ fn test_request_render_deduplication() {
         }
         count
     };
-    assert_eq!(render_count_2, 0, "Duplicate render request should be skipped");
+    assert_eq!(
+        render_count_2, 0,
+        "Duplicate render request should be skipped"
+    );
 }
 
 // ===========================================================================
@@ -793,7 +793,9 @@ fn test_workflow_transactions_populated() {
         },
     ];
 
-    job_tx_in.send(JobResult::TransactionsExtracted(txs)).unwrap();
+    job_tx_in
+        .send(JobResult::TransactionsExtracted(txs))
+        .unwrap();
     pump(&mut app);
 
     assert_eq!(app.workflow_transactions.len(), 2);
@@ -808,16 +810,18 @@ fn test_workflow_transactions_populated() {
 #[test]
 fn test_verification_report_pass() {
     let (mut app, _, job_tx_in) = make_app();
-    job_tx_in.send(JobResult::VerificationReport(VerificationReport {
-        math_valid: true,
-        visual_diff_score: 0.005,
-        only_intended_changes: true,
-        report_files: vec!["report.html".to_string()],
-        message: "All checks passed".to_string(),
-        max_tile_score: 0.003,
-        max_edit_region_score: 0.001,
-        min_ssim: 0.999,
-    })).unwrap();
+    job_tx_in
+        .send(JobResult::VerificationReport(VerificationReport {
+            math_valid: true,
+            visual_diff_score: 0.005,
+            only_intended_changes: true,
+            report_files: vec!["report.html".to_string()],
+            message: "All checks passed".to_string(),
+            max_tile_score: 0.003,
+            max_edit_region_score: 0.001,
+            min_ssim: 0.999,
+        }))
+        .unwrap();
     pump(&mut app);
 
     let report = app.last_verification.as_ref().unwrap();
@@ -829,16 +833,18 @@ fn test_verification_report_pass() {
 #[test]
 fn test_verification_report_fail() {
     let (mut app, _, job_tx_in) = make_app();
-    job_tx_in.send(JobResult::VerificationReport(VerificationReport {
-        math_valid: false,
-        visual_diff_score: 0.15,
-        only_intended_changes: false,
-        report_files: vec![],
-        message: "Math validation failed".to_string(),
-        max_tile_score: 0.12,
-        max_edit_region_score: 0.08,
-        min_ssim: 0.85,
-    })).unwrap();
+    job_tx_in
+        .send(JobResult::VerificationReport(VerificationReport {
+            math_valid: false,
+            visual_diff_score: 0.15,
+            only_intended_changes: false,
+            report_files: vec![],
+            message: "Math validation failed".to_string(),
+            max_tile_score: 0.12,
+            max_edit_region_score: 0.08,
+            min_ssim: 0.85,
+        }))
+        .unwrap();
     pump(&mut app);
 
     let report = app.last_verification.as_ref().unwrap();
@@ -856,16 +862,12 @@ fn test_build_artifact_bundle() {
     let input = dir.path().join("input.pdf");
     let output = dir.path().join("output.pdf");
     let bundle = dir.path().join("bundle.tar.gz");
-    
+
     // Create minimal files
     std::fs::write(&input, b"fake pdf input").unwrap();
     std::fs::write(&output, b"fake pdf output").unwrap();
-    
-    let result = MyApp::build_artifact_bundle(
-        input.to_str().unwrap(),
-        &output,
-        &bundle,
-    );
+
+    let result = MyApp::build_artifact_bundle(input.to_str().unwrap(), &output, &bundle);
     assert!(result.is_ok());
     assert!(bundle.exists());
     // Bundle should be non-empty
@@ -972,7 +974,7 @@ fn test_headless_render_api_keys() {
 fn test_change_history_operations() {
     let mut history = ChangeHistory::new();
     assert!(history.get_history().is_empty());
-    
+
     history.push_change(
         0,
         "old".to_string(),

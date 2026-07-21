@@ -68,12 +68,16 @@ impl AuditLog {
         };
 
         let json_line = serde_json::to_string(&event).unwrap_or_default();
-        
+
         let timestamp = Utc::now().to_rfc3339();
-        self.db.as_ref().unwrap().execute(
-            "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
-            params![timestamp, "write", json_line],
-        ).map_err(|e| AuditError::Write(std::io::Error::other(e.to_string())))?;
+        self.db
+            .as_ref()
+            .unwrap()
+            .execute(
+                "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
+                params![timestamp, "write", json_line],
+            )
+            .map_err(|e| AuditError::Write(std::io::Error::other(e.to_string())))?;
 
         // Also dump an individual snapshot matching the old verification_report format
         let ts = record.timestamp.replace(':', ""); // safe for filenames
@@ -95,19 +99,27 @@ impl AuditLog {
     pub fn append_line(&mut self, line: &str) -> AuditResult<()> {
         self.ensure_open()?;
         let timestamp = Utc::now().to_rfc3339();
-        self.db.as_ref().unwrap().execute(
-            "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
-            params![timestamp, "append_line", line.trim()],
-        ).map_err(|e| AuditError::Write(std::io::Error::other(e.to_string())))?;
+        self.db
+            .as_ref()
+            .unwrap()
+            .execute(
+                "INSERT INTO audit_log (timestamp, action, details) VALUES (?1, ?2, ?3)",
+                params![timestamp, "append_line", line.trim()],
+            )
+            .map_err(|e| AuditError::Write(std::io::Error::other(e.to_string())))?;
         Ok(())
     }
 
     /// Lazily opens (creating if needed) the session log file in append mode.
     fn ensure_open(&mut self) -> AuditResult<()> {
         if self.db.is_none() {
-            let conn = Connection::open(&self.log_path)
-                .map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::other(e.to_string())))?;
-            
+            let conn = Connection::open(&self.log_path).map_err(|e| {
+                AuditError::open(
+                    self.log_path.display().to_string(),
+                    std::io::Error::other(e.to_string()),
+                )
+            })?;
+
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS audit_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,8 +128,14 @@ impl AuditLog {
                     details TEXT NOT NULL
                 )",
                 [],
-            ).map_err(|e| AuditError::open(self.log_path.display().to_string(), std::io::Error::other(e.to_string())))?;
-            
+            )
+            .map_err(|e| {
+                AuditError::open(
+                    self.log_path.display().to_string(),
+                    std::io::Error::other(e.to_string()),
+                )
+            })?;
+
             // Automated Database Vacuuming: Prune records older than 30 days
             let _ = conn.execute(
                 "DELETE FROM audit_log WHERE datetime(timestamp) < datetime('now', '-30 days')",
@@ -126,7 +144,8 @@ impl AuditLog {
 
             // Prune snapshot files older than 30 days
             if let Ok(entries) = std::fs::read_dir(&self.snapshots_dir) {
-                let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 3600);
+                let cutoff =
+                    std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 3600);
                 for entry in entries.flatten() {
                     if let Ok(meta) = entry.metadata() {
                         if let Ok(modified) = meta.modified() {
@@ -195,13 +214,17 @@ impl AuditLogParser {
     /// cannot be read.
     pub fn parse_file(path: &Path) -> AuditResult<Vec<ChangeRecord>> {
         // Try parsing as SQLite first
-        if let Ok(conn) = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
-            if let Ok(mut stmt) = conn.prepare("SELECT details FROM audit_log WHERE action = 'write'") {
+        if let Ok(conn) =
+            rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        {
+            if let Ok(mut stmt) =
+                conn.prepare("SELECT details FROM audit_log WHERE action = 'write'")
+            {
                 let records_iter = stmt.query_map([], |row| {
                     let details: String = row.get(0)?;
                     Ok(details)
                 });
-                
+
                 if let Ok(iter) = records_iter {
                     let mut records = Vec::new();
                     for details in iter.flatten() {
@@ -360,7 +383,8 @@ mod tests {
         audit.write(&rec1, Path::new("in"), Path::new("out"), "test", false)?;
 
         let conn = rusqlite::Connection::open(&audit.log_path)?;
-        let mut stmt = conn.prepare("SELECT details FROM audit_log WHERE action = 'write' LIMIT 1")?;
+        let mut stmt =
+            conn.prepare("SELECT details FROM audit_log WHERE action = 'write' LIMIT 1")?;
         let details: String = stmt.query_row([], |row| row.get(0))?;
 
         let v: serde_json::Value = serde_json::from_str(&details)?;

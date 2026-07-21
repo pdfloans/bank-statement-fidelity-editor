@@ -1,12 +1,12 @@
-use dual_core_pdf_pipeline::app::config::AppConfig;
-use dual_core_pdf_pipeline::engine::statement::SmartDocumentEngine;
-use dual_core_pdf_pipeline::pdf::OxidizePdfEngine;
 use dual_core_pdf_pipeline::ai::backend::AiBackend;
 use dual_core_pdf_pipeline::ai::document_ai::DocumentAiClient;
-use dual_core_pdf_pipeline::extractors::merger::HybridMerger;
+use dual_core_pdf_pipeline::app::config::AppConfig;
 use dual_core_pdf_pipeline::engine::model::Transaction;
-use std::sync::Arc;
+use dual_core_pdf_pipeline::engine::statement::SmartDocumentEngine;
+use dual_core_pdf_pipeline::extractors::merger::HybridMerger;
+use dual_core_pdf_pipeline::pdf::OxidizePdfEngine;
 use rust_decimal_macros::dec;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_smart_document_engine_initialization() {
@@ -19,7 +19,7 @@ async fn test_smart_document_engine_initialization() {
     let ai_backend = Arc::new(AiBackend::new_mock());
     let merger = Arc::new(HybridMerger::new(vec![]));
 
-    let mut engine = SmartDocumentEngine::new(
+    let engine = SmartDocumentEngine::new(
         pdf_engine.clone(),
         doc_ai.clone(),
         ai_backend.clone(),
@@ -42,7 +42,7 @@ async fn test_calculate_global_imbalance_empty() {
     let ai_backend = Arc::new(AiBackend::new_mock());
     let merger = Arc::new(HybridMerger::new(vec![]));
 
-    let mut engine = SmartDocumentEngine::new(
+    let engine = SmartDocumentEngine::new(
         pdf_engine.clone(),
         doc_ai.clone(),
         ai_backend.clone(),
@@ -212,11 +212,11 @@ async fn test_load_full_document() {
     // Wait, OxidizePdfEngine might try to load it. Let's create a dummy PDF.
     let dir = tempfile::tempdir().unwrap();
     let pdf_path = dir.path().join("dummy.pdf");
-    
+
     // Instead of actually using pdf_engine for real file, wait, does OxidizePdfEngine fail if file missing?
     // OxidizePdfEngine::get_page_count loads the document. So we must provide a real PDF.
     use lopdf::{dictionary, Document, Object};
-    
+
     let mut doc = Document::with_version("1.5");
     let pages_id = doc.new_object_id();
     let page_id = doc.add_object(dictionary! {
@@ -249,7 +249,7 @@ async fn test_balance_entire_statement_with_ai_fallback() {
     let config_arc = Arc::new(config);
 
     let pdf_engine = Arc::new(OxidizePdfEngine::new());
-    
+
     // We will set up a mock DocumentAiClient that returns an unbalanced statement
     let doc_ai = Arc::new(DocumentAiClient::new_mock(&config_arc));
     let ai_backend = Arc::new(AiBackend::new_mock()); // This mock will fail, triggering the fallback!
@@ -267,7 +267,7 @@ async fn test_balance_entire_statement_with_ai_fallback() {
     // let's actually let it return what it returns, and then we'll see if we can trigger the fallback.
     // Wait, the new_mock() for doc_ai returns a perfectly balanced dummy statement:
     // opening: 1000, 1 withdrawal of 200, closing: 800.
-    
+
     // Actually, DocumentAiClient::new_mock is not very configurable here.
     // Let's create a new engine with a special test wrapper or we can mock DocumentAi?
     // Wait! I can't easily mock `doc_ai.parse_entire_statement` because it's hardcoded.

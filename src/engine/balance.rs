@@ -278,7 +278,8 @@ mod tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-         category: None, }
+            category: None,
+        }
     }
 
     #[test]
@@ -455,7 +456,8 @@ mod polars_balance_tests {
             bbox: None,
             field_bboxes: Default::default(),
             provenance: Provenance::Manual,
-         category: None, }
+            category: None,
+        }
     }
 
     #[test]
@@ -512,14 +514,13 @@ mod polars_balance_tests {
 #[cfg(test)]
 mod proptest_balance_tests {
     use super::*;
-    use proptest::prelude::*;
     use crate::engine::model::{Provenance, Transaction};
+    use proptest::prelude::*;
     use rust_decimal_macros::dec;
 
     fn any_decimal() -> impl Strategy<Value = Decimal> {
-        (0..100000i64, 0..99u32).prop_map(|(dollars, cents)| {
-            Decimal::new(dollars * 100 + cents as i64, 2)
-        })
+        (0..100000i64, 0..99u32)
+            .prop_map(|(dollars, cents)| Decimal::new(dollars * 100 + cents as i64, 2))
     }
 
     proptest! {
@@ -549,7 +550,7 @@ mod proptest_balance_tests {
             }
 
             let opening = dec!(100);
-            
+
             // Just ensure it doesn't panic and returns a valid Result
             let _ = recalculate_and_validate(txs, opening);
         }

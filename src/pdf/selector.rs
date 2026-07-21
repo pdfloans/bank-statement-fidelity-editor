@@ -488,7 +488,11 @@ mod tests {
         let primary = Arc::new(MockEngine::new_error(EngineError::Unsupported));
         let fallback = Arc::new(MockEngine::new_success());
 
-        let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::PyMuPdfProPrimary);
+        let selector = make_selector(
+            primary.clone(),
+            fallback.clone(),
+            PdfEngineMode::PyMuPdfProPrimary,
+        );
 
         // This exercises try_primary_or_fallback (write path)
         let res = selector.apply_change(
@@ -534,7 +538,11 @@ mod tests {
         let primary = Arc::new(MockEngine::new_panic());
         let fallback = Arc::new(MockEngine::new_success());
 
-        let selector = make_selector(primary.clone(), fallback.clone(), PdfEngineMode::PyMuPdfProPrimary);
+        let selector = make_selector(
+            primary.clone(),
+            fallback.clone(),
+            PdfEngineMode::PyMuPdfProPrimary,
+        );
 
         // render_page falls into try_primary_or_fallback when not DualConcurrent
         let res = selector.render_page(Path::new("dummy.pdf"), 0, 150.0);

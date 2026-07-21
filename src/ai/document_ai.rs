@@ -20,7 +20,6 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
 
 use crate::app::config::{AppConfig, DocumentAiConfig};
 use crate::engine::model::{f64_to_dec, FieldBboxes, Provenance, Transaction};
@@ -90,14 +89,20 @@ impl DocumentAiClient {
     #[allow(unreachable_code)]
     pub fn from_app_config(cfg: &AppConfig) -> Result<Self, DocAiError> {
         #[allow(unreachable_code)]
-        return Err(DocAiError::MissingConfig("Document AI is temporarily disabled via user request."));
+        return Err(DocAiError::MissingConfig(
+            "Document AI is temporarily disabled via user request.",
+        ));
         let doc_ai = cfg
             .document_ai
             .clone()
             .ok_or(DocAiError::MissingConfig("document_ai"))?;
         // Require *some* form of credential.
         let mut has_valid_credential = false;
-        if !doc_ai.api_key.is_empty() || (!doc_ai.service_account_path.is_empty() && Path::new(&doc_ai.service_account_path).exists()) || (!doc_ai.adc_path.is_empty() && Path::new(&doc_ai.adc_path).exists()) {
+        if !doc_ai.api_key.is_empty()
+            || (!doc_ai.service_account_path.is_empty()
+                && Path::new(&doc_ai.service_account_path).exists())
+            || (!doc_ai.adc_path.is_empty() && Path::new(&doc_ai.adc_path).exists())
+        {
             has_valid_credential = true;
         }
 
@@ -116,7 +121,11 @@ impl DocumentAiClient {
         })
     }
 
-    pub fn new_for_test(config: DocumentAiConfig, cfg: &AppConfig, api_endpoint_override: Option<String>) -> Self {
+    pub fn new_for_test(
+        config: DocumentAiConfig,
+        cfg: &AppConfig,
+        api_endpoint_override: Option<String>,
+    ) -> Self {
         Self {
             config,
             http: crate::app::config::global_http_client(),
@@ -140,8 +149,13 @@ impl DocumentAiClient {
 
     fn process_url(&self, version: Option<&str>) -> String {
         let base = if let Some(ref override_url) = self.api_endpoint_override {
-            format!("{}/v1/projects/{}/locations/{}/processors/{}",
-                override_url, self.config.project_id, self.config.location, self.config.processor_id)
+            format!(
+                "{}/v1/projects/{}/locations/{}/processors/{}",
+                override_url,
+                self.config.project_id,
+                self.config.location,
+                self.config.processor_id
+            )
         } else {
             format!(
                 "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
@@ -546,18 +560,19 @@ impl DocumentAiClient {
 
         let result: serde_json::Value = final_resp.json().await?;
         let mut stmt = Self::parse_response_into_bank_statement(&result, Some(&real_dims))?;
-        
+
         let raw_text = result["text"].as_str().unwrap_or_default();
         let stmt_clone = stmt.clone();
-        
-        let backend = match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!("[doc_ai] Failed to init AI backend for repair: {}", e);
-                return Ok(stmt_clone);
-            }
-        };
-        
+
+        let backend =
+            match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!("[doc_ai] Failed to init AI backend for repair: {}", e);
+                    return Ok(stmt_clone);
+                }
+            };
+
         stmt = crate::ai::repair::verify_and_repair_extraction(&backend, stmt, raw_text)
             .await
             .unwrap_or_else(|e| {
@@ -972,21 +987,23 @@ impl DocumentAiClient {
 
         let mut final_stmt = merge_chunk_results(statements);
         let stmt_clone = final_stmt.clone();
-        
-        let backend = match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!("[doc_ai] Failed to init AI backend for LRO repair: {}", e);
-                return Ok(stmt_clone);
-            }
-        };
 
-        final_stmt = crate::ai::repair::verify_and_repair_extraction(&backend, final_stmt, &full_raw_text)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::error!("[doc_ai] LRO Extraction repair failed completely: {}", e);
-                stmt_clone
-            });
+        let backend =
+            match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!("[doc_ai] Failed to init AI backend for LRO repair: {}", e);
+                    return Ok(stmt_clone);
+                }
+            };
+
+        final_stmt =
+            crate::ai::repair::verify_and_repair_extraction(&backend, final_stmt, &full_raw_text)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("[doc_ai] LRO Extraction repair failed completely: {}", e);
+                    stmt_clone
+                });
 
         Ok(final_stmt)
     }
@@ -1055,13 +1072,21 @@ impl DocumentAiClient {
 
         for entity in &response.document.entities {
             let (page_idx, row_bbox) = entity_page_and_bbox(entity, &pages_dim);
-                        let idx = transactions.len();
-            let text = entity.mention_text.as_deref().unwrap_or_else(|| {
-                tracing::warn!("Entity '{}' missing mention_text", entity.entity_type);
-                ""
-            }).trim().to_string();
+            let idx = transactions.len();
+            let text = entity
+                .mention_text
+                .as_deref()
+                .unwrap_or_else(|| {
+                    tracing::warn!("Entity '{}' missing mention_text", entity.entity_type);
+                    ""
+                })
+                .trim()
+                .to_string();
             let confidence = entity.confidence.unwrap_or_else(|| {
-                tracing::warn!("Entity '{}' missing confidence, defaulting to 1.0", entity.entity_type);
+                tracing::warn!(
+                    "Entity '{}' missing confidence, defaulting to 1.0",
+                    entity.entity_type
+                );
                 1.0
             });
 
@@ -1072,10 +1097,16 @@ impl DocumentAiClient {
                         .or_else(|| extract_string_property(entity, "transaction_date"))
                         .unwrap_or_default();
 
-                    let description = extract_string_property(entity, "transaction_deposit_description")
-                        .or_else(|| extract_string_property(entity, "transaction_withdrawal_description"))
-                        .or_else(|| extract_string_property(entity, "transaction_description"))
-                        .unwrap_or_else(|| text.clone());
+                    let description =
+                        extract_string_property(entity, "transaction_deposit_description")
+                            .or_else(|| {
+                                extract_string_property(
+                                    entity,
+                                    "transaction_withdrawal_description",
+                                )
+                            })
+                            .or_else(|| extract_string_property(entity, "transaction_description"))
+                            .unwrap_or_else(|| text.clone());
 
                     let credit = extract_number_property(entity, "transaction_deposit");
                     let debit = extract_number_property(entity, "transaction_withdrawal");
@@ -1089,17 +1120,37 @@ impl DocumentAiClient {
                     let field_bboxes = FieldBboxes {
                         date: property_bbox(
                             entity,
-                            &["transaction_deposit_date", "transaction_withdrawal_date", "transaction_date"],
+                            &[
+                                "transaction_deposit_date",
+                                "transaction_withdrawal_date",
+                                "transaction_date",
+                            ],
                             &pages_dim,
                         ),
                         description: property_bbox(
                             entity,
-                            &["transaction_deposit_description", "transaction_withdrawal_description", "transaction_description"],
+                            &[
+                                "transaction_deposit_description",
+                                "transaction_withdrawal_description",
+                                "transaction_description",
+                            ],
                             &pages_dim,
                         ),
-                        debit: property_bbox(entity, &["transaction_withdrawal", "debit"], &pages_dim),
-                        credit: property_bbox(entity, &["transaction_deposit", "credit"], &pages_dim),
-                        running_balance: property_bbox(entity, &["running_balance", "transaction_balance"], &pages_dim),
+                        debit: property_bbox(
+                            entity,
+                            &["transaction_withdrawal", "debit"],
+                            &pages_dim,
+                        ),
+                        credit: property_bbox(
+                            entity,
+                            &["transaction_deposit", "credit"],
+                            &pages_dim,
+                        ),
+                        running_balance: property_bbox(
+                            entity,
+                            &["running_balance", "transaction_balance"],
+                            &pages_dim,
+                        ),
                     };
 
                     transactions.push(Transaction {
@@ -1112,23 +1163,40 @@ impl DocumentAiClient {
                         running_balance,
                         bbox: row_bbox,
                         field_bboxes,
-                        provenance: Provenance::DocumentAI { confidence }, category: None,
+                        provenance: Provenance::DocumentAI { confidence },
+                        category: None,
                     });
                 }
                 "transaction" => {
                     let field_bboxes = FieldBboxes {
                         date: property_bbox(
                             entity,
-                            &["transaction_date", "transaction_deposit_date", "transaction_withdrawal_date"],
+                            &[
+                                "transaction_date",
+                                "transaction_deposit_date",
+                                "transaction_withdrawal_date",
+                            ],
                             &pages_dim,
                         ),
                         description: property_bbox(
                             entity,
-                            &["transaction_description", "transaction_deposit_description", "transaction_withdrawal_description"],
+                            &[
+                                "transaction_description",
+                                "transaction_deposit_description",
+                                "transaction_withdrawal_description",
+                            ],
                             &pages_dim,
                         ),
-                        debit: property_bbox(entity, &["debit", "transaction_withdrawal"], &pages_dim),
-                        credit: property_bbox(entity, &["credit", "transaction_deposit"], &pages_dim),
+                        debit: property_bbox(
+                            entity,
+                            &["debit", "transaction_withdrawal"],
+                            &pages_dim,
+                        ),
+                        credit: property_bbox(
+                            entity,
+                            &["credit", "transaction_deposit"],
+                            &pages_dim,
+                        ),
                         running_balance: property_bbox(entity, &["running_balance"], &pages_dim),
                     };
 
@@ -1138,8 +1206,12 @@ impl DocumentAiClient {
                         .unwrap_or_default();
 
                     let description = extract_string_property(entity, "transaction_description")
-                        .or_else(|| extract_string_property(entity, "transaction_deposit_description"))
-                        .or_else(|| extract_string_property(entity, "transaction_withdrawal_description"))
+                        .or_else(|| {
+                            extract_string_property(entity, "transaction_deposit_description")
+                        })
+                        .or_else(|| {
+                            extract_string_property(entity, "transaction_withdrawal_description")
+                        })
                         .unwrap_or_else(|| text.clone());
 
                     transactions.push(Transaction {
@@ -1154,7 +1226,8 @@ impl DocumentAiClient {
                         running_balance: extract_number_property(entity, "running_balance"),
                         bbox: row_bbox,
                         field_bboxes,
-                        provenance: Provenance::DocumentAI { confidence }, category: None,
+                        provenance: Provenance::DocumentAI { confidence },
+                        category: None,
                     });
                 }
                 "starting_balance" | "opening_balance" => {
@@ -1361,7 +1434,13 @@ impl DocumentAiClient {
 
     fn v1_base_url(&self) -> String {
         if let Some(ref override_url) = self.api_endpoint_override {
-            format!("{}/v1/projects/{}/locations/{}/processors/{}", override_url, self.config.project_id, self.config.location, self.config.processor_id)
+            format!(
+                "{}/v1/projects/{}/locations/{}/processors/{}",
+                override_url,
+                self.config.project_id,
+                self.config.location,
+                self.config.processor_id
+            )
         } else {
             format!(
                 "https://{}-documentai.googleapis.com/v1/projects/{}/locations/{}/processors/{}",
@@ -1751,7 +1830,12 @@ fn extract_number_property(entity: &DocAiEntity, kind: &str) -> Option<Decimal> 
                 match s.parse::<f64>() {
                     Ok(f) => Some(f64_to_dec(f)),
                     Err(e) => {
-                        tracing::warn!("Property '{}' contains invalid number format '{}': {}", kind, text, e);
+                        tracing::warn!(
+                            "Property '{}' contains invalid number format '{}': {}",
+                            kind,
+                            text,
+                            e
+                        );
                         None
                     }
                 }
@@ -1826,13 +1910,23 @@ fn entity_page_and_bbox(
         return (0, None);
     };
     let Some(first) = anchor.page_refs.first() else {
-        tracing::warn!("Entity '{}' has page_anchor but no page_refs", entity.entity_type);
+        tracing::warn!(
+            "Entity '{}' has page_anchor but no page_refs",
+            entity.entity_type
+        );
         return (0, None);
     };
     let page_idx = first.page_idx();
-    let bbox = first.bounding_poly.as_ref().and_then(|p| bbox_from_bounding_poly(p, page_idx, pages_dim));
+    let bbox = first
+        .bounding_poly
+        .as_ref()
+        .and_then(|p| bbox_from_bounding_poly(p, page_idx, pages_dim));
     if bbox.is_none() {
-        tracing::warn!("Entity '{}' missing valid bounding_poly on page {}", entity.entity_type, page_idx);
+        tracing::warn!(
+            "Entity '{}' missing valid bounding_poly on page {}",
+            entity.entity_type,
+            page_idx
+        );
     }
     (page_idx, bbox)
 }
@@ -1854,7 +1948,6 @@ fn property_bbox(
     }
     None
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -2031,7 +2124,8 @@ mod tests {
         tx_pages: &[usize],
     ) -> BankStatement {
         fake_chunk_with_account(page_count, opening, closing, tx_pages, None)
-    }    fn fake_chunk_with_account(
+    }
+    fn fake_chunk_with_account(
         page_count: usize,
         opening: f64,
         closing: f64,
@@ -2053,7 +2147,8 @@ mod tests {
                     running_balance: Some(f64_to_dec(opening + 10.0 * (i as f64 + 1.0))),
                     bbox: None,
                     field_bboxes: Default::default(),
-                    provenance: Provenance::DocumentAI { confidence: 0.9 }, category: None,
+                    provenance: Provenance::DocumentAI { confidence: 0.9 },
+                    category: None,
                 })
                 .collect(),
             opening_balance: f64_to_dec(opening),

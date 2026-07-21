@@ -1,4 +1,4 @@
-use enigo::{Enigo, Mouse, Settings, Button, Coordinate};
+use enigo::{Button, Coordinate, Enigo, Mouse, Settings};
 use std::process::Command;
 use std::time::Duration;
 
@@ -7,7 +7,7 @@ use std::time::Duration;
 fn test_computer_use_framework_bootstrap() {
     // 1. Launch the binary
     let mut child = Command::new("cargo")
-        .args(&["run", "--bin", "dual-core-pdf-pipeline"])
+        .args(["run", "--bin", "dual-core-pdf-pipeline"])
         .spawn()
         .expect("Failed to start application");
 

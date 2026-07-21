@@ -34,12 +34,12 @@ fn test_cli_ping() {
 fn test_cli_doctor() {
     let mut cmd = get_cmd();
     cmd.env("PYMUPDF_PRO_KEY", "hFKt01234567890123456789")
-       .env("DOCUMENT_AI_PROJECT_ID", "dummy")
-       .env("DOCUMENT_AI_LOCATION", "dummy")
-       .env("DOCUMENT_AI_PROCESSOR_ID", "dummy")
-       .arg("doctor")
-       .assert()
-       .code(predicates::prelude::predicate::eq(0).or(predicates::prelude::predicate::eq(6)));
+        .env("DOCUMENT_AI_PROJECT_ID", "dummy")
+        .env("DOCUMENT_AI_LOCATION", "dummy")
+        .env("DOCUMENT_AI_PROCESSOR_ID", "dummy")
+        .arg("doctor")
+        .assert()
+        .code(predicates::prelude::predicate::eq(0).or(predicates::prelude::predicate::eq(6)));
 }
 
 #[test]

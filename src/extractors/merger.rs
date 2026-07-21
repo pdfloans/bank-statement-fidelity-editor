@@ -105,7 +105,8 @@ mod tests {
             running_balance: None,
             bbox: None,
             field_bboxes: Default::default(),
-            provenance: Provenance::DocumentAI { confidence: 0.9 }, category: None,
+            provenance: Provenance::DocumentAI { confidence: 0.9 },
+            category: None,
         };
 
         let geo1 = LineGeometry {

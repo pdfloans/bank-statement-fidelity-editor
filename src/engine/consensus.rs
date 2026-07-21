@@ -12,7 +12,8 @@ pub fn merge_consensus_statements(statements: Vec<BankStatement>) -> BankStateme
             opening_balance: Decimal::ZERO,
             closing_balance: Decimal::ZERO,
             account_number: None,
-         bank_name: None, };
+            bank_name: None,
+        };
     }
 
     // If only 1 statement, just return it.
@@ -79,5 +80,6 @@ pub fn merge_consensus_statements(statements: Vec<BankStatement>) -> BankStateme
         transactions: final_txs,
         account_number: statements[0].account_number.clone(),
         total_pages: statements[0].total_pages,
-     bank_name: None, }
+        bank_name: None,
+    }
 }

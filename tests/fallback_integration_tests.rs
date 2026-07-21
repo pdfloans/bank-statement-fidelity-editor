@@ -81,12 +81,11 @@ impl PdfEngine for DummyEngine {
 
 #[tokio::test]
 async fn test_offline_fallback_can_be_triggered() {
-        // Instead, we will simulate the exact fallback invocation that occurs in the runtime
-    
+    // Instead, we will simulate the exact fallback invocation that occurs in the runtime
+
     // Create a dummy PDF engine
     let engine = Arc::new(DummyEngine) as Arc<dyn PdfEngine>;
     let engine_for_tokio = engine.clone();
-
 
     // Execute the exact fallback logic present in `runtime.rs:3342`
     let path = PathBuf::from("nonexistent.pdf");

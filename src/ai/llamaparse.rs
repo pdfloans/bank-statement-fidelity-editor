@@ -69,7 +69,11 @@ impl LlamaParseClient {
             http,
             raw_http,
             api_key,
-            passphrase: if cfg.passphrase.is_empty() { None } else { Some(cfg.passphrase.clone()) },
+            passphrase: if cfg.passphrase.is_empty() {
+                None
+            } else {
+                Some(cfg.passphrase.clone())
+            },
             app_config: cfg.clone(),
         })
     }
@@ -85,16 +89,18 @@ impl LlamaParseClient {
             }
         };
 
-        let cache_key = cache.as_ref().and_then(|_c: &crate::ai::docai_cache::DocAiCache| {
-            crate::ai::docai_cache::DocAiCache::make_key(
-                pdf_path,
-                "llamaparse",
-                "global",
-                "default",
-                "v1",
-            )
-            .ok()
-        });
+        let cache_key = cache
+            .as_ref()
+            .and_then(|_c: &crate::ai::docai_cache::DocAiCache| {
+                crate::ai::docai_cache::DocAiCache::make_key(
+                    pdf_path,
+                    "llamaparse",
+                    "global",
+                    "default",
+                    "v1",
+                )
+                .ok()
+            });
 
         if let (Some(c), Some(h)) = (cache.as_ref(), cache_key.as_ref()) {
             if let Some(cached_stmt) = c.get(h) {
@@ -110,14 +116,15 @@ impl LlamaParseClient {
         let mut stmt = self.parse_markdown_to_statement(&markdown)?;
 
         let stmt_clone = stmt.clone();
-        
-        let backend = match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!("[llamaparse] Failed to init AI backend for repair: {}", e);
-                return Ok(stmt_clone);
-            }
-        };
+
+        let backend =
+            match crate::ai::backend::AiBackend::from_app_config_async(&self.app_config).await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!("[llamaparse] Failed to init AI backend for repair: {}", e);
+                    return Ok(stmt_clone);
+                }
+            };
 
         stmt = crate::ai::repair::verify_and_repair_extraction(&backend, stmt, &markdown)
             .await
@@ -376,8 +383,14 @@ impl LlamaParseClient {
                                 bbox: None,
                                 field_bboxes: Default::default(),
                                 provenance: crate::engine::model::Provenance::Computed,
-                             category: None, });
-                        } else if date.is_empty() && debit.is_none() && credit.is_none() && balance.is_none() && !desc.is_empty() {
+                                category: None,
+                            });
+                        } else if date.is_empty()
+                            && debit.is_none()
+                            && credit.is_none()
+                            && balance.is_none()
+                            && !desc.is_empty()
+                        {
                             // This is likely a continuation row (e.g. description spilling over a page boundary)
                             if let Some(last_tx) = transactions.last_mut() {
                                 if !last_tx.raw_text.ends_with(' ') && !desc.starts_with(' ') {
@@ -413,6 +426,7 @@ impl LlamaParseClient {
             opening_balance: Decimal::ZERO,
             closing_balance: Decimal::ZERO,
             account_number: None,
-         bank_name: None::<String>, })
+            bank_name: None::<String>,
+        })
     }
 }

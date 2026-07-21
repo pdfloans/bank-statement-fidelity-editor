@@ -1,6 +1,6 @@
+use crate::ai::backend::AiBackend;
 use crate::ai::document_ai::BankStatement;
 use crate::engine::balance::recalculate_and_validate;
-use crate::ai::backend::AiBackend;
 
 pub async fn verify_and_repair_extraction(
     backend: &AiBackend,
@@ -9,7 +9,7 @@ pub async fn verify_and_repair_extraction(
 ) -> Result<BankStatement, String> {
     // 1. Check math locally
     let res = recalculate_and_validate(stmt.transactions.clone(), stmt.opening_balance);
-    
+
     let mut needs_repair = false;
     let mut error_msg = String::new();
 
@@ -17,12 +17,20 @@ pub async fn verify_and_repair_extraction(
         Ok(validated_tx) => {
             stmt.transactions = validated_tx;
             // Now check closing balance
-            let closing = stmt.closing_balance; {
-                let calc_closing = stmt.transactions.last().map(|tx| tx.running_balance.unwrap_or(stmt.opening_balance)).unwrap_or(stmt.opening_balance);
+            let closing = stmt.closing_balance;
+            {
+                let calc_closing = stmt
+                    .transactions
+                    .last()
+                    .map(|tx| tx.running_balance.unwrap_or(stmt.opening_balance))
+                    .unwrap_or(stmt.opening_balance);
                 let diff = (closing - calc_closing).abs();
                 if diff >= rust_decimal_macros::dec!(0.01) {
                     needs_repair = true;
-                    error_msg = format!("Final balance mismatch. Expected: {}, Calculated: {}. Diff: {}", closing, calc_closing, diff);
+                    error_msg = format!(
+                        "Final balance mismatch. Expected: {}, Calculated: {}. Diff: {}",
+                        closing, calc_closing, diff
+                    );
                 }
             }
         }
@@ -36,36 +44,46 @@ pub async fn verify_and_repair_extraction(
         return Ok(stmt);
     }
 
-    tracing::warn!("[repair] Extraction math verification failed: {}. Attempting AI repair...", error_msg);
-    
+    tracing::warn!(
+        "[repair] Extraction math verification failed: {}. Attempting AI repair...",
+        error_msg
+    );
+
     // 2. Call AI to repair the transactions based on raw OCR text
-    let repaired_transactions = backend.repair_extracted_transactions(
-        &stmt.transactions,
-        stmt.opening_balance,
-        stmt.closing_balance,
-        raw_ocr_text,
-        &error_msg
-    ).await.map_err(|e| format!("AI repair failed: {}", e))?;
-    
+    let repaired_transactions = backend
+        .repair_extracted_transactions(
+            &stmt.transactions,
+            stmt.opening_balance,
+            stmt.closing_balance,
+            raw_ocr_text,
+            &error_msg,
+        )
+        .await
+        .map_err(|e| format!("AI repair failed: {}", e))?;
+
     stmt.transactions = repaired_transactions;
-    
+
     // Validate the repaired statement
     if let Err(e2) = recalculate_and_validate(stmt.transactions.clone(), stmt.opening_balance) {
         tracing::error!("[repair] AI repair failed to fix math: {}", e2);
     } else {
         tracing::info!("[repair] AI extraction repair was successful!");
     }
-    
+
     Ok(stmt)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::model::{Provenance, Transaction};
     use rust_decimal_macros::dec;
-    use crate::engine::model::{Transaction, Provenance};
 
-    fn default_tx(debit: Option<rust_decimal::Decimal>, credit: Option<rust_decimal::Decimal>, running: Option<rust_decimal::Decimal>) -> Transaction {
+    fn default_tx(
+        debit: Option<rust_decimal::Decimal>,
+        credit: Option<rust_decimal::Decimal>,
+        running: Option<rust_decimal::Decimal>,
+    ) -> Transaction {
         Transaction {
             page: 1,
             line_on_page: 1,
@@ -86,9 +104,7 @@ mod tests {
         let backend = AiBackend::new_mock();
         let stmt = BankStatement {
             total_pages: 1,
-            transactions: vec![
-                default_tx(Some(dec!(100)), None, Some(dec!(200))),
-            ],
+            transactions: vec![default_tx(Some(dec!(100)), None, Some(dec!(200)))],
             opening_balance: dec!(100),
             closing_balance: dec!(200),
             account_number: None,
@@ -117,4 +133,3 @@ mod tests {
         assert!(res.unwrap_err().contains("AI repair failed:"));
     }
 }
-

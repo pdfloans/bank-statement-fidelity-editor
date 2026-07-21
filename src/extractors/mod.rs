@@ -8,4 +8,3 @@ pub use geometry::*;
 pub use merger::*;
 pub use ocrs_engine::OcrsEngine;
 pub use templates::{learn_template, parsers, BankTemplate, BankTemplateProvider};
-

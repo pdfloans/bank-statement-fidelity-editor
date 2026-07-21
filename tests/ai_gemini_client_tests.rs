@@ -1,7 +1,6 @@
-use dual_core_pdf_pipeline::ai::gemini_client::{GeminiClient, GeminiError, GeminiBalancePlan};
-use dual_core_pdf_pipeline::engine::model::Transaction;
-use dual_core_pdf_pipeline::pdf::DocumentLayout;
+use dual_core_pdf_pipeline::ai::gemini_client::{GeminiClient, GeminiError};
 use dual_core_pdf_pipeline::app::config::AppConfig;
+use dual_core_pdf_pipeline::pdf::DocumentLayout;
 use mockito::Server;
 use serde_json::json;
 
@@ -26,15 +25,18 @@ async fn test_propose_balance_adjustments_success() {
     let app_config = AppConfig::default();
     let client = GeminiClient::with_base_url("fake-key".to_string(), server.url());
 
-    let layout = DocumentLayout { total_pages: 1, ..Default::default() };
-    
+    let layout = DocumentLayout {
+        total_pages: 1,
+        ..Default::default()
+    };
+
     let result = client.propose_balance_adjustments(&[], 10.0, &layout).await;
-    
+
     assert!(result.is_ok());
     let plan = result.unwrap();
     assert_eq!(plan.confidence, 0.95);
     assert_eq!(plan.adjustments.len(), 1);
-    
+
     mock.assert_async().await;
 }
 
@@ -59,12 +61,15 @@ async fn test_propose_balance_adjustments_low_confidence() {
     let app_config = AppConfig::default();
     let client = GeminiClient::with_base_url("fake-key".to_string(), server.url());
 
-    let layout = DocumentLayout { total_pages: 1, ..Default::default() };
-    
+    let layout = DocumentLayout {
+        total_pages: 1,
+        ..Default::default()
+    };
+
     let result = client.propose_balance_adjustments(&[], 10.0, &layout).await;
-    
+
     assert!(matches!(result, Err(GeminiError::LowConfidence(0.5))));
-    
+
     mock.assert_async().await;
 }
 
@@ -72,29 +77,40 @@ async fn test_propose_balance_adjustments_low_confidence() {
 async fn test_gemini_retry_on_429() {
     let mut server = Server::new_async().await;
     let mock = server
-        .mock("POST", "/v1beta/models/gemini-pro-latest:generateContent?key=fake-key")
+        .mock(
+            "POST",
+            "/v1beta/models/gemini-pro-latest:generateContent?key=fake-key",
+        )
         .with_status(429)
         .with_header("content-type", "application/json")
         .with_body("Too Many Requests")
         .expect_at_least(1)
-        .create_async().await;
+        .create_async()
+        .await;
 
     let mock_flash = server
-        .mock("POST", "/v1beta/models/gemini-flash-latest:generateContent?key=fake-key")
+        .mock(
+            "POST",
+            "/v1beta/models/gemini-flash-latest:generateContent?key=fake-key",
+        )
         .with_status(429)
         .with_header("content-type", "application/json")
         .with_body("Too Many Requests")
         .expect_at_least(1)
-        .create_async().await;
+        .create_async()
+        .await;
 
     let client = GeminiClient::with_base_url("fake-key".to_string(), server.url());
 
-    let layout = DocumentLayout { total_pages: 1, ..Default::default() };
-    
+    let layout = DocumentLayout {
+        total_pages: 1,
+        ..Default::default()
+    };
+
     let result = client.propose_balance_adjustments(&[], 10.0, &layout).await;
-    
+
     assert!(result.is_err());
-    
+
     mock.assert_async().await;
     mock_flash.assert_async().await;
 }

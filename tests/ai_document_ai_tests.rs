@@ -1,8 +1,7 @@
 use dual_core_pdf_pipeline::ai::document_ai::DocumentAiClient;
-use dual_core_pdf_pipeline::app::config::DocumentAiConfig;
 use dual_core_pdf_pipeline::app::config::AppConfig;
+use dual_core_pdf_pipeline::app::config::DocumentAiConfig;
 use mockito::Server;
-use std::path::PathBuf;
 
 #[tokio::test]
 async fn test_parse_entire_statement_success() {
@@ -23,11 +22,16 @@ async fn test_parse_entire_statement_success() {
         }
     });
 
-    let mock = server.mock("POST", "/v1/projects/my-project/locations/us/processors/my-processor:process?key=fake-key")
+    let mock = server
+        .mock(
+            "POST",
+            "/v1/projects/my-project/locations/us/processors/my-processor:process?key=fake-key",
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(doc_ai_response.to_string())
-        .create_async().await;
+        .create_async()
+        .await;
 
     let app_config = AppConfig::default();
     let config = DocumentAiConfig {
@@ -37,7 +41,7 @@ async fn test_parse_entire_statement_success() {
         api_key: "fake-key".to_string(), // ensures it goes down the beta api_key auth path
         ..DocumentAiConfig::default()
     };
-    
+
     // We construct the client manually to hit the real logic
     let mut app_config = AppConfig::default();
     app_config.passphrase = uuid::Uuid::new_v4().to_string(); // bypass cache
@@ -65,21 +69,22 @@ async fn test_parse_entire_statement_success() {
         "Pages" => pages_id,
     });
     doc.trailer.set("Root", catalog_id);
-    
+
     // Bypass cache by injecting a unique UUID into the trailer
-    doc.trailer.set("TestNonce", uuid::Uuid::new_v4().to_string());
-    
+    doc.trailer
+        .set("TestNonce", uuid::Uuid::new_v4().to_string());
+
     doc.save(&pdf_path).unwrap();
 
     let result = client.parse_entire_statement(&pdf_path, None).await;
-    
+
     if let Err(e) = &result {
         println!("Error returned: {:?}", e);
     }
-    
+
     let bank_statement = result.unwrap();
     mock.assert_async().await;
-    
+
     assert_eq!(bank_statement.opening_balance.to_string(), "100");
     assert_eq!(bank_statement.closing_balance.to_string(), "150");
     assert_eq!(bank_statement.total_pages, 1);
@@ -100,14 +105,19 @@ async fn test_parse_entire_statement_retry_on_429() {
         }
     });
 
-    // In mockito, to test a sequence, we can return 429 for all requests, 
+    // In mockito, to test a sequence, we can return 429 for all requests,
     // and wait for the loop to exhaust max_attempts (which is 4) and return the 429 error!
-    let mock_429 = server.mock("POST", "/v1/projects/my-project/locations/us/processors/my-processor:process?key=fake-key")
+    let mock_429 = server
+        .mock(
+            "POST",
+            "/v1/projects/my-project/locations/us/processors/my-processor:process?key=fake-key",
+        )
         .match_header("content-type", "application/json")
         .with_status(429)
         .with_body("Too Many Requests")
         .expect(16)
-        .create_async().await;
+        .create_async()
+        .await;
 
     let app_config = AppConfig::default();
     let config = DocumentAiConfig {
@@ -117,7 +127,7 @@ async fn test_parse_entire_statement_retry_on_429() {
         api_key: "fake-key".to_string(), // use the API key branch
         ..DocumentAiConfig::default()
     };
-    
+
     let mut app_config = AppConfig::default();
     app_config.passphrase = uuid::Uuid::new_v4().to_string(); // bypass cache
     let mut client = DocumentAiClient::new_for_test(config, &app_config, Some(server.url()));
@@ -144,19 +154,20 @@ async fn test_parse_entire_statement_retry_on_429() {
         "Pages" => pages_id,
     });
     doc.trailer.set("Root", catalog_id);
-    
+
     // Bypass cache by injecting a unique UUID into the trailer
-    doc.trailer.set("TestNonce", uuid::Uuid::new_v4().to_string());
+    doc.trailer
+        .set("TestNonce", uuid::Uuid::new_v4().to_string());
 
     doc.save(&pdf_path).unwrap();
 
     // Call it
     let result = client.parse_entire_statement(&pdf_path, None).await;
-    
+
     if let Err(e) = &result {
         println!("Error returned: {:?}", e);
     }
-    
+
     assert!(result.is_err());
     mock_429.assert_async().await;
 }

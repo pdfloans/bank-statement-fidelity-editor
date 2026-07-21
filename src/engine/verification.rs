@@ -437,7 +437,8 @@ pub async fn verify_edit_pages_with_padding(
         Pdfium::bind_to_system_library()
             .map_err(|e| VerificationError::PdfiumLoad(format!("System bind error: {}", e)))?
     } else {
-        let lib_path = Pdfium::pdfium_platform_library_name_at_path(lib_dir.to_string_lossy().as_ref());
+        let lib_path =
+            Pdfium::pdfium_platform_library_name_at_path(lib_dir.to_string_lossy().as_ref());
         Pdfium::bind_to_library(lib_path)
             .or_else(|_| Pdfium::bind_to_system_library())
             .map_err(|e| VerificationError::PdfiumLoad(format!("Library bind error: {}", e)))?
@@ -490,7 +491,7 @@ pub async fn verify_edit_pages_with_padding(
 
         let width_pts = original_page.width().value;
         let _height_pts = original_page.height().value;
-        
+
         // Dynamically compute DPI if auto_match_dpi is true. Standard A4 is ~595x842 pts.
         // We want a render width of at least ~1500 pixels for good validation.
         let base_dpi = if auto_match_dpi {
@@ -575,9 +576,8 @@ pub async fn verify_edit_pages_with_padding(
         let mut vision_passed = true;
         let img1_path_str = orig_png_path.to_string_lossy();
         let img2_path_str = edit_png_path.to_string_lossy();
-        let use_vision_ai = std::env::var("USE_VISION_AI")
-            .unwrap_or_else(|_| "true".to_string())
-            == "true";
+        let use_vision_ai =
+            std::env::var("USE_VISION_AI").unwrap_or_else(|_| "true".to_string()) == "true";
         if use_vision_ai {
             if let Ok(vision_key) = std::env::var("VISION_API_KEY") {
                 if !vision_key.is_empty() {
@@ -588,9 +588,10 @@ pub async fn verify_edit_pages_with_padding(
                         tokio::runtime::Handle::current().block_on(async {
                             crate::ai::vision::verify_with_vision(
                                 &vision_key,
-                                &img1_path_str, 
-                                &img2_path_str, 
-                            ).await
+                                &img1_path_str,
+                                &img2_path_str,
+                            )
+                            .await
                         })
                     });
                     vision_passed = passed;

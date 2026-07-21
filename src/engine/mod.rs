@@ -15,11 +15,11 @@ pub mod resource_check;
 pub mod segments;
 pub mod statement;
 
+pub mod categorization;
 pub mod consensus;
+pub mod pro_edit;
 pub mod transfer;
 pub mod transfer_test_harness;
 pub mod typst_engine;
 pub mod verification;
 pub mod workflow;
-pub mod pro_edit;
-pub mod categorization;

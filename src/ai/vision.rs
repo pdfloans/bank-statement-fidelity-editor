@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use base64::{engine::general_purpose, Engine as _};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Serialize)]
@@ -61,27 +61,28 @@ pub async fn verify_with_vision(api_key: &str, orig_img_path: &str, edit_img_pat
     let req_body = VisionRequest {
         model: "gpt-4o".to_string(), // Or Claude if using Anthropic API format
         max_tokens: 300,
-        messages: vec![
-            Message {
-                role: "user".to_string(),
-                content: vec![
-                    ContentItem::Text { text: prompt.to_string() },
-                    ContentItem::ImageUrl {
-                        image_url: ImageUrl {
-                            url: format!("data:image/png;base64,{}", orig_b64),
-                        },
+        messages: vec![Message {
+            role: "user".to_string(),
+            content: vec![
+                ContentItem::Text {
+                    text: prompt.to_string(),
+                },
+                ContentItem::ImageUrl {
+                    image_url: ImageUrl {
+                        url: format!("data:image/png;base64,{}", orig_b64),
                     },
-                    ContentItem::ImageUrl {
-                        image_url: ImageUrl {
-                            url: format!("data:image/png;base64,{}", edit_b64),
-                        },
+                },
+                ContentItem::ImageUrl {
+                    image_url: ImageUrl {
+                        url: format!("data:image/png;base64,{}", edit_b64),
                     },
-                ],
-            }
-        ],
+                },
+            ],
+        }],
     };
 
-    let res = client.post("https://api.openai.com/v1/chat/completions")
+    let res = client
+        .post("https://api.openai.com/v1/chat/completions")
         .headers(headers)
         .json(&req_body)
         .send()

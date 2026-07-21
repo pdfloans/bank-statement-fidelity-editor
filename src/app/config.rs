@@ -241,7 +241,7 @@ pub enum DocumentParserMode {
     LlamaParse,
     /// Pure Rust heuristic parsing (regex + layout), highly accurate for standard banking formats.
     OfflineHeuristic,
-    
+
     /// Local OCR via `ocrs` + `rten` (pure Rust, works offline on scanned
     /// documents, requires `--features ocr`).
     LocalOcrs,
@@ -254,10 +254,10 @@ impl DocumentParserMode {
     pub fn label(self) -> &'static str {
         match self {
             Self::DocumentAi => "Google Document AI",
-            
+
             Self::LlamaParse => "LlamaParse",
             Self::OfflineHeuristic => "Offline Heuristic",
-            
+
             Self::LocalOcrs => "Local OCR (ocrs)",
         }
     }
@@ -321,22 +321,42 @@ pub struct AppConfig {
 
 impl Drop for AppConfig {
     fn drop(&mut self) {
-        if let Some(key) = &mut self.gemini_api_key { key.zeroize(); }
-        if let Some(key) = &mut self.pdfrest_api_key { key.zeroize(); }
-        if let Some(key) = &mut self.lipi_api_key { key.zeroize(); }
-        if let Some(key) = &mut self.groq_api_key { key.zeroize(); }
-        if let Some(key) = &mut self.openrouter_api_key { key.zeroize(); }
-        if let Some(key) = &mut self.mindee_api_key { key.zeroize(); }
-        if let Some(key) = &mut self.applitools_api_key { key.zeroize(); }
-        if let Some(key) = &mut self.vision_api_key { key.zeroize(); }
+        if let Some(key) = &mut self.gemini_api_key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.pdfrest_api_key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.lipi_api_key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.groq_api_key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.openrouter_api_key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.mindee_api_key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.applitools_api_key {
+            key.zeroize();
+        }
+        if let Some(key) = &mut self.vision_api_key {
+            key.zeroize();
+        }
         if let Some(doc) = &mut self.document_ai {
             doc.api_key.zeroize();
             doc.service_account_path.zeroize();
         }
-        if let Some(key) = &mut self.pymupdf_pro_key { key.zeroize(); }
+        if let Some(key) = &mut self.pymupdf_pro_key {
+            key.zeroize();
+        }
         self.passphrase.zeroize();
-        if let Some(key) = &mut self.llamaparse_api_key { key.zeroize(); }
-        
+        if let Some(key) = &mut self.llamaparse_api_key {
+            key.zeroize();
+        }
+
         tracing::debug!("[config] AppConfig dropped, sensitive fields zeroized.");
     }
 }
@@ -355,8 +375,7 @@ impl Default for AppConfig {
             openrouter_model: "deepseek/deepseek-chat".to_string(),
             ai_provider: AiProviderMode::default(),
             document_ai: None,
-            
-            
+
             pymupdf_pro_key: None,
             passphrase: "DEV_PASSPHRASE".into(),
             otel_endpoint: None,
@@ -393,7 +412,8 @@ impl AppConfig {
         let gemini_api_key = clean_key(env::var("GEMINI_API_KEY"));
         let groq_api_key = clean_key(env::var("GROQ_API_KEY"));
         let openrouter_api_key = clean_key(env::var("OPENROUTER_API_KEY"));
-        let openrouter_model = clean_key(env::var("OPENROUTER_MODEL")).unwrap_or_else(|| "deepseek/deepseek-chat".to_string());
+        let openrouter_model = clean_key(env::var("OPENROUTER_MODEL"))
+            .unwrap_or_else(|| "deepseek/deepseek-chat".to_string());
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
@@ -622,9 +642,7 @@ impl AppConfig {
 
     /// Returns true if the application has valid AI configuration for extraction.
     pub fn has_ai_for_extraction(&self) -> bool {
-        self.document_ai.is_some()
-
-            || self.llamaparse_api_key.is_some()
+        self.document_ai.is_some() || self.llamaparse_api_key.is_some()
     }
 
     /// Detect which API backends have valid keys configured.
@@ -685,7 +703,7 @@ pub struct ApiAvailability {
     /// Google Document AI processor + auth are fully configured.
     pub document_ai: bool,
     /// `MINDEE_API_KEY` is set.
-    
+
     /// `LLAMAPARSE_API_KEY` is set.
     pub llamaparse: bool,
     /// `PDFREST_API_KEY` is set.
@@ -708,7 +726,7 @@ impl ApiAvailability {
             }
             "groq" => self.groq_api_key = false,
             "openrouter" => self.openrouter_api_key = false,
-            
+
             "llamaparse" => self.llamaparse = false,
             "document ai" | "document ai (vertex)" => self.document_ai = false,
             "vision ai" => self.vision_ai = false,
@@ -982,7 +1000,6 @@ mod tests {
         cfg.passphrase = "short".into();
         cfg.is_dev_mode = false;
 
-
         let errors = cfg.validate();
         assert!(errors.iter().any(|e| e.contains("PYMUPDF_PRO_KEY")));
         assert!(errors.iter().any(|e| e.contains("DUAL_CORE_PASSPHRASE")));
@@ -1007,7 +1024,6 @@ mod tests {
         cfg.llamaparse_api_key = Some("llama".into());
         cfg.pdfrest_api_key = Some("pdfrest".into());
         cfg.pymupdf_pro_key = Some("hFKt4hca03GCFLAFLEGz5Bd3".to_string());
-
 
         std::env::set_var("VISION_API_KEY", "test");
         let availability = cfg.detect_availability();

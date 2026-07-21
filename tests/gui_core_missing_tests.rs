@@ -1,9 +1,9 @@
 use dual_core_pdf_pipeline::app::audit::AuditLog;
 use dual_core_pdf_pipeline::app::config::AppConfig;
 use dual_core_pdf_pipeline::app::runtime::{Job, JobResult, Runtime};
+use dual_core_pdf_pipeline::engine::model::{FieldBboxes, Provenance, Transaction};
 use std::sync::Arc;
 use std::time::Duration;
-use dual_core_pdf_pipeline::engine::model::{Transaction, Provenance, FieldBboxes};
 
 fn setup_worker() -> (Runtime, mpsc::Sender<Job>, mpsc::Receiver<JobResult>) {
     let audit_log = AuditLog::open("audit.log").unwrap();
@@ -20,7 +20,8 @@ fn test_submit_bug_report_coverage() {
         description: "Test bug report".into(),
         include_logs: false,
         include_audit: false,
-    }).unwrap();
+    })
+    .unwrap();
 
     let mut found = false;
     for _ in 0..10 {
@@ -40,22 +41,21 @@ fn test_submit_bug_report_coverage() {
 #[test]
 fn test_categorize_transactions_coverage() {
     let (_worker, tx, rx) = setup_worker();
-    let txs = vec![
-        Transaction {
-            date: "2024-01-01".into(),
-            raw_text: "WALMART".into(),
-            debit: Some("-15.00".parse().unwrap()),
-            credit: None,
-            running_balance: Some(rust_decimal::Decimal::ZERO),
-            page: 0,
-            line_on_page: 0,
-            bbox: Some([0.0; 4]),
-            field_bboxes: FieldBboxes::default(),
-            provenance: Provenance::Computed,
-            category: None,
-        }
-    ];
-    tx.send(Job::CategorizeTransactions { transactions: txs }).unwrap();
+    let txs = vec![Transaction {
+        date: "2024-01-01".into(),
+        raw_text: "WALMART".into(),
+        debit: Some("-15.00".parse().unwrap()),
+        credit: None,
+        running_balance: Some(rust_decimal::Decimal::ZERO),
+        page: 0,
+        line_on_page: 0,
+        bbox: Some([0.0; 4]),
+        field_bboxes: FieldBboxes::default(),
+        provenance: Provenance::Computed,
+        category: None,
+    }];
+    tx.send(Job::CategorizeTransactions { transactions: txs })
+        .unwrap();
 
     let mut found = false;
     for _ in 0..10 {
@@ -68,7 +68,10 @@ fn test_categorize_transactions_coverage() {
             }
         }
     }
-    assert!(found, "CategorizeTransactions handler did not respond in time");
+    assert!(
+        found,
+        "CategorizeTransactions handler did not respond in time"
+    );
 }
 
 #[test]
@@ -82,7 +85,8 @@ fn test_generate_visual_alternatives_coverage() {
         page: 0,
         edits: vec![],
         bbox: [0.0; 4],
-    }).unwrap();
+    })
+    .unwrap();
 
     let mut found = false;
     for _ in 0..10 {
@@ -97,7 +101,10 @@ fn test_generate_visual_alternatives_coverage() {
             }
         }
     }
-    assert!(found, "GenerateVisualAlternatives handler did not respond in time");
+    assert!(
+        found,
+        "GenerateVisualAlternatives handler did not respond in time"
+    );
 }
 
 #[test]

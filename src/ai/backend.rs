@@ -29,7 +29,7 @@ impl AiBackend {
         if let Ok(c) = GeminiClient::from_app_config(cfg) {
             gemini = Some(c);
         }
-        
+
         let mut or_cfg = cfg.clone();
         or_cfg.ai_provider = AiProviderMode::OpenRouterApiKey;
         if let Ok(c) = OpenAiClient::from_app_config(&or_cfg) {
@@ -67,7 +67,7 @@ impl AiBackend {
         if let Ok(c) = GeminiClient::from_app_config_async(cfg).await {
             gemini = Some(c);
         }
-        
+
         let mut or_cfg = cfg.clone();
         or_cfg.ai_provider = AiProviderMode::OpenRouterApiKey;
         if let Ok(c) = OpenAiClient::from_app_config_async(&or_cfg).await {
@@ -100,7 +100,7 @@ impl AiBackend {
 macro_rules! cascade {
     ($self:ident, $method:ident, $($args:expr),*) => {{
         let mut last_err = String::new();
-        
+
         // 1. Try primary
         match $self.primary {
             AiProviderMode::OpenRouterApiKey => {
@@ -158,7 +158,13 @@ impl AiBackend {
         imbalance: f64,
         layout: &crate::engine::layout::DocumentLayout,
     ) -> Result<crate::ai::gemini_client::GeminiBalancePlan, AiBackendError> {
-        cascade!(self, propose_balance_adjustments, transactions, imbalance, layout)
+        cascade!(
+            self,
+            propose_balance_adjustments,
+            transactions,
+            imbalance,
+            layout
+        )
     }
 
     pub async fn validate_parse_completeness(
@@ -168,7 +174,14 @@ impl AiBackend {
         closing: f64,
         pages: usize,
     ) -> Result<GeminiCompletenessReport, AiBackendError> {
-        cascade!(self, validate_parse_completeness, transactions, opening, closing, pages)
+        cascade!(
+            self,
+            validate_parse_completeness,
+            transactions,
+            opening,
+            closing,
+            pages
+        )
     }
 
     pub async fn verify_statement_mathematics(
@@ -176,7 +189,12 @@ impl AiBackend {
         transactions_json: &str,
         opening: f64,
     ) -> Result<bool, AiBackendError> {
-        cascade!(self, verify_statement_mathematics, transactions_json, opening)
+        cascade!(
+            self,
+            verify_statement_mathematics,
+            transactions_json,
+            opening
+        )
     }
 
     // Pass-through stubs for vision methods not supported by text-only OpenAI models.
@@ -186,7 +204,9 @@ impl AiBackend {
         _bboxes: &[[f32; 4]],
     ) -> Result<crate::ai::gemini_client::GeminiVisionReport, AiBackendError> {
         if let Some(c) = &self.gemini {
-            c.validate_render_visually(_doc, _bboxes).await.map_err(Into::into)
+            c.validate_render_visually(_doc, _bboxes)
+                .await
+                .map_err(Into::into)
         } else {
             Ok(crate::ai::gemini_client::GeminiVisionReport {
                 anomaly_score: 0.0,
@@ -203,9 +223,13 @@ impl AiBackend {
         correction_hint: Option<&str>,
     ) -> Result<crate::engine::transfer::TransferPlan, AiBackendError> {
         if let Some(c) = &self.gemini {
-            c.plan_transaction_transfer(source_transactions, target_transactions, correction_hint).await.map_err(Into::into)
+            c.plan_transaction_transfer(source_transactions, target_transactions, correction_hint)
+                .await
+                .map_err(Into::into)
         } else {
-            Err(AiBackendError::AllFailed("Transfer planning requires Gemini API Key".into()))
+            Err(AiBackendError::AllFailed(
+                "Transfer planning requires Gemini API Key".into(),
+            ))
         }
     }
 
@@ -214,7 +238,12 @@ impl AiBackend {
         mapped_transactions: &[crate::engine::transfer::MappedTransaction],
         opening_balance: rust_decimal::Decimal,
     ) -> Result<bool, AiBackendError> {
-        cascade!(self, verify_transfer_math, mapped_transactions, opening_balance)
+        cascade!(
+            self,
+            verify_transfer_math,
+            mapped_transactions,
+            opening_balance
+        )
     }
 
     pub async fn repair_extracted_transactions(
@@ -225,6 +254,14 @@ impl AiBackend {
         raw_ocr_text: &str,
         error_message: &str,
     ) -> Result<Vec<Transaction>, AiBackendError> {
-        cascade!(self, repair_extracted_transactions, transactions, opening_balance, closing_balance, raw_ocr_text, error_message)
+        cascade!(
+            self,
+            repair_extracted_transactions,
+            transactions,
+            opening_balance,
+            closing_balance,
+            raw_ocr_text,
+            error_message
+        )
     }
 }

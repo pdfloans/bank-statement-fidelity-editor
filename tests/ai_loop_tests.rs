@@ -1,11 +1,11 @@
+use dual_core_pdf_pipeline::ai::backend::AiBackend;
+use dual_core_pdf_pipeline::ai::document_ai::BankStatement;
+use dual_core_pdf_pipeline::ai::gemini_client::GeminiClient;
+use dual_core_pdf_pipeline::app::config::AiProviderMode;
+use dual_core_pdf_pipeline::engine::model::{Provenance, Transaction};
 use rust_decimal_macros::dec;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use dual_core_pdf_pipeline::ai::backend::AiBackend;
-use dual_core_pdf_pipeline::ai::gemini_client::GeminiClient;
-use dual_core_pdf_pipeline::app::config::AiProviderMode;
-use dual_core_pdf_pipeline::engine::model::{Transaction, Provenance};
-use dual_core_pdf_pipeline::ai::document_ai::BankStatement;
 
 #[tokio::test]
 async fn test_verify_and_repair_extraction_loop() {
@@ -42,21 +42,19 @@ async fn test_verify_and_repair_extraction_loop() {
     let stmt = BankStatement {
         opening_balance: dec!(100.0),
         closing_balance: dec!(1000.0),
-        transactions: vec![
-            Transaction {
-                page: 1,
-                line_on_page: 1,
-                date: "2023-10-01".into(),
-                raw_text: "Broken Transaction".into(),
-                debit: Some(dec!(50.0)),
-                credit: Some(dec!(0.0)),
-                running_balance: None,
-                bbox: None,
-                field_bboxes: Default::default(),
-                provenance: Provenance::Computed,
-                category: None,
-            }
-        ],
+        transactions: vec![Transaction {
+            page: 1,
+            line_on_page: 1,
+            date: "2023-10-01".into(),
+            raw_text: "Broken Transaction".into(),
+            debit: Some(dec!(50.0)),
+            credit: Some(dec!(0.0)),
+            running_balance: None,
+            bbox: None,
+            field_bboxes: Default::default(),
+            provenance: Provenance::Computed,
+            category: None,
+        }],
         total_pages: 1,
         account_number: None,
         bank_name: None,
@@ -66,11 +64,14 @@ async fn test_verify_and_repair_extraction_loop() {
         &backend,
         stmt.clone(),
         "OCR TEXT",
-    ).await;
+    )
+    .await;
 
-    
     let repaired_stmt = result.unwrap();
-    
+
     assert_eq!(repaired_stmt.transactions.len(), 1);
-    assert_eq!(repaired_stmt.transactions[0].raw_text, "Repaired Transaction");
+    assert_eq!(
+        repaired_stmt.transactions[0].raw_text,
+        "Repaired Transaction"
+    );
 }

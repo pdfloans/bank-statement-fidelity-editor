@@ -24,16 +24,16 @@ impl Theme {
     pub fn palette(self) -> Palette {
         match self {
             Theme::ForensicDark => Palette {
-                bg: egui::Color32::from_rgb(10, 10, 12),        // Deep near-black workspace
-                panel: egui::Color32::from_rgb(16, 16, 18),     // Slightly elevated panels
-                surface: egui::Color32::from_rgb(22, 22, 24),   // Interactive surfaces
-                text: egui::Color32::from_rgb(240, 240, 245),   // Crisp off-white text
-                weak: egui::Color32::from_rgb(130, 135, 150),   // Muted technical text
-                accent: egui::Color32::from_rgb(0, 191, 255),   // Vibrant cyan/blue accent
-                success: egui::Color32::from_rgb(34, 197, 94),  // Clinical green
-                warn: egui::Color32::from_rgb(245, 158, 11),    // Alert amber
-                error: egui::Color32::from_rgb(239, 68, 68),    // Critical red
-                info: egui::Color32::from_rgb(0, 191, 255),     // Info cyan aligned with accent
+                bg: egui::Color32::from_rgb(10, 10, 12), // Deep near-black workspace
+                panel: egui::Color32::from_rgb(16, 16, 18), // Slightly elevated panels
+                surface: egui::Color32::from_rgb(22, 22, 24), // Interactive surfaces
+                text: egui::Color32::from_rgb(240, 240, 245), // Crisp off-white text
+                weak: egui::Color32::from_rgb(130, 135, 150), // Muted technical text
+                accent: egui::Color32::from_rgb(0, 191, 255), // Vibrant cyan/blue accent
+                success: egui::Color32::from_rgb(34, 197, 94), // Clinical green
+                warn: egui::Color32::from_rgb(245, 158, 11), // Alert amber
+                error: egui::Color32::from_rgb(239, 68, 68), // Critical red
+                info: egui::Color32::from_rgb(0, 191, 255), // Info cyan aligned with accent
             },
             Theme::ForensicLight => Palette {
                 bg: egui::Color32::from_rgb(248, 250, 252),
@@ -80,21 +80,21 @@ impl Theme {
         visuals.window_fill = p.panel;
         visuals.extreme_bg_color = p.bg;
         visuals.faint_bg_color = p.surface;
-        
+
         // Non-interactive surfaces
         visuals.widgets.noninteractive.bg_fill = p.surface;
         visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, p.surface);
         visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
-        
+
         // Interactive states
         visuals.widgets.inactive.bg_fill = p.surface;
         visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, p.surface);
         visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
-        
+
         visuals.widgets.hovered.bg_fill = p.accent.linear_multiply(0.15);
         visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, p.accent.linear_multiply(0.5));
         visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
-        
+
         visuals.widgets.active.bg_fill = p.accent.linear_multiply(0.3);
         visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, p.accent);
         visuals.widgets.active.rounding = egui::Rounding::same(4.0);
@@ -104,7 +104,7 @@ impl Theme {
         visuals.selection.stroke.color = p.accent;
         visuals.warn_fg_color = p.warn;
         visuals.error_fg_color = p.error;
-        
+
         ctx.set_visuals(visuals);
 
         // Global layout & typography spacing

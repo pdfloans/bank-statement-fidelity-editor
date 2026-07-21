@@ -55,7 +55,9 @@ async fn gemini_client_can_propose_a_balance_plan() {
                 GeminiError::LowConfidence(c) => {
                     println!("✅ Gemini ok (low-confidence path): {c:.2}");
                 }
-                GeminiError::Api(status, msg) if status == reqwest::StatusCode::TOO_MANY_REQUESTS => {
+                GeminiError::Api(status, msg)
+                    if status == reqwest::StatusCode::TOO_MANY_REQUESTS =>
+                {
                     eprintln!("SKIP: Gemini rate limited (HTTP 429): {msg}");
                 }
                 other => panic!("Gemini call failed: {other}"),
@@ -89,7 +91,9 @@ async fn document_ai_can_parse_a_real_statement() {
     }
     let sa_path = &cfg.document_ai.as_ref().unwrap().service_account_path;
     let adc_path = &cfg.document_ai.as_ref().unwrap().adc_path;
-    if (sa_path.is_empty() || !std::path::Path::new(sa_path).exists()) && (adc_path.is_empty() || !std::path::Path::new(adc_path).exists()) {
+    if (sa_path.is_empty() || !std::path::Path::new(sa_path).exists())
+        && (adc_path.is_empty() || !std::path::Path::new(adc_path).exists())
+    {
         eprintln!("SKIP: Document AI credentials file not found");
         return;
     }
