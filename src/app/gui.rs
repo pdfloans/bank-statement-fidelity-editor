@@ -360,6 +360,8 @@ pub struct MyApp {
     pub edit_openrouter_api_key: String,
     pub edit_openrouter_model: String,
     pub edit_lipi_api_key: String,
+    pub edit_mindee_api_key: String,
+    pub edit_applitools_api_key: String,
     /// Gemini auth mode buffer: false = API key (default), true = Vertex AI
     /// (service-account / ADC). Persisted as `GEMINI_AUTH_MODE`.
     pub edit_gemini_use_vertex: bool,
@@ -515,6 +517,8 @@ impl MyApp {
             edit_openrouter_api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
             edit_openrouter_model: std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string()),
             edit_lipi_api_key: std::env::var("LIPI_API_KEY").unwrap_or_default(),
+            edit_mindee_api_key: std::env::var("MINDEE_API_KEY").unwrap_or_default(),
+            edit_applitools_api_key: std::env::var("APPLITOOLS_API_KEY").unwrap_or_default(),
             edit_gemini_use_vertex: matches!(
                 std::env::var("GEMINI_AUTH_MODE")
                     .unwrap_or_default()
@@ -630,6 +634,14 @@ impl MyApp {
             (
                 "OPENROUTER_API_KEY",
                 self.edit_openrouter_api_key.trim().to_string(),
+            ),
+            (
+                "MINDEE_API_KEY",
+                self.edit_mindee_api_key.trim().to_string(),
+            ),
+            (
+                "APPLITOOLS_API_KEY",
+                self.edit_applitools_api_key.trim().to_string(),
             ),
             (
                 "GEMINI_AUTH_MODE",

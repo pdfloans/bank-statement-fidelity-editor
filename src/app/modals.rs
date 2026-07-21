@@ -216,9 +216,6 @@ impl AppModals for MyApp {
                             });
 
                             ui.collapsing("🔍 Verification", |ui| {
-                                if self.settings.advanced_mode {
-                                    ui.checkbox(&mut self.settings.use_pdfrest, "Adobe-tier (pdfRest)");
-                                }
                                 if ui.button("Run Full Audit")
                                     .on_hover_text("Render original vs edited at high DPI, perceptual + math diff")
                                     .clicked()
@@ -235,7 +232,7 @@ impl AppModals for MyApp {
                                         edited: self.current_pdf_path.clone(),
                                         output_dir: PathBuf::from("audit/verify").join(timestamp),
                                         intended_bboxes,
-                                        use_pdfrest: self.settings.use_pdfrest,
+                                        use_pdfrest: self.settings.verification_renderer == crate::app::config::VerificationMode::PdfRestCloud,
                                         pdfrest_key: self.config.pdfrest_api_key.clone(),
                                         auto_match_dpi: self.settings.auto_match_dpi,
                                     });
@@ -297,39 +294,10 @@ impl AppModals for MyApp {
                                 .on_hover_text("Runs multiple AIs simultaneously to perform majority-vote extraction & math cross-referencing");
                             ui.checkbox(&mut self.settings.auto_save, "Auto-save history")
                                 .on_hover_text("Persist audit/history.json after every successful edit");
-                            if ui
-                                .checkbox(&mut self.settings.three_page_mode, "3 Page Mode (default)")
-                                .on_hover_text(
-                                    "Default operating mode. Split long PDFs into <=3-page segments for editing and re-merge on save. Turn off to use standard handling.",
-                                )
-                                .changed()
-                            {
-                                // Req 1.3: persist the new toggle value immediately so the
-                                // change survives an application restart. Req 1.6: on a
-                                // persistence failure confy::store leaves the in-memory
-                                // `self.settings` untouched, so we retain the current value,
-                                // surface an error indication, and continue operating.
-                                match confy::store("bank-statement-modifier", None, &self.settings) {
-                                    Ok(()) => {}
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            "[gui] failed to persist three_page_mode: {}",
-                                            e
-                                        );
-                                        self.toast(
-                                            ToastKind::Error,
-                                            format!("Could not save 3 Page Mode setting: {e}"),
-                                        );
-                                    }
-                                }
-                            }
                             ui.add_space(8.0);
                             ui.label("Webhook (optional):");
                             ui.text_edit_singleline(&mut self.settings.webhook_url)
                                 .on_hover_text("POST a JSON payload to this URL on each successful edit");
-                            ui.label("LlamaParse API key:");
-                            ui.add(egui::TextEdit::singleline(&mut self.settings.llamaparse_api_key).password(true))
-                                .on_hover_text("Required for LlamaParse extraction mode. Get it from cloud.llamaindex.ai");
                             if ui.button("Save settings").on_hover_text("Persist these settings on disk").clicked() {
                                 // On persistence failure, the in-memory `self.settings`
                                 // is left untouched by confy::store, so we retain the
@@ -405,11 +373,32 @@ impl AppModals for MyApp {
                     .show(ui, |ui| {
                         // ── Pipeline Architecture ──
                         ui.label("Extraction:");
-                        ui.label("1\u{fe0f}\u{20e3} LlamaParse (98%) \u{2192} 2\u{fe0f}\u{20e3} Offline Heuristic (93%)");
+                        egui::ComboBox::from_id_salt("doc_parser_mode")
+                            .selected_text(self.settings.document_parser.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LlamaParse, DocumentParserMode::LlamaParse.label());
+                                ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::DocumentAi, DocumentParserMode::DocumentAi.label());
+                                ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LocalOcrs, DocumentParserMode::LocalOcrs.label());
+                                ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::OfflineHeuristic, DocumentParserMode::OfflineHeuristic.label());
+                            });
                         ui.end_row();
 
                         ui.label("Fidelity Edit:");
-                        ui.label("1\u{fe0f}\u{20e3} PyMuPDF Pro (88%) \u{2192} 2\u{fe0f}\u{20e3} Pdfium (76%) \u{2192} 3\u{fe0f}\u{20e3} Typst Reconstruct (70%)");
+                        egui::ComboBox::from_id_salt("pdf_engine_mode")
+                            .selected_text(match self.edit_engine_mode {
+                                PdfEngineMode::DualConcurrent => "Dual Concurrent",
+                                PdfEngineMode::PyMuPdfProPrimary => "PyMuPDF Pro Primary",
+                                PdfEngineMode::NativeOnly => "Native Only",
+                                PdfEngineMode::PyMuPdfOnly => "PyMuPDF Only",
+                                PdfEngineMode::TypstReconstruct => "Typst Reconstruct",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::DualConcurrent, "Dual Concurrent");
+                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::PyMuPdfProPrimary, "PyMuPDF Pro Primary");
+                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::NativeOnly, "Native Only");
+                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::PyMuPdfOnly, "PyMuPDF Only");
+                                ui.selectable_value(&mut self.edit_engine_mode, PdfEngineMode::TypstReconstruct, "Typst Reconstruct");
+                            });
                         ui.end_row();
 
                         ui.label("Ledger Reconciliation:");
@@ -417,7 +406,15 @@ impl AppModals for MyApp {
                         ui.end_row();
                         
                         ui.label("AI Analysis:");
-                        ui.label("1\u{fe0f}\u{20e3} Groq / Llama-3 (100%) \u{2192} 2\u{fe0f}\u{20e3} OpenRouter (50%)");
+                        egui::ComboBox::from_id_salt("ai_provider_mode")
+                            .selected_text(self.settings.ai_provider.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GroqApiKey, AiProviderMode::GroqApiKey.label());
+                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::OpenRouterApiKey, AiProviderMode::OpenRouterApiKey.label());
+                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiApiKey, AiProviderMode::GeminiApiKey.label());
+                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiVertex, AiProviderMode::GeminiVertex.label());
+                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::ManualOnly, AiProviderMode::ManualOnly.label());
+                            });
                         ui.end_row();
 
                         ui.label("Forensics:");
@@ -425,7 +422,12 @@ impl AppModals for MyApp {
                         ui.end_row();
 
                         ui.label("Visual QA:");
-                        ui.label("1\u{fe0f}\u{20e3} Local SSIM + pHash (100%) \u{2192} 2\u{fe0f}\u{20e3} pdfRest Cloud (86%)");
+                        egui::ComboBox::from_id_salt("visual_qa_mode")
+                            .selected_text(self.settings.verification_renderer.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::LocalPdfium, VerificationMode::LocalPdfium.label());
+                                ui.selectable_value(&mut self.settings.verification_renderer, VerificationMode::PdfRestCloud, VerificationMode::PdfRestCloud.label());
+                            });
                         ui.end_row();
 
                         // ── 5. Font Handling ──
@@ -1422,6 +1424,22 @@ impl AppModals for MyApp {
                         );
                         ui.end_row();
 
+                        ui.label("Mindee API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_mindee_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
+                        ui.label("Applitools API key:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.edit_applitools_api_key)
+                                .password(true)
+                                .desired_width(220.0),
+                        );
+                        ui.end_row();
+
                         ui.label("OpenRouter Model:");
                         ui.horizontal(|ui| {
                             egui::ComboBox::from_id_salt("or_model_combo")
@@ -1466,6 +1484,8 @@ impl AppModals for MyApp {
                                 ("GROQ_API_KEY", self.edit_groq_api_key.trim(), false),
                                 ("OPENROUTER_API_KEY", self.edit_openrouter_api_key.trim(), false),
                                 ("OPENROUTER_MODEL", self.edit_openrouter_model.trim(), false),
+                                ("MINDEE_API_KEY", self.edit_mindee_api_key.trim(), false),
+                                ("APPLITOOLS_API_KEY", self.edit_applitools_api_key.trim(), false),
                             ];
                             let content: String = new_config.iter()
                                 .map(|(k, v, _)| format!("{}={}", k, v))
@@ -1506,6 +1526,8 @@ impl AppModals for MyApp {
                                             "GROQ_API_KEY" => self.edit_groq_api_key = val,
                                             "OPENROUTER_API_KEY" => self.edit_openrouter_api_key = val,
                                             "OPENROUTER_MODEL" => self.edit_openrouter_model = val,
+                                            "MINDEE_API_KEY" => self.edit_mindee_api_key = val,
+                                            "APPLITOOLS_API_KEY" => self.edit_applitools_api_key = val,
                                             _ => {}
                                         }
                                 }
@@ -1556,6 +1578,8 @@ impl AppModals for MyApp {
                         self.edit_groq_api_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
                         self.edit_openrouter_api_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
                         self.edit_openrouter_model = std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string());
+                        self.edit_mindee_api_key = std::env::var("MINDEE_API_KEY").unwrap_or_default();
+                        self.edit_applitools_api_key = std::env::var("APPLITOOLS_API_KEY").unwrap_or_default();
                         self.toast(ToastKind::Info, "Reloaded keys from environment");
                     }
                     if ui
