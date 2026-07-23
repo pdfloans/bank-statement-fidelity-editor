@@ -216,4 +216,16 @@ impl OpenAiClient {
             serde_json::from_str(&out).map_err(|e| OpenAiError::Format(e.to_string()))?;
         Ok(repaired)
     }
+
+    pub async fn parse_transactions_from_text(
+        &self,
+        raw_text: &str,
+    ) -> Result<Vec<Transaction>, OpenAiError> {
+        let sys = "You are an expert financial data extraction AI. Extract all bank statement transactions from the provided OCR text. Return ONLY a JSON array of Transaction objects. Each transaction must have: date (YYYY-MM-DD), description, amount (negative for debit, positive for credit), balance (optional), and category (optional).";
+        let user = format!("Raw OCR Text:\n{}", raw_text);
+        let out = self.post_json(sys, &user).await?;
+        let parsed: Vec<Transaction> =
+            serde_json::from_str(&out).map_err(|e| OpenAiError::Format(e.to_string()))?;
+        Ok(parsed)
+    }
 }

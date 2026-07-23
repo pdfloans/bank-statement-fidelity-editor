@@ -1030,6 +1030,33 @@ fn dispatch_python_job(
     }
 }
 
+/// Tries OpenRouter text-based parsing as a fallback. If that fails, uses `offline_parser`.
+async fn parse_with_offline_fallback(
+    pdf_path: &std::path::Path,
+    engine: std::sync::Arc<dyn crate::pdf::PdfEngine>,
+    config: std::sync::Arc<crate::app::config::AppConfig>
+) -> Result<crate::ai::document_ai::BankStatement, String> {
+    // 1. Try OpenRouter Parser
+    match crate::engine::openrouter_parser::parse_statement_openrouter(pdf_path, engine.clone(), config.clone()).await {
+        Ok(res) => return Ok(res),
+        Err(e) => {
+            tracing::warn!("[openrouter_parser] Failed, falling back to offline_parser: {}", e);
+        }
+    }
+
+    // 2. Fallback to Offline Parser
+    let eng_clone = engine.clone();
+    let path_clone = pdf_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        crate::engine::offline_parser::parse_statement_offline(
+            &path_clone,
+            eng_clone,
+        )
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Offline parser panicked: {}", e)))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn process_job_inner(
     job: Job,
@@ -2335,29 +2362,11 @@ async fn process_job_inner(
                                 tracing::warn!(
                                     "[TRANSFER] DocAI target reparsing failed, trying offline: {e}"
                                 );
-                                let eng_clone = engine_for_tokio.clone();
-                                let path_clone = output_pdf.clone();
-                                tokio::task::spawn_blocking(move || {
-                                    crate::engine::offline_parser::parse_statement_offline(
-                                        &path_clone,
-                                        eng_clone,
-                                    )
-                                })
-                                .await
-                                .unwrap_or_else(|e| Err(format!("Offline parser panicked: {e}")))
+                                parse_with_offline_fallback(&output_pdf, engine_for_tokio.clone(), config_for_tokio.clone()).await
                             }
                         }
                     } else {
-                        let eng_clone = engine_for_tokio.clone();
-                        let path_clone = output_pdf.clone();
-                        tokio::task::spawn_blocking(move || {
-                            crate::engine::offline_parser::parse_statement_offline(
-                                &path_clone,
-                                eng_clone,
-                            )
-                        })
-                        .await
-                        .unwrap_or_else(|e| Err(format!("Offline parser panicked: {e}")))
+                        parse_with_offline_fallback(&output_pdf, engine_for_tokio.clone(), config_for_tokio.clone()).await
                     };
 
                     match reparsed_stmt {
