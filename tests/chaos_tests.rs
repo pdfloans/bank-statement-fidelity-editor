@@ -56,7 +56,7 @@ async fn test_chaos_malformed_json_repair() {
 
     let result = backend
         .repair_extracted_transactions(
-            &[tx1.clone()],
+            std::slice::from_ref(&tx1),
             dec!(100.0),
             dec!(100.0),
             "Original Text",

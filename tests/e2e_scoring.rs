@@ -15,5 +15,4 @@ fn test_e2e_pipeline_scoring() {
 
     // A true E2E score would compare structural diff ratios using `image-compare`.
     // For now, this is a placeholder verifying the test suite bootstraps correctly.
-    assert!(true, "E2E scoring framework initialized.");
 }

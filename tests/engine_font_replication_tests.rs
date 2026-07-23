@@ -58,7 +58,7 @@ fn test_extract_font_bytes() {
 
     create_pdf_with_font_file(&pdf_path);
 
-    let doc = lopdf::Document::load(&pdf_path).unwrap();
+    let _doc = lopdf::Document::load(&pdf_path).unwrap();
 
     // Should extract successfully
     let extracted = extract_font_bytes_from_pdf(&pdf_path, "TestFont").expect("Failed to extract");

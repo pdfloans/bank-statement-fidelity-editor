@@ -1,6 +1,6 @@
 # Stress Test Evaluation Matrix — Bank Statement Fidelity Editor v0.5.1
 
-**Executed:** 2026-07-21 06:01:58 UTC
+**Executed:** 2026-07-23 23:57:14 UTC
 **Platform:** Python 3.14.5, PyMuPDF 1.28.0
 
 ## Results Matrix
@@ -22,19 +22,19 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Offline Heuristic** | 88 | 98 | **93.0** | 5ms | Found 25/30 txns, closing=Y |
-| 2 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 11ms | Found 0/30 txns, 0 decimal errors |
+| 1 | **Offline Heuristic** | 88 | 98 | **93.0** | 18ms | Found 25/30 txns, closing=Y |
+| 2 | **PyMuPDF Built-in** | 0 | 95 | **47.5** | 21ms | Found 0/30 txns, 0 decimal errors |
 | 3 | **LlamaParse** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 4 | **Document AI** | 0 | 0 | **0.0** | 0ms | Not configured |
-| 5 | **Mindee API** | 0 | 0 | **0.0** | 574ms | API Error: HTTP 401 |
+| 5 | **Mindee API** | 0 | 0 | **0.0** | 0ms | API key not configured |
 
 ### Test 2: Fidelity Edit
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 135ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
-| 2 | **Pdfium** | 60 | 92 | **76.0** | 127ms | Rendered 2480x3509px @ 300DPI, content=Y |
-| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 12ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
+| 1 | **pymupdfpro** | 90 | 85 | **87.5** | 126ms | Found 18 '7' glyphs, 18 successful edits, restored=Y |
+| 2 | **Pdfium** | 60 | 92 | **76.0** | 135ms | Rendered 2480x3509px @ 300DPI, content=Y |
+| 3 | **Typst Reconstruct** | 75 | 65 | **70.0** | 131ms | 26/26 spans extractable, 1 fonts: {'Helvetica'} |
 
 ### Test 3: Math Balance
 
@@ -44,7 +44,7 @@
 | 2 | **OpenRouter AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 3 | **Groq AI** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 4 | **Document AI** | 0 | 0 | **0.0** | 0ms | Not configured |
-| 5 | **Gemini AI** | 0 | 0 | **0.0** | 24ms | HTTP 400: {
+| 5 | **Gemini AI** | 0 | 0 | **0.0** | 62ms | HTTP 400: {
   "error": {
     "code": 400,
     "message": "API key not valid. Please pass a valid API key.",
@@ -57,10 +57,10 @@
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 2493ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
-| 2 | **Applitools Eyes** | 0 | 0 | **0.0** | 409ms | Bridge script not found |
-| 3 | **Gemini Vision** | 0 | 0 | **0.0** | 615ms | HTTP 400 |
-| 4 | **pdfRest Cloud** | 0 | 0 | **0.0** | 1278ms | HTTP 401: {"error":"The provided key is not valid."} |
+| 1 | **SSIM + Tile-Max + pHash** | 100 | 100 | **100.0** | 2772ms | SSIM≈0.997970, max_tile=0.583347, diff_px=72852, region_detect=Y |
+| 2 | **Applitools Eyes** | 0 | 0 | **0.0** | 0ms | API key not configured |
+| 3 | **Gemini Vision** | 0 | 0 | **0.0** | 474ms | HTTP 400 |
+| 4 | **pdfRest Cloud** | 0 | 0 | **0.0** | 1194ms | HTTP 401: {"error":"The provided key is not valid."} |
 
 ### Test 5: Transfer Transactions
 
@@ -68,26 +68,26 @@
 |---|---|---|---|---|---|---|
 | 1 | **Groq (Llama 3)** | 0 | 0 | **0.0** | 0ms | API key not configured |
 | 2 | **OpenRouter** | 0 | 0 | **0.0** | 0ms | API key not configured |
-| 3 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 22ms | API Error No response |
+| 3 | **Gemini 1.5 Flash** | 0 | 0 | **0.0** | 19ms | API Error No response |
 
 ### Test 6: E2E GUI Testing
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 6458ms | GUI launched and tree attached correctly |
+| 1 | **Rust UIAutomation** | 100 | 100 | **100.0** | 8657ms | GUI launched and tree attached correctly |
 
 ### Test 7: PII Anonymization
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
 | 1 | **Groq PII** | 0 | 0 | **0.0** | 0ms | API key not configured |
-| 2 | **Gemini 1.5 PII** | 0 | 0 | **0.0** | 19ms | API Error No response |
+| 2 | **Gemini 1.5 PII** | 0 | 0 | **0.0** | 42ms | API Error No response |
 
 ### Test 8: Forensic Evasion
 
 | Rank | Tool | Correctness | Fidelity | Avg | Latency | Details |
 |---|---|---|---|---|---|---|
-| 1 | **PyMuPDF Pro** | 100 | 100 | **100.0** | 0ms | Producer: '', Creator: '', EOF markers: 1 |
+| 1 | **PyMuPDF Pro** | 100 | 100 | **100.0** | 8ms | Producer: '', Creator: '', EOF markers: 1 |
 | 2 | **Typst Reconstruct** | 80 | 100 | **90.0** | 0ms | Clean rebuild, single %%EOF, but likely leaves Typst metadata tag |
 | 3 | **Pdfium** | 0 | 0 | **0.0** | 0ms | Output is an image raster, not a vector PDF. Fails structural forensics completely. |
 
