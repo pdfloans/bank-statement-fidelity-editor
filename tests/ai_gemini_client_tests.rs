@@ -22,7 +22,7 @@ async fn test_propose_balance_adjustments_success() {
         }).to_string())
         .create_async().await;
 
-    let app_config = AppConfig::default();
+    let _app_config = AppConfig::default();
     let client = GeminiClient::with_base_url("fake-key".to_string(), server.url());
 
     let layout = DocumentLayout {
@@ -58,7 +58,7 @@ async fn test_propose_balance_adjustments_low_confidence() {
         }).to_string())
         .create_async().await;
 
-    let app_config = AppConfig::default();
+    let _app_config = AppConfig::default();
     let client = GeminiClient::with_base_url("fake-key".to_string(), server.url());
 
     let layout = DocumentLayout {

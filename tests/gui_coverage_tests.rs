@@ -19,6 +19,7 @@ fn make_app() -> (MyApp, mpsc::Receiver<Job>, mpsc::Sender<JobResult>) {
     (app, job_rx_out, job_tx_in)
 }
 
+#[allow(dead_code)]
 fn try_click_labels(harness: &mut egui_kittest::Harness, labels: &[&str]) {
     for &label in labels {
         if let Some(btn) = harness.get_all_by_label_contains(label).next() {
@@ -44,7 +45,7 @@ fn test_overkill_modals_coverage() {
         ActiveModal::TransferTest,
     ];
 
-    let common_buttons = [
+    let _common_buttons = [
         "Cancel",
         "Confirm",
         "Save",
@@ -99,7 +100,7 @@ fn test_overkill_workflows_coverage() {
         ActiveWorkflow::ApiKeys,
     ];
 
-    let common_buttons = [
+    let _common_buttons = [
         "Parse",
         "Fit",
         "100%",

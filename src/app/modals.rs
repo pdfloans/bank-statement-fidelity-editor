@@ -1414,7 +1414,7 @@ impl AppModals for MyApp {
                                 .password(true)
                                 .desired_width(220.0),
                         )
-                        .on_hover_text("24-char 'hFKt...' trial key enables per-segment Pro editing.");
+                        .on_hover_text("PyMuPDF Pro license key — trial ('hFKt...' 24-char) or commercial (≥16 chars) enables per-segment Pro editing.");
                         ui.end_row();
 
 

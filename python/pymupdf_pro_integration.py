@@ -34,7 +34,7 @@ except Exception as _e:  # ImportError or any loader-level failure
         file=sys.stderr,
     )
 
-PYMUPDF_PRO_KEY = os.environ.get("PYMUPDF_PRO_KEY", "hFKt4hca03GCFLAFLEGz5Bd3")
+PYMUPDF_PRO_KEY = os.environ.get("PYMUPDF_PRO_KEY", "")
 
 # ---------------------------------------------------------------------------
 # PyMuPDF Pro 3-page licensing limit (Requirement 5).

@@ -153,7 +153,8 @@ mod tests {
             if let Ok(Ok(event)) = res {
                 if let WatchdogEvent::Telemetry { cpu_usage, ram_mb } = event {
                     assert!(cpu_usage >= 0.0);
-                    assert!(ram_mb >= 0);
+                    // ram_mb is usize — always >= 0. Sanity-check it's reasonable.
+                    let _ = ram_mb;
                 }
             } else {
                 panic!("Did not receive event in time");

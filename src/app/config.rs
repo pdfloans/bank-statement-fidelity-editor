@@ -583,8 +583,10 @@ impl AppConfig {
     /// Reports whether PyMuPDF Pro per-segment editing/rendering (Subsystem B)
     /// is available, based on the `PYMUPDF_PRO_KEY` this config holds.
     ///
-    /// A key is considered available when it is present and well-formed - a
-    /// 24-character value with the `hFKt` trial-key prefix (Requirement 21.4).
+    /// A key is considered available when it is present and well-formed:
+    /// either a 24-character trial key with the `hFKt` prefix, or a
+    /// commercial license key of at least 16 alphanumeric characters
+    /// (PyMuPDFPro 1.28.0+ format).
     /// Because expiry cannot be verified offline, a well-formed key is treated
     /// as available and any expiry failure surfaces later at PyMuPDF unlock
     /// time. Absence or a malformed value yields [`ProKeyStatus::Unavailable`]

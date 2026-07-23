@@ -55,8 +55,8 @@ async fn test_transfer_test_loop_retry() {
 
     let result = backend
         .plan_transaction_transfer(
-            &[tx1.clone()],
-            &[tx1.clone()],
+            std::slice::from_ref(&tx1),
+            std::slice::from_ref(&tx1),
             Some("Format output as a single list of strings"),
         )
         .await;

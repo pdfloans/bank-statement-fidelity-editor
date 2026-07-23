@@ -33,7 +33,7 @@ async fn test_parse_entire_statement_success() {
         .create_async()
         .await;
 
-    let app_config = AppConfig::default();
+    let _app_config = AppConfig::default();
     let config = DocumentAiConfig {
         project_id: "my-project".to_string(),
         location: "us".to_string(),
@@ -94,7 +94,7 @@ async fn test_parse_entire_statement_success() {
 async fn test_parse_entire_statement_retry_on_429() {
     let mut server = Server::new_async().await;
 
-    let doc_ai_response = serde_json::json!({
+    let _doc_ai_response = serde_json::json!({
         "document": {
             "text": "Opening Balance: $0\nClosing Balance: $0\n",
             "entities": [],
@@ -119,7 +119,7 @@ async fn test_parse_entire_statement_retry_on_429() {
         .create_async()
         .await;
 
-    let app_config = AppConfig::default();
+    let _app_config = AppConfig::default();
     let config = DocumentAiConfig {
         project_id: "my-project".to_string(),
         location: "us".to_string(),

@@ -147,7 +147,7 @@ async fn verify_pymupdf_pro(config: &AppConfig) -> VerificationResult {
             latency_ms: start.elapsed().as_millis() as u64,
             error_message: Some("PYMUPDF_PRO_KEY not configured".to_string()),
             guidance: Some(
-                "Set PYMUPDF_PRO_KEY environment variable with a 24-character trial key (prefix 'hFKt'). \
+                "Set PYMUPDF_PRO_KEY environment variable with your PyMuPDF Pro license key. \
                  Obtain from https://pymupdf.io/".to_string()
             ),
             method_used: None,
@@ -163,11 +163,11 @@ async fn verify_pymupdf_pro(config: &AppConfig) -> VerificationResult {
             status: VerificationStatus::Failed,
             latency_ms: start.elapsed().as_millis() as u64,
             error_message: Some(
-                "Invalid key format (must be 24 characters with 'hFKt' prefix)".to_string(),
+                "Invalid key format (must be at least 16 alphanumeric characters)".to_string(),
             ),
             guidance: Some(
-                "Ensure PYMUPDF_PRO_KEY is exactly 24 characters with 'hFKt' prefix. \
-                 Example: hFKt4hca03GCFLAFLEGz5Bd3"
+                "Ensure PYMUPDF_PRO_KEY is a valid license key: either a 24-char trial key (hFKt prefix) \
+                 or a commercial key (≥16 alphanumeric chars). Obtain from https://pymupdf.io/"
                     .to_string(),
             ),
             method_used: None,

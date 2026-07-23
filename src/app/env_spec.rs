@@ -56,10 +56,10 @@ pub const ENV_VARS: &[EnvVarSpec] = &[
     EnvVarSpec {
         name: "PYMUPDF_PRO_KEY",
         requirement: Requirement::Required,
-        summary: "PyMuPDF Pro license key (24-char trial key, prefix 'hFKt').",
+        summary: "PyMuPDF Pro license key (trial or commercial).",
         enables: "Per-segment editing/rendering (Subsystem B). Split/merge work without it.",
-        setup_hint: "Obtain from https://pymupdf.io/ and keep it out of version control. A 24-char 'hFKt'-prefixed trial key is accepted; splitting and merging run regardless of this key.",
-        example: "hFKtxxxxxxxxxxxxxxxxxxxx",
+        setup_hint: "Obtain from https://pymupdf.io/ and keep it out of version control. Both 24-char 'hFKt'-prefixed trial keys and commercial license keys (≥16 chars) are accepted; splitting and merging run regardless of this key.",
+        example: "s50Hve2NbxCLVLIVqEU3lzFY",
     },
     EnvVarSpec {
         name: "GEMINI_API_KEY",
@@ -163,13 +163,26 @@ pub const PYMUPDF_PRO_KEY_VAR: &str = "PYMUPDF_PRO_KEY";
 pub const PRO_TRIAL_KEY_LEN: usize = 24;
 
 /// The recognized prefix of a PyMuPDF Pro trial key.
+/// Note: this only applies to the legacy trial key format. Commercial
+/// license keys from PyMuPDFPro 1.28.0+ use different prefixes.
 pub const PRO_TRIAL_KEY_PREFIX: &str = "hFKt";
+
+/// Minimum length for any PyMuPDF Pro key (trial or commercial).
+pub const PRO_KEY_MIN_LEN: usize = 16;
+
+/// Returns `true` when `key` is a well-formed PyMuPDF Pro trial key
+/// (legacy 24-char `hFKt`-prefixed format).
+pub fn is_trial_pro_key(key: &str) -> bool {
+    key.chars().count() == PRO_TRIAL_KEY_LEN && key.starts_with(PRO_TRIAL_KEY_PREFIX)
+}
 
 /// Returns `true` when `key` is a well-formed PyMuPDF Pro key.
 ///
-/// "Well-formed" here means it matches the shape of the 24-character trial
-/// key documented for this application: exactly [`PRO_TRIAL_KEY_LEN`]
-/// characters with the [`PRO_TRIAL_KEY_PREFIX`] prefix (per Requirement 21.4).
+/// Accepts two formats:
+/// 1. **Trial keys**: exactly [`PRO_TRIAL_KEY_LEN`] characters with the
+///    [`PRO_TRIAL_KEY_PREFIX`] prefix (legacy `hFKt` format).
+/// 2. **Commercial license keys**: any alphanumeric string of at least
+///    [`PRO_KEY_MIN_LEN`] characters (PyMuPDFPro 1.28.0+ format).
 ///
 /// # Offline expiry caveat
 /// There is no offline way to verify that a Pro key is unexpired - that can
@@ -179,7 +192,16 @@ pub const PRO_TRIAL_KEY_PREFIX: &str = "hFKt";
 /// unavailable. Splitting and merging (Subsystem A) never consult this and
 /// run regardless (Requirements 11.2, 21.5).
 pub fn is_well_formed_pro_key(key: &str) -> bool {
-    key.chars().count() == PRO_TRIAL_KEY_LEN && key.starts_with(PRO_TRIAL_KEY_PREFIX)
+    let len = key.chars().count();
+    if len < PRO_KEY_MIN_LEN {
+        return false;
+    }
+    // Trial key format
+    if is_trial_pro_key(key) {
+        return true;
+    }
+    // Commercial key: alphanumeric chars only, at least PRO_KEY_MIN_LEN long
+    key.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 /// Build a detailed, multi-line setup-guidance message for a single
@@ -241,20 +263,43 @@ mod tests {
     }
 
     #[test]
-    fn well_formed_pro_key_accepts_24_char_hfkt_key() {
+    fn well_formed_pro_key_accepts_24_char_hfkt_trial_key() {
         // 4-char "hFKt" prefix + 20 trailing chars == 24 chars total.
         let key = "hFKt4hca03GCFLAFLEGz5Bd3";
         assert_eq!(key.chars().count(), PRO_TRIAL_KEY_LEN);
         assert!(is_well_formed_pro_key(key));
+        assert!(is_trial_pro_key(key));
     }
 
     #[test]
-    fn well_formed_pro_key_rejects_wrong_length_or_prefix() {
+    fn well_formed_pro_key_accepts_commercial_key() {
+        // Commercial key: 24 chars, no hFKt prefix
+        let key = "s50Hve2NbxCLVLIVqEU3lzFY";
+        assert!(is_well_formed_pro_key(key));
+        assert!(!is_trial_pro_key(key));
+    }
+
+    #[test]
+    fn well_formed_pro_key_accepts_long_commercial_key() {
+        // Commercial key: longer than 24 chars
+        let key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234";
+        assert!(is_well_formed_pro_key(key));
+    }
+
+    #[test]
+    fn well_formed_pro_key_rejects_too_short() {
         assert!(!is_well_formed_pro_key("")); // empty
-        assert!(!is_well_formed_pro_key("hFKt")); // too short
-        assert!(!is_well_formed_pro_key("hFKt4hca03GCFLAFLEGz5Bd")); // 23 chars
-        assert!(!is_well_formed_pro_key("hFKt4hca03GCFLAFLEGz5Bd33")); // 25 chars
-        assert!(!is_well_formed_pro_key("XXXX4hca03GCFLAFLEGz5Bd3")); // wrong prefix, 24 chars
+        assert!(!is_well_formed_pro_key("hFKt")); // 4 chars
+        assert!(!is_well_formed_pro_key("short")); // 5 chars
+        assert!(!is_well_formed_pro_key("0123456789abcde")); // 15 chars (< min 16)
+    }
+
+    #[test]
+    fn well_formed_pro_key_rejects_non_alphanumeric() {
+        // Non-alphanumeric chars in non-trial key
+        assert!(!is_well_formed_pro_key("key-with-dashes-here!")); // has dashes and !
+        assert!(!is_well_formed_pro_key("key_with_underscores_xx")); // has underscores
+        assert!(!is_well_formed_pro_key("has spaces in the key!")); // has spaces
     }
 
     #[test]

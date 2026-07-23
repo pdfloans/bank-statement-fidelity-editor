@@ -24,4 +24,5 @@ fn test_computer_use_framework_bootstrap() {
 
     // Clean up
     child.kill().unwrap();
+    let _ = child.wait();
 }

@@ -16,8 +16,10 @@ fn test_gui_headless_interactions() {
     let ctx = egui::Context::default();
 
     // Simulate some GUI time passing
-    let mut raw_input = egui::RawInput::default();
-    raw_input.time = Some(0.0);
+    let mut raw_input = egui::RawInput {
+        time: Some(0.0),
+        ..Default::default()
+    };
 
     // Test 1: Drag and Drop file ingestion
     raw_input.dropped_files.push(egui::DroppedFile {
@@ -174,8 +176,5 @@ fn test_gui_headless_interactions() {
         });
     }
 
-    assert!(
-        true,
-        "Headless GUI framework initialized and interacted successfully"
-    );
+    // If we reached here without panicking, the test passed.
 }
