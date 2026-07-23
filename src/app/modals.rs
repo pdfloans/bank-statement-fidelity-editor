@@ -1595,34 +1595,35 @@ impl AppModals for MyApp {
                         .on_hover_text("Discard edits and re-read the current environment")
                         .clicked()
                     {
-                        self.edit_gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
-                        self.edit_docai_project_id = std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default();
-                        self.edit_docai_location = {
-                            let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
-                            if l.is_empty() { "us".to_string() } else { l }
-                        };
-                        self.edit_docai_processor_id = std::env::var("DOCUMENT_AI_PROCESSOR_ID").unwrap_or_default();
-                        self.edit_docai_service_account = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default();
-                        self.edit_docai_api_key = std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default();
-                        self.edit_pymupdf_pro_key = std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default();
-                        self.edit_gemini_use_vertex = matches!(
-                            std::env::var("GEMINI_AUTH_MODE")
-                                .unwrap_or_default()
-                                .trim()
-                                .to_ascii_lowercase()
-                                .as_str(),
-                            "vertex" | "vertex_ai" | "vertexai"
-                        );
-
-                        self.edit_llamaparse_api_key = std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default();
-                        self.edit_pdfrest_api_key = std::env::var("PDFREST_API_KEY").unwrap_or_default();
-                        self.edit_lipi_api_key = std::env::var("LIPI_API_KEY").unwrap_or_default();
-                        self.edit_vision_api_key = std::env::var("VISION_API_KEY").unwrap_or_default();
-                        self.edit_groq_api_key = std::env::var("GROQ_API_KEY").unwrap_or_default();
-                        self.edit_openrouter_api_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
-                        self.edit_openrouter_model = std::env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "deepseek/deepseek-chat".to_string());
-                        self.edit_mindee_api_key = std::env::var("MINDEE_API_KEY").unwrap_or_default();
-                        self.edit_applitools_api_key = std::env::var("APPLITOOLS_API_KEY").unwrap_or_default();
+                        dotenvy::dotenv().ok();
+                        let new_config = crate::app::config::AppConfig::from_env().unwrap_or_default();
+                        self.edit_gemini_api_key = new_config.gemini_api_key.clone().unwrap_or_default();
+                        
+                        if let Some(doc) = &new_config.document_ai {
+                            self.edit_docai_project_id = doc.project_id.clone();
+                            self.edit_docai_location = doc.location.clone();
+                            self.edit_docai_processor_id = doc.processor_id.clone();
+                            self.edit_docai_service_account = doc.service_account_path.clone();
+                            self.edit_docai_api_key = doc.api_key.clone();
+                        } else {
+                            self.edit_docai_project_id.clear();
+                            self.edit_docai_location = "us".to_string();
+                            self.edit_docai_processor_id.clear();
+                            self.edit_docai_service_account.clear();
+                            self.edit_docai_api_key.clear();
+                        }
+                        
+                        self.edit_pymupdf_pro_key = new_config.pymupdf_pro_key.clone().unwrap_or_default();
+                        self.edit_gemini_use_vertex = matches!(new_config.gemini_auth_mode, crate::app::config::GeminiAuthMode::Vertex);
+                        self.edit_llamaparse_api_key = new_config.llamaparse_api_key.clone().unwrap_or_default();
+                        self.edit_pdfrest_api_key = new_config.pdfrest_api_key.clone().unwrap_or_default();
+                        self.edit_lipi_api_key = new_config.lipi_api_key.clone().unwrap_or_default();
+                        self.edit_vision_api_key = new_config.vision_api_key.clone().unwrap_or_default();
+                        self.edit_groq_api_key = new_config.groq_api_key.clone().unwrap_or_default();
+                        self.edit_openrouter_api_key = new_config.openrouter_api_key.clone().unwrap_or_default();
+                        self.edit_openrouter_model = new_config.openrouter_model.clone();
+                        self.edit_mindee_api_key = new_config.mindee_api_key.clone().unwrap_or_default();
+                        self.edit_applitools_api_key = new_config.applitools_api_key.clone().unwrap_or_default();
                         self.toast(ToastKind::Info, "Reloaded keys from environment");
                     }
                     if ui

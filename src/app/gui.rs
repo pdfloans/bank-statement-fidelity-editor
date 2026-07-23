@@ -495,39 +495,23 @@ impl MyApp {
             settings,
             // Seed API-key editor buffers from the current environment so the
             // Settings panel shows what's active. Values are masked in the UI.
-            edit_gemini_api_key: std::env::var("GEMINI_API_KEY").unwrap_or_default(),
-            edit_docai_project_id: std::env::var("DOCUMENT_AI_PROJECT_ID").unwrap_or_default(),
-            edit_docai_location: {
-                let l = std::env::var("DOCUMENT_AI_LOCATION").unwrap_or_default();
-                if l.is_empty() {
-                    "us".to_string()
-                } else {
-                    l
-                }
-            },
-            edit_docai_processor_id: std::env::var("DOCUMENT_AI_PROCESSOR_ID").unwrap_or_default(),
-            edit_docai_service_account: std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
-                .unwrap_or_default(),
-            edit_docai_api_key: std::env::var("DOCUMENT_AI_API_KEY").unwrap_or_default(),
-            edit_pymupdf_pro_key: std::env::var("PYMUPDF_PRO_KEY").unwrap_or_default(),
-            edit_llamaparse_api_key: std::env::var("LLAMAPARSE_API_KEY").unwrap_or_default(),
-            edit_pdfrest_api_key: std::env::var("PDFREST_API_KEY").unwrap_or_default(),
-            edit_vision_api_key: std::env::var("VISION_API_KEY").unwrap_or_default(),
-            edit_groq_api_key: std::env::var("GROQ_API_KEY").unwrap_or_default(),
-            edit_openrouter_api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
-            edit_openrouter_model: std::env::var("OPENROUTER_MODEL")
-                .unwrap_or_else(|_| "deepseek/deepseek-chat".to_string()),
-            edit_lipi_api_key: std::env::var("LIPI_API_KEY").unwrap_or_default(),
-            edit_mindee_api_key: std::env::var("MINDEE_API_KEY").unwrap_or_default(),
-            edit_applitools_api_key: std::env::var("APPLITOOLS_API_KEY").unwrap_or_default(),
-            edit_gemini_use_vertex: matches!(
-                std::env::var("GEMINI_AUTH_MODE")
-                    .unwrap_or_default()
-                    .trim()
-                    .to_ascii_lowercase()
-                    .as_str(),
-                "vertex" | "vertex_ai" | "vertexai"
-            ),
+            edit_gemini_api_key: config.gemini_api_key.clone().unwrap_or_default(),
+            edit_docai_project_id: config.document_ai.as_ref().map(|d| d.project_id.clone()).unwrap_or_default(),
+            edit_docai_location: config.document_ai.as_ref().map(|d| d.location.clone()).unwrap_or_else(|| "us".to_string()),
+            edit_docai_processor_id: config.document_ai.as_ref().map(|d| d.processor_id.clone()).unwrap_or_default(),
+            edit_docai_service_account: config.document_ai.as_ref().map(|d| d.service_account_path.clone()).unwrap_or_default(),
+            edit_docai_api_key: config.document_ai.as_ref().map(|d| d.api_key.clone()).unwrap_or_default(),
+            edit_pymupdf_pro_key: config.pymupdf_pro_key.clone().unwrap_or_default(),
+            edit_llamaparse_api_key: config.llamaparse_api_key.clone().unwrap_or_default(),
+            edit_pdfrest_api_key: config.pdfrest_api_key.clone().unwrap_or_default(),
+            edit_vision_api_key: config.vision_api_key.clone().unwrap_or_default(),
+            edit_groq_api_key: config.groq_api_key.clone().unwrap_or_default(),
+            edit_openrouter_api_key: config.openrouter_api_key.clone().unwrap_or_default(),
+            edit_openrouter_model: config.openrouter_model.clone(),
+            edit_lipi_api_key: config.lipi_api_key.clone().unwrap_or_default(),
+            edit_mindee_api_key: config.mindee_api_key.clone().unwrap_or_default(),
+            edit_applitools_api_key: config.applitools_api_key.clone().unwrap_or_default(),
+            edit_gemini_use_vertex: matches!(config.gemini_auth_mode, crate::app::config::GeminiAuthMode::Vertex),
             edit_engine_mode: config.engine_mode,
             config_status: None,
             credential_validation_status: None,

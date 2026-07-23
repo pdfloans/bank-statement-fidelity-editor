@@ -92,6 +92,7 @@ async fn test_verify_edit_pages_identical() {
         math,
         None,  // only_pages
         false, // auto_match_dpi
+        None,  // vision_api_key
     )
     .await
     .expect("Verification failed");
@@ -131,6 +132,7 @@ async fn test_verify_edit_pages_different() {
         math,
         None,
         false,
+        None,
     )
     .await
     .expect("Verification failed");

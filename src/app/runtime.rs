@@ -2226,6 +2226,7 @@ async fn process_job_inner(
                             expected_final_balance: None,
                         },
                         cfg.auto_match_dpi,
+                        cfg.vision_api_key.clone(),
                     )
                     .await;
 
@@ -5116,6 +5117,7 @@ async fn process_job_inner(
                             &intended_bboxes,
                             math_inputs,
                             auto_match_dpi,
+                            config_for_tokio.vision_api_key.clone(),
                         )
                         .await
                         {
@@ -6514,6 +6516,7 @@ async fn process_job_inner(
                             Some(&changed_pages),
                             crate::engine::workflow::mask_padding_for_attempt(attempt),
                             cfg.auto_match_dpi,
+                            cfg.vision_api_key.clone(),
                         )
                         .await
                     };

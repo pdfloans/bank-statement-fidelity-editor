@@ -368,6 +368,7 @@ pub async fn verify_edit(
     intended_bboxes: &[(usize, [f32; 4])],
     math_inputs: MathInputs,
     auto_match_dpi: bool,
+    vision_api_key: Option<String>,
 ) -> Result<VerificationReport, VerificationError> {
     verify_edit_pages(
         original,
@@ -377,6 +378,7 @@ pub async fn verify_edit(
         math_inputs,
         None,
         auto_match_dpi,
+        vision_api_key,
     )
     .await
 }
@@ -396,6 +398,7 @@ pub async fn verify_edit_pages(
     math_inputs: MathInputs,
     only_pages: Option<&[usize]>,
     auto_match_dpi: bool,
+    vision_api_key: Option<String>,
 ) -> Result<VerificationReport, VerificationError> {
     verify_edit_pages_with_padding(
         original,
@@ -406,6 +409,7 @@ pub async fn verify_edit_pages(
         only_pages,
         0.0,
         auto_match_dpi,
+        vision_api_key,
     )
     .await
 }
@@ -427,6 +431,7 @@ pub async fn verify_edit_pages_with_padding(
     only_pages: Option<&[usize]>,
     mask_padding_pts: f32,
     auto_match_dpi: bool,
+    vision_api_key: Option<String>,
 ) -> Result<VerificationReport, VerificationError> {
     std::fs::create_dir_all(output_dir)?;
 
@@ -576,10 +581,9 @@ pub async fn verify_edit_pages_with_padding(
         let mut vision_passed = true;
         let img1_path_str = orig_png_path.to_string_lossy();
         let img2_path_str = edit_png_path.to_string_lossy();
-        let use_vision_ai =
-            std::env::var("USE_VISION_AI").unwrap_or_else(|_| "true".to_string()) == "true";
+        let use_vision_ai = vision_api_key.is_some();
         if use_vision_ai {
-            if let Ok(vision_key) = std::env::var("VISION_API_KEY") {
+            if let Some(vision_key) = &vision_api_key {
                 if !vision_key.is_empty() {
                     // Call the new vision API module directly instead of node bridge
                     // We must use block_in_place because original_doc and edited_doc are not Send,
