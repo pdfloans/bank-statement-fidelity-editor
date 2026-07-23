@@ -43,7 +43,6 @@ fn drain_until<F: Fn(&JobResult) -> bool>(
 }
 
 #[test]
-#[ignore]
 fn end_to_end_workflow_against_au_statement() {
     let pdf = PathBuf::from("AU Bank Statements/IA_Bank_Statement_202602.pdf");
     if !pdf.exists() {

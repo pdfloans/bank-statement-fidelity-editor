@@ -14,14 +14,33 @@ fn test_runtime_stress_load() {
 
     let test_pdf = PathBuf::from("examples/sample.pdf");
 
-    // Dispatch 100 concurrent jobs to stress test the runtime queue
-    let num_jobs = 100;
+    // Dispatch 10 concurrent WorkflowParseAndValidate jobs to stress test the real AI APIs
+    let num_jobs = 10;
     for i in 0..num_jobs {
-        let job = Job::LoadDocument {
-            path: test_pdf.clone(),
-            three_page_mode: false,
+        let job = Job::WorkflowParseAndValidate {
+            input: test_pdf.clone(),
+            version: None,
+            parser_mode: dual_core_pdf_pipeline::app::config::DocumentParserMode::LlamaParse,
+            ai_provider: dual_core_pdf_pipeline::app::config::AiProviderMode::GeminiApiKey,
+            ignore_offline_fallback: false,
         };
-        // Just verify we can push them without crashing
         assert!(job_tx.send(job).is_ok(), "Failed to enqueue job {}", i);
+    }
+
+    // Wait for all 10 jobs to complete
+    let mut completed = 0;
+    while completed < num_jobs {
+        let res = _job_rx.recv_timeout(std::time::Duration::from_secs(300)).expect("Timeout waiting for job completion");
+        match res {
+            dual_core_pdf_pipeline::app::runtime::JobResult::WorkflowParseValidated { .. } => {
+                completed += 1;
+                println!("Job completed successfully! {}/{}", completed, num_jobs);
+            }
+            dual_core_pdf_pipeline::app::runtime::JobResult::Error { message, .. } => {
+                completed += 1;
+                println!("Job failed: {} ({}/{})", message, completed, num_jobs);
+            }
+            _ => {} // Ignore progress updates
+        }
     }
 }
