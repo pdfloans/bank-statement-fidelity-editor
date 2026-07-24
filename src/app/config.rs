@@ -191,6 +191,8 @@ pub enum AiProviderMode {
     GroqApiKey,
     /// OpenRouter API (access to DeepSeek and hundreds of other models).
     OpenRouterApiKey,
+    /// Mistral AI API (Mistral's native endpoint).
+    MistralApiKey,
 }
 
 impl AiProviderMode {
@@ -200,6 +202,7 @@ impl AiProviderMode {
             Self::GeminiVertex => "Gemini (Vertex AI)",
             Self::GroqApiKey => "Groq (Llama 3 / Fast)",
             Self::OpenRouterApiKey => "OpenRouter (DeepSeek)",
+            Self::MistralApiKey => "Mistral AI",
             Self::ManualOnly => "Manual Only (No AI)",
         }
     }
@@ -213,6 +216,7 @@ impl AiProviderMode {
             Self::GeminiVertex => "gemini_vertex",
             Self::GroqApiKey => "groq_api_key",
             Self::OpenRouterApiKey => "openrouter_api_key",
+            Self::MistralApiKey => "mistral_api_key",
             Self::ManualOnly => "manual_only",
         }
     }
@@ -226,6 +230,7 @@ impl AiProviderMode {
             "gemini_vertex" | "vertex" | "vertex_ai" => Self::OpenRouterApiKey,
             "groq_api_key" | "groq" => Self::GroqApiKey,
             "openrouter_api_key" | "openrouter" => Self::OpenRouterApiKey,
+            "mistral_api_key" | "mistral" | "mistralai" => Self::MistralApiKey,
             "manual_only" | "manual" => Self::ManualOnly,
             _ => Self::ManualOnly,
         }
@@ -290,10 +295,12 @@ pub struct AppConfig {
     pub lipi_api_key: Option<String>,
     pub groq_api_key: Option<String>,
     pub openrouter_api_key: Option<String>,
+    pub mistral_api_key: Option<String>,
     pub mindee_api_key: Option<String>,
     pub applitools_api_key: Option<String>,
     pub vision_api_key: Option<String>,
     pub openrouter_model: String,
+    pub mistral_model: String,
     pub ai_provider: AiProviderMode,
     pub document_ai: Option<DocumentAiConfig>,
     pub pymupdf_pro_key: Option<String>, // Changed to Option - must come from env
@@ -336,6 +343,9 @@ impl Drop for AppConfig {
         if let Some(key) = &mut self.openrouter_api_key {
             key.zeroize();
         }
+        if let Some(key) = &mut self.mistral_api_key {
+            key.zeroize();
+        }
         if let Some(key) = &mut self.mindee_api_key {
             key.zeroize();
         }
@@ -369,10 +379,12 @@ impl Default for AppConfig {
             lipi_api_key: None,
             groq_api_key: None,
             openrouter_api_key: None,
+            mistral_api_key: None,
             mindee_api_key: None,
             applitools_api_key: None,
             vision_api_key: None,
-            openrouter_model: "deepseek/deepseek-chat".to_string(),
+            openrouter_model: "mistralai/mistral-nemo:free".to_string(),
+            mistral_model: "mistral-large-latest".to_string(),
             ai_provider: AiProviderMode::default(),
             document_ai: None,
 
@@ -412,8 +424,11 @@ impl AppConfig {
         let gemini_api_key = clean_key(env::var("GEMINI_API_KEY"));
         let groq_api_key = clean_key(env::var("GROQ_API_KEY"));
         let openrouter_api_key = clean_key(env::var("OPENROUTER_API_KEY"));
+        let mistral_api_key = clean_key(env::var("MISTRAL_API_KEY"));
         let openrouter_model = clean_key(env::var("OPENROUTER_MODEL"))
-            .unwrap_or_else(|| "deepseek/deepseek-chat".to_string());
+            .unwrap_or_else(|| "mistralai/mistral-nemo:free".to_string());
+        let mistral_model = clean_key(env::var("MISTRAL_MODEL"))
+            .unwrap_or_else(|| "mistral-large-latest".to_string());
         let pdfrest_api_key = clean_key(env::var("PDFREST_API_KEY"));
         let lipi_api_key = clean_key(env::var("LIPI_API_KEY"));
         let mindee_api_key = clean_key(env::var("MINDEE_API_KEY"));
@@ -520,10 +535,12 @@ impl AppConfig {
             gemini_api_key,
             groq_api_key,
             openrouter_api_key,
+            mistral_api_key,
             mindee_api_key,
             applitools_api_key,
             vision_api_key,
             openrouter_model,
+            mistral_model,
             ai_provider,
             pdfrest_api_key,
             lipi_api_key,
@@ -639,6 +656,7 @@ impl AppConfig {
                 .unwrap_or(false),
             AiProviderMode::GroqApiKey => self.groq_api_key.is_some(),
             AiProviderMode::OpenRouterApiKey => self.openrouter_api_key.is_some(),
+            AiProviderMode::MistralApiKey => self.mistral_api_key.is_some(),
         }
     }
 
@@ -659,6 +677,7 @@ impl AppConfig {
             gemini_api_key: self.gemini_api_key.is_some(),
             groq_api_key: self.groq_api_key.is_some(),
             openrouter_api_key: self.openrouter_api_key.is_some(),
+            mistral_api_key: self.mistral_api_key.is_some(),
             gemini_vertex: self
                 .document_ai
                 .as_ref()
@@ -700,6 +719,7 @@ pub struct ApiAvailability {
     pub gemini_api_key: bool,
     pub groq_api_key: bool,
     pub openrouter_api_key: bool,
+    pub mistral_api_key: bool,
     /// A service-account or ADC path is configured for Vertex AI.
     pub gemini_vertex: bool,
     /// Google Document AI processor + auth are fully configured.
@@ -728,6 +748,7 @@ impl ApiAvailability {
             }
             "groq" => self.groq_api_key = false,
             "openrouter" => self.openrouter_api_key = false,
+            "mistral" => self.mistral_api_key = false,
 
             "llamaparse" => self.llamaparse = false,
             "document ai" | "document ai (vertex)" => self.document_ai = false,
@@ -762,6 +783,9 @@ impl ApiAvailability {
             "openrouter_api_key" if !self.openrouter_api_key => {
                 Some("OPENROUTER_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
+            "mistral_api_key" if !self.mistral_api_key => {
+                Some("MISTRAL_API_KEY not configured. Set it in Settings -> API Keys or .env.")
+            }
             "vision_ai" if !self.vision_ai => {
                 Some("VISION_API_KEY not configured. Set it in Settings -> API Keys or .env.")
             }
@@ -784,6 +808,7 @@ impl ApiAvailability {
         tracing::info!(
             gemini_api = self.gemini_api_key,
             gemini_vertex = self.gemini_vertex,
+            mistral_api = self.mistral_api_key,
             document_ai = self.document_ai,
             llamaparse = self.llamaparse,
             pdfrest = self.pdfrest,

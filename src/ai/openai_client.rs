@@ -47,6 +47,14 @@ impl OpenAiClient {
                     cfg.openrouter_model.clone(),
                 )
             }
+            AiProviderMode::MistralApiKey => {
+                let k = cfg.mistral_api_key.clone().ok_or(OpenAiError::MissingKey)?;
+                (
+                    k,
+                    "https://api.mistral.ai/v1".to_string(),
+                    cfg.mistral_model.clone(),
+                )
+            }
             _ => return Err(OpenAiError::MissingKey),
         };
         Ok(Self {

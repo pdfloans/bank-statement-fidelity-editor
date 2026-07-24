@@ -359,6 +359,8 @@ pub struct MyApp {
     pub edit_groq_api_key: String,
     pub edit_openrouter_api_key: String,
     pub edit_openrouter_model: String,
+    pub edit_mistral_api_key: String,
+    pub edit_mistral_model: String,
     pub edit_lipi_api_key: String,
     pub edit_mindee_api_key: String,
     pub edit_applitools_api_key: String,
@@ -508,6 +510,8 @@ impl MyApp {
             edit_groq_api_key: config.groq_api_key.clone().unwrap_or_default(),
             edit_openrouter_api_key: config.openrouter_api_key.clone().unwrap_or_default(),
             edit_openrouter_model: config.openrouter_model.clone(),
+            edit_mistral_api_key: config.mistral_api_key.clone().unwrap_or_default(),
+            edit_mistral_model: config.mistral_model.clone(),
             edit_lipi_api_key: config.lipi_api_key.clone().unwrap_or_default(),
             edit_mindee_api_key: config.mindee_api_key.clone().unwrap_or_default(),
             edit_applitools_api_key: config.applitools_api_key.clone().unwrap_or_default(),
@@ -614,6 +618,10 @@ impl MyApp {
             (
                 "OPENROUTER_API_KEY",
                 self.edit_openrouter_api_key.trim().to_string(),
+            ),
+            (
+                "MISTRAL_API_KEY",
+                self.edit_mistral_api_key.trim().to_string(),
             ),
             (
                 "MINDEE_API_KEY",

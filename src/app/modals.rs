@@ -381,7 +381,7 @@ impl AppModals for MyApp {
                             .selected_text(self.settings.document_parser.label())
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LlamaParse, DocumentParserMode::LlamaParse.label());
-                                ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::DocumentAi, DocumentParserMode::DocumentAi.label());
+                                // ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::DocumentAi, DocumentParserMode::DocumentAi.label()); // Temp disabled
                                 ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::LocalOcrs, DocumentParserMode::LocalOcrs.label());
                                 ui.selectable_value(&mut self.settings.document_parser, DocumentParserMode::OfflineHeuristic, DocumentParserMode::OfflineHeuristic.label());
                             });
@@ -415,8 +415,9 @@ impl AppModals for MyApp {
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GroqApiKey, AiProviderMode::GroqApiKey.label());
                                 ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::OpenRouterApiKey, AiProviderMode::OpenRouterApiKey.label());
-                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiApiKey, AiProviderMode::GeminiApiKey.label());
-                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiVertex, AiProviderMode::GeminiVertex.label());
+                                ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::MistralApiKey, AiProviderMode::MistralApiKey.label());
+                                // ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiApiKey, AiProviderMode::GeminiApiKey.label()); // Temp disabled
+                                // ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::GeminiVertex, AiProviderMode::GeminiVertex.label()); // Temp disabled
                                 ui.selectable_value(&mut self.settings.ai_provider, AiProviderMode::ManualOnly, AiProviderMode::ManualOnly.label());
                             });
                         ui.end_row();
@@ -479,26 +480,31 @@ impl AppModals for MyApp {
                 let mut warnings: Vec<&str> = Vec::new();
 
                 match self.settings.ai_provider {
-                    AiProviderMode::GeminiApiKey if !avail.gemini_api_key => {
-                        warnings.push("\u{26a0} Gemini (API Key) selected but GEMINI_API_KEY is not set. AI features will be unavailable.");
-                    }
-                    AiProviderMode::GeminiVertex if !avail.gemini_vertex => {
-                        warnings.push("\u{26a0} Gemini (Vertex AI) selected but no service account / ADC credentials found.");
-                    }
+                    // AiProviderMode::GeminiApiKey if !avail.gemini_api_key => {
+                    //     self.toast(ToastKind::Error, "Gemini is unavailable (API key missing).");
+                    //     self.settings.ai_provider = original_ai_provider;
+                    // }
+                    // AiProviderMode::GeminiVertex if !avail.gemini_vertex => {
+                    //     self.toast(ToastKind::Error, "Gemini is unavailable (Vertex ADC/SA missing).");
+                    //     self.settings.ai_provider = original_ai_provider;
+                    // }
                     AiProviderMode::GroqApiKey if !avail.groq_api_key => {
                         warnings.push("\u{26a0} Groq (Llama 3) selected but GROQ_API_KEY is not set.");
                     }
                     AiProviderMode::OpenRouterApiKey if !avail.openrouter_api_key => {
                         warnings.push("\u{26a0} OpenRouter selected but OPENROUTER_API_KEY is not set.");
                     }
+                    AiProviderMode::MistralApiKey if !avail.mistral_api_key => {
+                        warnings.push("\u{26a0} Mistral selected but MISTRAL_API_KEY is not set.");
+                    }
                     _ => {}
                 }
 
                 match self.settings.document_parser {
-                    DocumentParserMode::DocumentAi if !avail.document_ai => {
-                        warnings.push("\u{26a0} Document AI selected but credentials incomplete. Workflow will auto-fallback to offline parser.");
-                    }
-
+                    // DocumentParserMode::DocumentAi if !avail.document_ai => {
+                    //     self.toast(ToastKind::Error, "Document AI is unavailable (GCP config missing).");
+                    //     self.settings.document_parser = original_document_parser;
+                    // }
                     DocumentParserMode::LlamaParse if !avail.llamaparse => {
                         warnings.push("\u{26a0} LlamaParse selected but no API key configured. Workflow will auto-fallback to offline parser.");
                     }
@@ -1501,6 +1507,32 @@ impl AppModals for MyApp {
                             );
                         });
                         ui.end_row();
+
+                        ui.label("Mistral AI API Key:");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.edit_mistral_api_key)
+                                    .password(true)
+                                    .desired_width(220.0),
+                            );
+                        });
+                        ui.end_row();
+
+                        ui.label("Mistral Model:");
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("mistral_model_combo")
+                                .selected_text(&self.edit_mistral_model)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.edit_mistral_model, "mistral-large-latest".to_string(), "Mistral Large");
+                                    ui.selectable_value(&mut self.edit_mistral_model, "mistral-small-latest".to_string(), "Mistral Small");
+                                    ui.selectable_value(&mut self.edit_mistral_model, "pixtral-large-latest".to_string(), "Pixtral Large");
+                                });
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.edit_mistral_model)
+                                    .desired_width(180.0),
+                            );
+                        });
+                        ui.end_row();
                     });
 
                 ui.add_space(6.0);
@@ -1527,6 +1559,8 @@ impl AppModals for MyApp {
                                 ("GROQ_API_KEY", self.edit_groq_api_key.trim(), false),
                                 ("OPENROUTER_API_KEY", self.edit_openrouter_api_key.trim(), false),
                                 ("OPENROUTER_MODEL", self.edit_openrouter_model.trim(), false),
+                                ("MISTRAL_API_KEY", self.edit_mistral_api_key.trim(), false),
+                                ("MISTRAL_MODEL", self.edit_mistral_model.trim(), false),
                                 ("MINDEE_API_KEY", self.edit_mindee_api_key.trim(), false),
                                 ("APPLITOOLS_API_KEY", self.edit_applitools_api_key.trim(), false),
                             ];
@@ -1569,6 +1603,8 @@ impl AppModals for MyApp {
                                             "GROQ_API_KEY" => self.edit_groq_api_key = val,
                                             "OPENROUTER_API_KEY" => self.edit_openrouter_api_key = val,
                                             "OPENROUTER_MODEL" => self.edit_openrouter_model = val,
+                                            "MISTRAL_API_KEY" => self.edit_mistral_api_key = val,
+                                            "MISTRAL_MODEL" => self.edit_mistral_model = val,
                                             "MINDEE_API_KEY" => self.edit_mindee_api_key = val,
                                             "APPLITOOLS_API_KEY" => self.edit_applitools_api_key = val,
                                             _ => {}
@@ -1622,6 +1658,8 @@ impl AppModals for MyApp {
                         self.edit_groq_api_key = new_config.groq_api_key.clone().unwrap_or_default();
                         self.edit_openrouter_api_key = new_config.openrouter_api_key.clone().unwrap_or_default();
                         self.edit_openrouter_model = new_config.openrouter_model.clone();
+                        self.edit_mistral_api_key = new_config.mistral_api_key.clone().unwrap_or_default();
+                        self.edit_mistral_model = new_config.mistral_model.clone();
                         self.edit_mindee_api_key = new_config.mindee_api_key.clone().unwrap_or_default();
                         self.edit_applitools_api_key = new_config.applitools_api_key.clone().unwrap_or_default();
                         self.toast(ToastKind::Info, "Reloaded keys from environment");

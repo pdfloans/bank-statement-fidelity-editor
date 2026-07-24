@@ -8,6 +8,7 @@ pub struct AiBackend {
     pub gemini: Option<GeminiClient>,
     pub openrouter: Option<OpenAiClient>,
     pub groq: Option<OpenAiClient>,
+    pub mistral: Option<OpenAiClient>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -25,6 +26,7 @@ impl AiBackend {
         let mut gemini = None;
         let mut openrouter = None;
         let mut groq = None;
+        let mut mistral = None;
 
         if let Ok(c) = GeminiClient::from_app_config(cfg) {
             gemini = Some(c);
@@ -42,11 +44,18 @@ impl AiBackend {
             groq = Some(c);
         }
 
+        let mut mistral_cfg = cfg.clone();
+        mistral_cfg.ai_provider = AiProviderMode::MistralApiKey;
+        if let Ok(c) = OpenAiClient::from_app_config(&mistral_cfg) {
+            mistral = Some(c);
+        }
+
         Ok(Self {
             primary: cfg.ai_provider,
             gemini,
             openrouter,
             groq,
+            mistral,
         })
     }
 
@@ -56,6 +65,7 @@ impl AiBackend {
             gemini: None,
             openrouter: None,
             groq: None,
+            mistral: None,
         }
     }
 
@@ -63,6 +73,7 @@ impl AiBackend {
         let mut gemini = None;
         let mut openrouter = None;
         let mut groq = None;
+        let mut mistral = None;
 
         if let Ok(c) = GeminiClient::from_app_config_async(cfg).await {
             gemini = Some(c);
@@ -80,11 +91,18 @@ impl AiBackend {
             groq = Some(c);
         }
 
+        let mut mistral_cfg = cfg.clone();
+        mistral_cfg.ai_provider = AiProviderMode::MistralApiKey;
+        if let Ok(c) = OpenAiClient::from_app_config_async(&mistral_cfg).await {
+            mistral = Some(c);
+        }
+
         Ok(Self {
             primary: cfg.ai_provider,
             gemini,
             openrouter,
             groq,
+            mistral,
         })
     }
 
@@ -119,6 +137,14 @@ macro_rules! cascade {
                     }
                 }
             }
+            AiProviderMode::MistralApiKey => {
+                if let Some(c) = &$self.mistral {
+                    match c.$method($($args),*).await {
+                        Ok(r) => return Ok(r),
+                        Err(e) => last_err = e.to_string(),
+                    }
+                }
+            }
             AiProviderMode::GeminiApiKey | AiProviderMode::GeminiVertex => {
                 if let Some(c) = &$self.gemini {
                     match c.$method($($args),*).await {
@@ -130,7 +156,12 @@ macro_rules! cascade {
             _ => {}
         }
 
-        // 2. Cascade: OpenRouter -> Gemini -> Groq
+        // 2. Cascade: Mistral -> OpenRouter -> Gemini -> Groq
+        if let Some(c) = &$self.mistral {
+            if $self.primary != AiProviderMode::MistralApiKey {
+                if let Ok(r) = c.$method($($args),*).await { return Ok(r); }
+            }
+        }
         if let Some(c) = &$self.openrouter {
             if $self.primary != AiProviderMode::OpenRouterApiKey {
                 if let Ok(r) = c.$method($($args),*).await { return Ok(r); }
